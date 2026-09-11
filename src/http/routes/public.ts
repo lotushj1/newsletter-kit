@@ -8,6 +8,9 @@ import {
   unsubscribeByToken,
 } from '../../services/subscribers.js';
 import {
+  archiveIndexPage,
+  archiveItemPage,
+  archiveNotFoundPage,
   confirmResultPage,
   unsubscribeConfirmPage,
   unsubscribeResultPage,
@@ -84,6 +87,29 @@ export function publicRouter(ctx: ServiceContext): Router {
         sentAt: found.campaign.sentAt ?? null,
         html: found.html,
       });
+    }),
+  );
+
+  /** 公開封存頁：只顯示已寄出的電子報。 */
+  router.get(
+    '/archive',
+    asyncRoute(async (_req, res) => {
+      const result = await ctx.store.listCampaigns({ status: 'sent', limit: 100 });
+      res.type('html').send(archiveIndexPage(ctx.config.siteName, result.items));
+    }),
+  );
+
+  router.get(
+    '/archive/:slug',
+    asyncRoute(async (req, res) => {
+      const found = await renderPublicCampaign(ctx, pathParam(req, 'slug'));
+      if (!found) {
+        res.status(404).type('html').send(archiveNotFoundPage(ctx.config.siteName));
+        return;
+      }
+      res
+        .type('html')
+        .send(archiveItemPage(ctx.config.siteName, found.campaign, found.subject, found.html));
     }),
   );
 

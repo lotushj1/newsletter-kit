@@ -21,6 +21,8 @@ p.lede{color:var(--muted);margin:0 0 24px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:20px}
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+a.stat{text-decoration:none;color:inherit;display:block}
+a.stat:hover{border-color:var(--accent)}
 .stat b{display:block;font-size:26px;line-height:1.2}
 .stat span{color:var(--muted);font-size:13px}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -34,6 +36,7 @@ button,.btn{display:inline-block;padding:9px 16px;border-radius:8px;border:1px s
   background:var(--accent);color:#fff;font:inherit;cursor:pointer;text-decoration:none}
 button.ghost,.btn.ghost{background:transparent;color:var(--accent)}
 button.danger,.btn.danger{background:transparent;border-color:var(--danger);color:var(--danger)}
+button.chip{padding:4px 10px;font-size:12px;border-radius:999px}
 button:disabled{opacity:.5;cursor:not-allowed}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .row.between{justify-content:space-between}
@@ -46,9 +49,18 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .notice.error{background:#fef2f2;border-color:#fecaca;color:var(--danger)}
 .notice.ok{background:#f0fdfa;border-color:#99f6e4;color:#115e59}
 .muted{color:var(--muted)}
+.save-status{font-size:13px;color:var(--muted)}
+.filters{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 16px}
+.filters a{color:var(--muted);text-decoration:none;padding:2px 0;border-bottom:2px solid transparent}
+.filters a.active,.filters a:hover{color:var(--ink);border-bottom-color:var(--accent)}
+.progress{height:8px;background:var(--line);border-radius:999px;overflow:hidden;margin:8px 0 10px}
+.progress-bar{height:100%;width:0;background:var(--accent);transition:width .25s ease}
+.preview-subject{font-weight:600;margin:0 0 10px;font-size:15px}
+.pager{margin-top:14px}
 .split{display:grid;gap:20px;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
 @media(max-width:860px){.split{grid-template-columns:1fr}}
 iframe.preview{width:100%;height:520px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.archive-wrap{max-width:720px;margin:40px auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px}
 code{background:#f5f5f4;padding:1px 5px;border-radius:4px;font-size:13px}
 .center-card{max-width:400px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px}
 `;

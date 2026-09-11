@@ -16,11 +16,12 @@
 
 ## 有什麼功能
 
-- **寫文**：Markdown 內文、主旨、前導文字（preheader）、草稿、個人化變數
-- **名單**：訂閱、雙重確認（double opt-in，可關）、退訂、標籤分組、CSV 匯入匯出
+- **寫文**：Markdown 內文、主旨、前導文字（preheader）、草稿、個人化變數、自動儲存、⌘S、變數插入鈕
+- **名單**：訂閱、雙重確認（double opt-in，可關）、退訂、標籤分組、CSV 匯入匯出、超過 100 筆分頁
 - **排程**：指定時間自動寄出，內建輪詢 worker，批次送 + 失敗退避重試
-- **預覽**：後台即時預覽（含未存檔內容）、寄測試信
-- **公開端點**：訂閱 API、確認頁、退訂頁、已寄出電子報的封存 API
+- **預覽**：後台即時預覽（含未存檔內容，預覽上方顯示主旨）、寄測試信
+- **寄送**：輪詢進度、進度條、寄送紀錄表
+- **公開端點**：訂閱 API、確認頁、退訂頁、已寄出電子報的封存頁（`/archive`）與封存 API
 - **最小後台**：單一 token 登入，不需要另外裝前端
 
 ## 不做什麼
@@ -143,12 +144,21 @@ document.getElementById('nk-subscribe').addEventListener('submit', async (event)
 
 ### 3. 封存頁（選用）
 
+人看得懂的頁面：
+
+```
+GET /archive           → 已寄出電子報列表
+GET /archive/:slug     → 單篇內容
+```
+
+給官網自己做列表用的 JSON：
+
 ```
 GET /api/public/campaigns          → { total, items: [{ slug, title, subject, preheader, sentAt }] }
 GET /api/public/campaigns/:slug    → { title, subject, sentAt, html }
 ```
 
-只會回已寄出的內容，個人化變數會換成通用值。
+只會回已寄出的內容，個人化變數會換成通用值。草稿與排程中的不會出現。
 
 ---
 
@@ -176,6 +186,7 @@ GET /api/public/campaigns/:slug    → { title, subject, sentAt, html }
 | `POST` | `/api/public/unsubscribe` | `{ token }`，一鍵退訂用 |
 | `GET` | `/api/public/campaigns` | 已寄出的電子報列表 |
 | `GET` | `/api/public/campaigns/:slug` | 單篇內容 |
+| `GET` | `/archive` · `/archive/:slug` | 已寄出電子報的公開封存頁 |
 | `GET` | `/confirm?token=` · `/unsubscribe?token=` | 給訂閱者看的頁面 |
 | `GET` | `/health` | 健康檢查 |
 

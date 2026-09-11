@@ -130,6 +130,34 @@ describe('公開端點', () => {
     response = await fetch(`${base}/api/public/campaigns/archive-test`);
     expect((await response.json()).html).toContain('內容');
   });
+
+  it('公開封存頁只顯示已寄出的電子報', async () => {
+    const draft = await createCampaign(ctx, {
+      title: '還在寫的草稿',
+      slug: 'archive-html-draft',
+      bodyMarkdown: '草稿不該出現',
+    });
+    const sent = await createCampaign(ctx, {
+      title: '給讀者看的那期',
+      slug: 'archive-html-sent',
+      bodyMarkdown: '封存頁看得到這段',
+    });
+    await ctx.store.updateCampaign(sent.id, { status: 'sent', sentAt: new Date().toISOString() });
+
+    const index = await fetch(`${base}/archive`);
+    expect(index.status).toBe(200);
+    const indexHtml = await index.text();
+    expect(indexHtml).toContain('給讀者看的那期');
+    expect(indexHtml).not.toContain('還在寫的草稿');
+
+    const item = await fetch(`${base}/archive/archive-html-sent`);
+    expect(item.status).toBe(200);
+    expect(await item.text()).toContain('封存頁看得到這段');
+
+    const hidden = await fetch(`${base}/archive/archive-html-draft`);
+    expect(hidden.status).toBe(404);
+    expect(draft.status).toBe('draft');
+  });
 });
 
 describe('後台授權', () => {

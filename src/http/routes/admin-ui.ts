@@ -3,7 +3,7 @@ import { listEmailAdapters } from '../../email/registry.js';
 import { createCampaign, getCampaign, listCampaigns } from '../../services/campaigns.js';
 import type { ServiceContext } from '../../services/context.js';
 import { listSubscribers } from '../../services/subscribers.js';
-import type { SubscriberStatus } from '../../store/types.js';
+import type { CampaignStatus, SubscriberStatus } from '../../store/types.js';
 import {
   clearAdminCookie,
   isAuthorized,
@@ -85,9 +85,10 @@ export function adminUiRouter(ctx: ServiceContext): Router {
 
   router.get(
     '/campaigns',
-    asyncRoute(async (_req, res) => {
-      const result = await listCampaigns(ctx, { limit: 100 });
-      res.type('html').send(campaignsPage(siteName, result.items));
+    asyncRoute(async (req, res) => {
+      const status = str(req.query.status) as CampaignStatus | undefined;
+      const result = await listCampaigns(ctx, { limit: 100, status });
+      res.type('html').send(campaignsPage(siteName, result.items, status));
     }),
   );
 
