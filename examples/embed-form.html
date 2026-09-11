@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>訂閱表單範例</title>
+<style>
+  body { font: 16px/1.7 system-ui, "Noto Sans TC", sans-serif; max-width: 520px; margin: 12vh auto; padding: 0 20px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input { flex: 1; min-width: 200px; padding: 10px 12px; border: 1px solid #d6d3d1; border-radius: 8px; font: inherit; }
+  button { padding: 10px 18px; border: 0; border-radius: 8px; background: #0f766e; color: #fff; font: inherit; cursor: pointer; }
+  button[disabled] { opacity: .6; cursor: not-allowed; }
+  .msg { margin-top: 12px; min-height: 24px; color: #57534e; }
+  .msg.error { color: #b91c1c; }
+</style>
+</head>
+<body>
+
+<h1>訂閱電子報</h1>
+<p>把下面這段貼到你自己的官網，改成你的樣式即可。</p>
+
+<!-- ↓↓↓ 從這裡開始複製 ↓↓↓ -->
+<form id="nk-subscribe">
+  <input type="email" name="email" required placeholder="you@example.com" aria-label="Email" />
+  <button type="submit">訂閱</button>
+</form>
+<p class="msg" id="nk-message" role="status"></p>
+
+<script>
+  // 改成你部署 newsletter-kit 的網址
+  const NEWSLETTER_API = 'http://localhost:4400';
+
+  const form = document.getElementById('nk-subscribe');
+  const message = document.getElementById('nk-message');
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button');
+    button.disabled = true;
+    message.className = 'msg';
+    message.textContent = '處理中…';
+
+    try {
+      const response = await fetch(NEWSLETTER_API + '/api/public/subscribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          email: form.email.value,
+          source: 'website',
+          // tags: 'blog',  // 想分組就帶標籤
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '訂閱失敗');
+      message.textContent = data.message;
+      form.reset();
+    } catch (error) {
+      message.className = 'msg error';
+      message.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+<!-- ↑↑↑ 複製到這裡 ↑↑↑ -->
+
+</body>
+</html>
