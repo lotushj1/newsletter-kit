@@ -2,7 +2,7 @@
  * 最小 webhook 接收端範例。
  *
  * newsletter-kit 設 EMAIL_PROVIDER=webhook 後，每封信都會 POST 到這裡，
- * 由你決定實際怎麼寄（Resend、SES、SMTP、Portaly Mail、n8n…都可以）。
+ * 由你決定實際怎麼寄（Resend、SES、Postmark、SMTP、n8n…都可以）。
  *
  *   node examples/webhook-receiver.mjs
  *   # 另一個終端機

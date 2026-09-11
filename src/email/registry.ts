@@ -11,7 +11,7 @@ const registry = new Map<string, EmailAdapterFactory>([
   ['zeabur', createZeaburAdapter],
 ]);
 
-/** 接自家供應商：registerEmailAdapter('portaly', (ctx) => ({ ... })) */
+/** 接自家供應商：registerEmailAdapter('my-provider', (ctx) => ({ ... })) */
 export function registerEmailAdapter(name: string, factory: EmailAdapterFactory): void {
   registry.set(name, factory);
 }

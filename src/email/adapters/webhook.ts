@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { EmailAdapter, EmailAdapterFactory } from '../types.js';
 
 /**
- * 把每封信 POST 給你自己的服務，由你決定怎麼寄（n8n、Make、自家 API、Portaly Mail…）。
+ * 把每封信 POST 給你自己的服務，由你決定怎麼寄（n8n、Make、自架 API…）。
  * 有設 WEBHOOK_SECRET 時會帶 X-Newsletter-Signature: sha256=<hex>，請在你那端驗簽。
  */
 export const createWebhookAdapter: EmailAdapterFactory = (context): EmailAdapter => ({
