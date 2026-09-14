@@ -27,6 +27,7 @@ import {
   type TriggerKind,
 } from '../automation';
 import { api, type Campaign, type Folder, type Sequence } from '../api';
+import { CampaignSelect } from '../components/CampaignSelect';
 import { Switch } from '../components/Switch';
 import { Toast } from '../components/Toast';
 
@@ -450,18 +451,14 @@ export function SequenceEditor() {
             )}
             {((selected.trigger ?? 'subscribe') === 'open' || (selected.trigger ?? 'subscribe') === 'click') && (
               <div style={{ marginTop: 12 }}>
-                <label>哪一封電子報</label>
-                <select
+                <label htmlFor="sequence-trigger-campaign">哪一封電子報</label>
+                <CampaignSelect
+                  id="sequence-trigger-campaign"
+                  campaigns={campaigns}
                   value={selected.triggerValue ?? ''}
-                  onChange={(event) => updateSelected({ triggerValue: event.target.value })}
-                >
-                  <option value="">任何一封</option>
-                  {campaigns.map((campaign) => (
-                    <option key={campaign.id} value={campaign.id}>
-                      {campaign.title}
-                    </option>
-                  ))}
-                </select>
+                  emptyLabel="任何一封"
+                  onChange={(campaignId) => updateSelected({ triggerValue: campaignId })}
+                />
               </div>
             )}
           </>
@@ -483,18 +480,14 @@ export function SequenceEditor() {
         ) : selected.kind === 'send' ? (
           <>
             <h3>寄出電子報</h3>
-            <label>用哪封信</label>
-            <select
+            <label htmlFor="sequence-send-campaign">用哪封信</label>
+            <CampaignSelect
+              id="sequence-send-campaign"
+              campaigns={campaigns}
               value={selected.campaignId ?? ''}
-              onChange={(event) => updateSelected({ campaignId: event.target.value })}
-            >
-              <option value="">選擇電子報…</option>
-              {campaigns.map((campaign) => (
-                <option key={campaign.id} value={campaign.id}>
-                  {campaign.title}
-                </option>
-              ))}
-            </select>
+              emptyLabel="選擇電子報…"
+              onChange={(campaignId) => updateSelected({ campaignId })}
+            />
             <div className="row" style={{ marginTop: 12 }}>
               <button type="button" className="btn" onClick={() => void createCampaignForNode()}>
                 新建一封

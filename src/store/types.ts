@@ -136,15 +136,50 @@ export interface ContentTemplate {
   updatedAt: string;
 }
 
+export const SIGNATURE_LAYOUT_IDS = ['avatar-left', 'avatar-center', 'text-only'] as const;
+export type SignatureLayoutId = (typeof SIGNATURE_LAYOUT_IDS)[number];
+
+export const SIGNATURE_LINK_ICONS = [
+  'website',
+  'email',
+  'instagram',
+  'facebook',
+  'threads',
+  'youtube',
+  'x',
+  'linkedin',
+  'podcast',
+  'shop',
+] as const;
+export type SignatureLinkIcon = (typeof SIGNATURE_LINK_ICONS)[number];
+
+export interface SignatureLink {
+  id: string;
+  icon: SignatureLinkIcon;
+  url: string;
+}
+
 export interface BrandProfile {
   writerName: string;
   websiteUrl: string;
+  organization: string;
+  title: string;
+  tagline: string;
+  avatarUrl: string;
+  signatureLayout: SignatureLayoutId;
+  signatureLinks: SignatureLink[];
   signatureHtml: string;
 }
 
 export const EMPTY_BRAND: BrandProfile = {
   writerName: '',
   websiteUrl: '',
+  organization: '',
+  title: '',
+  tagline: '',
+  avatarUrl: '',
+  signatureLayout: 'avatar-left',
+  signatureLinks: [],
   signatureHtml: '',
 };
 

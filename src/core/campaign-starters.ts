@@ -1,4 +1,4 @@
-import { emailHero, emailImageSlot } from './email-image.js';
+import { emailHero, emailImageSlot, unsplashCrop } from './email-image.js';
 
 export interface CampaignStarterDraft {
   id: string;
@@ -23,10 +23,7 @@ export const BUILTIN_CAMPAIGN_STARTERS: CampaignStarterDraft[] = [
     preheader: '一件觀察、一件推薦、一件我正在做的事',
     bodyHtml: withSignature(
       [
-        emailHero(
-          'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?auto=format&fit=crop&w=1400&q=80',
-          '攤開的書，作為這週封面',
-        ),
+        emailHero(unsplashCrop('photo-1481627834876-b7833e8f5570'), '書架，作為這週封面'),
         '<p>嗨 {{name}}，</p>',
         '<p>這週想寄三件事給你。</p>',
         '<h2>這週的觀察</h2>',
@@ -48,10 +45,7 @@ export const BUILTIN_CAMPAIGN_STARTERS: CampaignStarterDraft[] = [
     preheader: '之後的信會寄到這個信箱',
     bodyHtml: withSignature(
       [
-        emailHero(
-          'https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=1400&q=80',
-          '窗邊的綠葉，作為歡迎信封面',
-        ),
+        emailHero(unsplashCrop('photo-1501004318641-b39e6451bec6'), '窗邊的綠葉，作為歡迎信封面'),
         '<p>嗨 {{name}}，</p>',
         '<p>謝謝你留下信箱。之後有新的文字、作品或活動，我會寫信到這裡。</p>',
         emailImageSlot('建議置入一張你的照片或工作室'),
@@ -75,10 +69,7 @@ export const BUILTIN_CAMPAIGN_STARTERS: CampaignStarterDraft[] = [
     preheader: '時間、地點，以及怎麼報名',
     bodyHtml: withSignature(
       [
-        emailHero(
-          'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1400&q=80',
-          '活動現場的座位與燈光',
-        ),
+        emailHero(unsplashCrop('photo-1540575467063-178a50c2df87'), '活動現場的座位與燈光'),
         '<p>嗨 {{name}}，</p>',
         '<p>我想邀請你來參加一場活動。</p>',
         '<h2>活動名稱</h2>',
@@ -103,14 +94,10 @@ export const BUILTIN_CAMPAIGN_STARTERS: CampaignStarterDraft[] = [
     preheader: '想先讓你看到這一件',
     bodyHtml: withSignature(
       [
-        emailHero(
-          'https://images.unsplash.com/photo-1460661419201-f4e0ebd93d78?auto=format&fit=crop&w=1400&q=80',
-          '工作室裡尚未完成的作品',
-        ),
         '<p>嗨 {{name}}，</p>',
         '<p>我剛公開一件新作品，想先寄給你。</p>',
         '<h2>作品名稱</h2>',
-        emailImageSlot('建議置入作品圖片'),
+        emailHero(unsplashCrop('photo-1578301978693-85fa9c0320b9', 1200, 360), '新作品預覽'),
         '<p>這次想處理的，是一個我最近一直繞不開的問題。作品不長，但希望你看完會留下一句自己的話。</p>',
         '<ul>',
         '<li>形式：文章、影片、刊物或作品集</li>',
@@ -130,10 +117,7 @@ export const BUILTIN_CAMPAIGN_STARTERS: CampaignStarterDraft[] = [
     preheader: '這封信沒有清單',
     bodyHtml: withSignature(
       [
-        emailHero(
-          'https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&w=1400&q=80',
-          '正在寫字的桌面',
-        ),
+        emailHero(unsplashCrop('photo-1455390582262-044cdead277a'), '正在寫字的桌面'),
         '<p>嗨 {{name}}，</p>',
         '<p>這封信沒有清單，只想把一件事說完。</p>',
         emailImageSlot('建議置入一張跟這件事有關的圖，沒有也可以刪掉'),

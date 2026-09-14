@@ -43,6 +43,15 @@ describe('公開端點', () => {
     expect(await response.json()).toMatchObject({ ok: true, provider: 'fake', store: 'memory' });
   });
 
+  it('簽名圖示是公開的 PNG', async () => {
+    const response = await fetch(`${base}/sig-icons/instagram.png`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toMatch(/image\/png/);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    expect((await fetch(`${base}/sig-icons/nope.png`)).status).toBe(404);
+  });
+
   it('訂閱表單可以從別的網域打（CORS）', async () => {
     const response = await json('/api/public/subscribe', {
       method: 'POST',

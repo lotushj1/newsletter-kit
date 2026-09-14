@@ -10,6 +10,7 @@ import {
   type FlowNode,
 } from '../automation';
 import { api, formatTime, type Campaign, type Folder, type Sequence } from '../api';
+import { CampaignSelect } from '../components/CampaignSelect';
 import { ModalClose } from '../components/ModalClose';
 import { Switch } from '../components/Switch';
 
@@ -315,15 +316,14 @@ function CreateAutomationDialog({
             )}
             {(selected.trigger === 'open' || selected.trigger === 'click') && (
               <div style={{ marginTop: 12 }}>
-                <label>哪一封電子報</label>
-                <select value={triggerValue} onChange={(event) => setTriggerValue(event.target.value)}>
-                  <option value="">任何一封</option>
-                  {campaigns.map((campaign) => (
-                    <option key={campaign.id} value={campaign.id}>
-                      {campaign.title}
-                    </option>
-                  ))}
-                </select>
+                <label htmlFor="create-auto-campaign">哪一封電子報</label>
+                <CampaignSelect
+                  id="create-auto-campaign"
+                  campaigns={campaigns}
+                  value={triggerValue}
+                  emptyLabel="任何一封"
+                  onChange={setTriggerValue}
+                />
               </div>
             )}
             <TimelinePreview nodes={selected.nodes} />

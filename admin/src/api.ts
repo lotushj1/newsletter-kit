@@ -119,11 +119,13 @@ export interface ContentTemplate {
   updatedAt: string;
 }
 
-export interface BrandProfile {
-  writerName: string;
-  websiteUrl: string;
-  signatureHtml: string;
-}
+export type {
+  BrandProfile,
+  SignatureLayoutId,
+  SignatureLink,
+  SignatureLinkIcon,
+} from '../../src/store/types';
+export { EMPTY_BRAND } from '../../src/store/types';
 
 export interface CampaignTemplate {
   id: string;

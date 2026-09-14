@@ -200,6 +200,9 @@ export function Subscribers() {
             <button type="button" className="btn primary" onClick={() => openDialog('add')}>
               手動新增
             </button>
+            <a className="btn" href="/api/admin/subscribers/export.csv">
+              匯出 CSV
+            </a>
           </div>
         </div>
         <FolderBar
@@ -227,9 +230,6 @@ export function Subscribers() {
             <option value="pending">待確認</option>
             <option value="unsubscribed">已退訂</option>
           </select>
-          <a className="btn" href="/api/admin/subscribers/export.csv">
-            匯出 CSV
-          </a>
         </div>
         {dialog === 'add' && (
           <FormDialog title="手動新增" onClose={() => setDialog(null)} ignoreEscape={!!tagEditor}>

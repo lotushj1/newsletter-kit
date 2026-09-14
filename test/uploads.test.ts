@@ -39,10 +39,11 @@ describe('圖片上傳', () => {
     expect(resolvePublicUpload(dir, 'not-an-upload.jpg')).toBeNull();
   });
 
-  it('寄出時把相對 /media 補成絕對網址', () => {
-    const html = '<img src="/media/img_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png" alt="" />';
-    expect(absolutizeMediaUrls(html, 'https://news.example/')).toContain(
-      'src="https://news.example/media/img_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"',
-    );
+  it('寄出時把相對 /media 與簽名圖示補成絕對網址', () => {
+    const html =
+      '<img src="/media/img_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png" alt="" /><img src="/sig-icons/website.png" alt="" />';
+    const out = absolutizeMediaUrls(html, 'https://news.example/');
+    expect(out).toContain('src="https://news.example/media/img_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"');
+    expect(out).toContain('src="https://news.example/sig-icons/website.png"');
   });
 });

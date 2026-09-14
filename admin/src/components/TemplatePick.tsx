@@ -1,11 +1,9 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus } from 'lucide-react';
+import { EMAIL_CANVAS_WIDTH } from '../../../src/core/render';
 import { renderPreviewEmail } from '../../../src/core/preview-email';
-import type { BrandProfile } from '../api';
-
-const PAGE_WIDTH = 624;
-const EMPTY_BRAND: BrandProfile = { writerName: '', websiteUrl: '', signatureHtml: '' };
+import { EMPTY_BRAND, type BrandProfile } from '../api';
 
 export function TemplateThumb({
   html,
@@ -34,7 +32,7 @@ export function TemplateThumb({
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const sync = () => setScale(node.clientWidth / PAGE_WIDTH);
+    const sync = () => setScale(node.clientWidth / EMAIL_CANVAS_WIDTH);
     sync();
     const observer = new ResizeObserver(sync);
     observer.observe(node);
@@ -43,8 +41,14 @@ export function TemplateThumb({
 
   return (
     <div className="template-thumb" ref={ref} aria-hidden="true">
-      <div className="template-thumb-scale" style={{ transform: `scale(${scale})` }}>
-        <iframe className="template-thumb-page" title="" tabIndex={-1} srcDoc={srcDoc} />
+      <div className="template-thumb-scale" style={{ width: EMAIL_CANVAS_WIDTH, transform: `scale(${scale})` }}>
+        <iframe
+          className="template-thumb-page"
+          title=""
+          tabIndex={-1}
+          srcDoc={srcDoc}
+          style={{ width: EMAIL_CANVAS_WIDTH }}
+        />
       </div>
     </div>
   );

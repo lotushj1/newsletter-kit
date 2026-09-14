@@ -19,10 +19,21 @@ describe('電子報建立模板', () => {
       expect(item.bodyHtml).toContain('{{signature}}');
       expect(item.bodyHtml).toMatch(/<p>|<h2>|<ul>/);
       expect(item.bodyHtml).toContain('data-email-hero');
-      expect(item.bodyHtml).toContain('data-email-image-slot');
+      expect(item.bodyHtml).not.toMatch(/newsletter/i);
       expect(item.bodyHtml).not.toMatch(/新功能|產品更新|changelog|SaaS/i);
+      const images = [...item.bodyHtml.matchAll(/https:\/\/images\.unsplash\.com\/[^"']+/g)].map((match) => match[0]);
+      expect(images.length).toBeGreaterThan(0);
+      for (const src of images) {
+        expect(src).toContain('fit=crop');
+        expect(src).toMatch(/[?&]h=\d+/);
+        expect(src).not.toContain('photo-1460661419201');
+      }
+      if (item.id !== 'work') expect(item.bodyHtml).toContain('data-email-image-slot');
     }
-    expect(BUILTIN_CAMPAIGN_STARTERS.some((item) => item.id === 'work')).toBe(true);
+    const work = BUILTIN_CAMPAIGN_STARTERS.find((item) => item.id === 'work');
+    expect(work?.bodyHtml).toContain('photo-1578301978693-85fa9c0320b9');
+    expect(work?.bodyHtml).toContain('作品名稱');
+    expect(work?.bodyHtml).not.toContain('data-email-image-slot');
     expect(BUILTIN_CAMPAIGN_STARTERS.some((item) => item.name === '產品更新')).toBe(false);
   });
 
@@ -49,6 +60,9 @@ describe('電子報建立模板', () => {
     expect(thumb.html).toContain('預覽收件人');
     expect(thumb.html).toContain('凱文');
     expect(thumb.html).toContain('max-width:600px');
+    expect(thumb.html).toContain('padding:24px;');
+    expect(thumb.html).not.toContain('padding:24px 12px');
+    expect(thumb.html).not.toContain(ctx.config.siteName);
     expect(thumb.html).not.toContain('{{signature}}');
     expect(thumb.html).not.toContain('data-email-image-slot');
   });

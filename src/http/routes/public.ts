@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { unauthorized } from '../../core/errors.js';
 import { verifyToken } from '../../core/tokens.js';
+import { SIG_ICON_FILE, sigIconBuffer } from '../../core/sig-icons.js';
 import { resolvePublicUpload } from '../../core/uploads.js';
 import { normalizeTags } from '../../core/validate.js';
 import { publicSubject, renderPublicCampaign } from '../../services/campaigns.js';
@@ -44,6 +45,18 @@ export function publicRouter(ctx: ServiceContext): Router {
 
   router.get('/health', (_req, res) => {
     res.json({ ok: true, provider: ctx.adapter.name, store: ctx.store.driver });
+  });
+
+  router.get('/sig-icons/:file', (req, res) => {
+    const file = pathParam(req, 'file');
+    const match = SIG_ICON_FILE.exec(file);
+    const png = match ? sigIconBuffer(match[1] ?? '') : null;
+    if (!png) {
+      res.status(404).type('text').send('找不到圖示');
+      return;
+    }
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.type('image/png').send(png);
   });
 
   router.get('/media/:file', (req, res) => {

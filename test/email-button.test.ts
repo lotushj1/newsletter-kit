@@ -49,7 +49,7 @@ describe('email button style', () => {
     const html = styleRichContent(
       '<img data-email-hero="1" src="https://example.com/cover.jpg" alt="封面" width="1200" />',
     );
-    expect(html).toContain('style="width:100%;max-width:100%;height:auto;display:block;border:0;margin:0 0 20px;"');
+    expect(html).toContain('style="width:100%;max-width:420px;height:auto;display:block;border:0;border-radius:10px;margin:0 auto 20px;"');
     expect(html).toContain('https://example.com/cover.jpg');
   });
 

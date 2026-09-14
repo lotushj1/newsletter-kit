@@ -252,7 +252,7 @@ async function campaignVariables(
   ctx: ServiceContext,
   recipient: Pick<Subscriber, 'email' | 'name'>,
 ): Promise<Record<string, string>> {
-  return mergeBrandVariables(subscriberVariables(ctx, recipient), await getBrand(ctx));
+  return mergeBrandVariables(subscriberVariables(ctx, recipient), await getBrand(ctx), ctx.config.publicBaseUrl);
 }
 
 /** 寄送與預覽共用的渲染流程：HTML（或舊 Markdown）→ 變數替換 → 套版型。 */
@@ -295,7 +295,7 @@ function publicVariables(ctx: ServiceContext): Record<string, string> {
 }
 
 export async function publicSubject(ctx: ServiceContext, campaign: Campaign): Promise<string> {
-  const variables = mergeBrandVariables(publicVariables(ctx), await getBrand(ctx));
+  const variables = mergeBrandVariables(publicVariables(ctx), await getBrand(ctx), ctx.config.publicBaseUrl);
   return applyCampaignVariables(campaign.subject, variables, 'text');
 }
 
@@ -306,7 +306,7 @@ export async function renderPublicCampaign(
 ): Promise<{ campaign: Campaign; html: string; subject: string } | null> {
   const campaign = await ctx.store.getCampaignBySlug(slug);
   if (!campaign || campaign.status !== 'sent') return null;
-  const variables = mergeBrandVariables(publicVariables(ctx), await getBrand(ctx));
+  const variables = mergeBrandVariables(publicVariables(ctx), await getBrand(ctx), ctx.config.publicBaseUrl);
   return {
     campaign,
     subject: applyCampaignVariables(campaign.subject, variables, 'text'),
