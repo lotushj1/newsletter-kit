@@ -41,17 +41,19 @@ export function loginPage(siteName: string, options: { error?: string; next?: st
     title: `後台登入 — ${siteName}`,
     siteName,
     chrome: false,
-    body: `<div class="center-card">
-  <h1>後台登入</h1>
-  <p class="lede">輸入 <code>ADMIN_TOKEN</code>（設在 .env）。</p>
+    body: `<div class="ad-login-wrap"><div class="center-card">
+  <h1 style="text-align:center">後台登入</h1>
+  <p class="lede" style="text-align:center">輸入 <code>ADMIN_TOKEN</code>（設在 .env）。</p>
   ${error}
   <form method="post" action="/admin/login">
     <input type="hidden" name="next" value="${escapeHtml(options.next ?? '/admin')}" />
-    <label for="token">ADMIN_TOKEN</label>
-    <input id="token" name="token" type="password" autocomplete="current-password" required />
-    <div class="row" style="margin-top:18px"><button type="submit">登入</button></div>
+    <div class="ad-form-item">
+      <label for="token">ADMIN_TOKEN</label>
+      <input id="token" name="token" type="password" autocomplete="current-password" required />
+    </div>
+    <button type="submit" style="width:100%;margin-top:8px">登入</button>
   </form>
-</div>`,
+</div></div>`,
   });
 }
 
@@ -86,8 +88,10 @@ export function dashboardPage(siteName: string, data: DashboardData): string {
     title: `總覽 — ${siteName}`,
     siteName,
     activeNav: 'dashboard',
-    body: `<h1>總覽</h1>
-<p class="lede">名單、電子報與目前的寄信管道狀態。</p>
+    body: `<div class="ad-page-header">
+  <div class="ad-page-header-heading"><h1 class="ad-page-header-title">總覽</h1></div>
+  <p class="ad-page-header-content">名單、電子報與目前的寄信管道狀態。</p>
+</div>
 ${warnings}
 <div class="notice ${data.providerOk ? 'ok' : 'error'}">
   寄信管道：<code>${escapeHtml(data.provider)}</code> — ${escapeHtml(data.providerMessage)}
@@ -99,8 +103,9 @@ ${dashboardNextStep(data)}
   <a class="stat" href="/admin/subscribers?status=unsubscribed"><b>${data.counts.unsubscribed}</b><span>已退訂</span></a>
   <a class="stat" href="/admin/subscribers?status=bounced"><b>${data.counts.bounced}</b><span>退信</span></a>
 </div>
-<h2>最近的電子報</h2>
-<div class="card"><table>
+<div class="card">
+  <h2>最近的電子報</h2>
+  <table>
   <thead><tr><th>標題</th><th>狀態</th><th>寄出 / 總數</th><th>時間</th></tr></thead>
   <tbody>${rows}</tbody>
 </table></div>`,
@@ -170,9 +175,16 @@ export function campaignsPage(
     title: `電子報 — ${siteName}`,
     siteName,
     activeNav: 'campaigns',
-    body: `<div class="row between">
-  <div><h1>電子報</h1><p class="lede">寫稿、預覽、排程、寄送。</p></div>
-  <form method="post" action="/admin/campaigns"><button type="submit">新增一份</button></form>
+    body: `<div class="ad-page-header">
+  <div class="ad-page-header-heading">
+    <div>
+      <h1 class="ad-page-header-title">電子報</h1>
+      <p class="ad-page-header-content">寫稿、預覽、排程、寄送。</p>
+    </div>
+    <div class="ad-page-header-extra">
+      <form method="post" action="/admin/campaigns"><button type="submit">新增一份</button></form>
+    </div>
+  </div>
 </div>
 <nav class="filters">${filters}</nav>
 <div class="card"><table>
@@ -200,13 +212,15 @@ export function campaignEditPage(
     title: `${campaign.title} — ${siteName}`,
     siteName,
     activeNav: 'campaigns',
-    body: `<div class="row between">
-  <div>
-    <h1>${escapeHtml(campaign.title)}</h1>
-    <p class="lede">${pill(campaign.status)} · 目前符合條件的收件人 <b id="audience-count">${audienceCount}</b> 位
+    body: `<div class="ad-page-header">
+  <div class="ad-page-header-heading">
+    <div>
+      <h1 class="ad-page-header-title">${escapeHtml(campaign.title)}</h1>
+      <p class="ad-page-header-content">${pill(campaign.status)} · 目前符合條件的收件人 <b id="audience-count">${audienceCount}</b> 位
     ${campaign.status === 'sent' ? ` · 已寄 ${campaign.stats.sent} / ${campaign.stats.total}` : ''}</p>
+    </div>
+    <div class="ad-page-header-extra"><a class="btn ghost" href="/admin/campaigns">回列表</a></div>
   </div>
-  <a class="btn ghost" href="/admin/campaigns">← 回列表</a>
 </div>
 
 <div id="flash"></div>
@@ -609,7 +623,7 @@ export function subscribersPage(
   <td>${pill(s.status)}</td>
   <td>${s.tags.map((t) => `<span class="pill">${escapeHtml(t)}</span>`).join(' ')}</td>
   <td class="muted">${escapeHtml(s.source ?? '')}<div>${formatTime(s.createdAt)}</div></td>
-  <td class="row">
+  <td class="actions">
     ${s.status !== 'unsubscribed' ? '<button class="ghost act" data-act="unsubscribe" type="button">退訂</button>' : '<button class="ghost act" data-act="resubscribe" type="button">恢復</button>'}
     <button class="danger act" data-act="delete" type="button">刪除</button>
   </td>
@@ -626,8 +640,10 @@ export function subscribersPage(
     title: `訂閱名單 — ${siteName}`,
     siteName,
     activeNav: 'subscribers',
-    body: `<h1>訂閱名單</h1>
-<p class="lede">共 ${data.total} 筆符合條件 · 已訂閱 ${counts.subscribed} · 待確認 ${counts.pending} · 已退訂 ${counts.unsubscribed}</p>
+    body: `<div class="ad-page-header">
+  <div class="ad-page-header-heading"><h1 class="ad-page-header-title">訂閱名單</h1></div>
+  <p class="ad-page-header-content">共 ${data.total} 筆符合條件 · 已訂閱 ${counts.subscribed} · 待確認 ${counts.pending} · 已退訂 ${counts.unsubscribed}</p>
+</div>
 <div id="flash"></div>
 
 <div class="card">
@@ -770,8 +786,10 @@ export function settingsPage(siteName: string, data: SettingsData): string {
     title: `設定 — ${siteName}`,
     siteName,
     activeNav: 'settings',
-    body: `<h1>設定</h1>
-<p class="lede">全部來自環境變數，改 <code>.env</code> 後重啟即可。這裡只讀不寫。</p>
+    body: `<div class="ad-page-header">
+  <div class="ad-page-header-heading"><h1 class="ad-page-header-title">設定</h1></div>
+  <p class="ad-page-header-content">全部來自環境變數，改 <code>.env</code> 後重啟即可。這裡只讀不寫。</p>
+</div>
 ${warnings}
 <div class="notice">
   這套系統<b>不會自己寄信</b>。所有信件都交給下面這個 adapter，由你自己接的 Email 服務投遞。
@@ -864,7 +882,9 @@ export function confirmResultPage(siteName: string, ok: boolean, message: string
   return publicPage(
     siteName,
     ok ? '訂閱完成' : '確認失敗',
-    `<h1>${ok ? '訂閱完成' : '確認失敗'}</h1><p>${escapeHtml(message)}</p>${warmth}`,
+    `<div class="ad-result-icon ${ok ? 'ok' : 'error'}">${ok ? '✓' : '!'}</div>
+<h1 style="text-align:center">${ok ? '訂閱完成' : '確認失敗'}</h1>
+<p style="text-align:center">${escapeHtml(message)}</p>${warmth}`,
   );
 }
 
@@ -872,11 +892,12 @@ export function unsubscribeConfirmPage(siteName: string, token: string, email: s
   return publicPage(
     siteName,
     '取消訂閱',
-    `<h1>取消訂閱</h1>
-<p>確定不再收到 ${escapeHtml(siteName)} 的電子報嗎？</p>
-<p class="muted">${escapeHtml(email)}</p>
+    `<div class="ad-result-icon warn">?</div>
+<h1 style="text-align:center">取消訂閱</h1>
+<p style="text-align:center">確定不再收到 ${escapeHtml(siteName)} 的電子報嗎？</p>
+<p class="muted" style="text-align:center">${escapeHtml(email)}</p>
 <p class="muted">沒關係，這次取消之後就不會再寄。之後想看，再用訂閱表單回來就好。</p>
-<form method="post" action="/unsubscribe">
+<form method="post" action="/unsubscribe" style="text-align:center;margin-top:16px">
   <input type="hidden" name="token" value="${escapeHtml(token)}" />
   <button type="submit" class="danger">確定取消訂閱</button>
 </form>`,
@@ -887,8 +908,9 @@ export function unsubscribeResultPage(siteName: string, message: string): string
   return publicPage(
     siteName,
     '已取消訂閱',
-    `<h1>已處理</h1>
-<p>${escapeHtml(message)}</p>
+    `<div class="ad-result-icon ok">✓</div>
+<h1 style="text-align:center">已處理</h1>
+<p style="text-align:center">${escapeHtml(message)}</p>
 <p class="muted">之後想再訂閱，用原本的表單即可。在那之前，我們不會再寄信給你。</p>`,
   );
 }
@@ -898,7 +920,7 @@ function readingPage(siteName: string, title: string, bodyHtml: string): string 
     title,
     siteName,
     chrome: false,
-    body: `<div class="archive-wrap"><p class="muted" style="margin:0 0 12px">${escapeHtml(siteName)}</p>${bodyHtml}</div>`,
+    body: `<div class="ad-login-wrap"><div class="archive-wrap"><p class="muted" style="margin:0 0 12px">${escapeHtml(siteName)}</p>${bodyHtml}</div></div>`,
   });
 }
 
@@ -930,6 +952,43 @@ export function archiveItemPage(
 <h1>${escapeHtml(campaign.title)}</h1>
 <p class="lede">${escapeHtml(subject)}${campaign.sentAt ? ` · ${formatTime(campaign.sentAt)}` : ''}</p>
 <article>${html}</article>`,
+  );
+}
+
+export function joinPage(
+  siteName: string,
+  options: {
+    headline?: string | undefined;
+    description?: string | undefined;
+    tags: string[];
+    message?: string | undefined;
+    ok?: boolean | undefined;
+  },
+): string {
+  const headline = options.headline ?? `訂閱 ${siteName}`;
+  const description =
+    options.description ?? '留下 Email，之後的電子報會寄到這個信箱。不想收了，每封信底部都可以退訂。';
+  const notice = options.message
+    ? `<div class="notice ${options.ok ? '' : 'error'}">${escapeHtml(options.message)}</div>`
+    : '';
+  return publicPage(
+    siteName,
+    headline,
+    `<h1 style="text-align:center">${escapeHtml(headline)}</h1>
+<p class="lede" style="text-align:center">${escapeHtml(description)}</p>
+${notice}
+<form method="post" action="/join">
+  ${options.tags.map((t) => `<input type="hidden" name="tags" value="${escapeHtml(t)}" />`).join('')}
+  <div class="ad-form-item">
+    <label for="join-email">Email</label>
+    <input id="join-email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" />
+  </div>
+  <div class="ad-form-item">
+    <label for="join-name">怎麼稱呼（選填）</label>
+    <input id="join-name" name="name" type="text" autocomplete="name" />
+  </div>
+  <button type="submit" style="width:100%;margin-top:8px">訂閱</button>
+</form>`,
   );
 }
 

@@ -26,7 +26,7 @@ export function loadEnvFile(file = '.env'): void {
   }
 }
 
-export type StoreDriver = 'sqlite' | 'json' | 'memory';
+export type StoreDriver = 'sqlite' | 'json' | 'memory' | 'insforge';
 
 export interface Config {
   port: number;
@@ -35,6 +35,7 @@ export interface Config {
   appSecret: string;
   adminToken: string;
   store: { driver: StoreDriver; path: string };
+  uploadsPath: string;
   email: {
     provider: string;
     from: string;
@@ -44,10 +45,15 @@ export interface Config {
     resendApiKey: string | undefined;
     zeaburEndpoint: string | undefined;
     zeaburToken: string | undefined;
+    insforgeUrl: string | undefined;
+    insforgeApiKey: string | undefined;
   };
   doubleOptIn: boolean;
   corsOrigins: string[];
   publicRateLimitPerMin: number;
+  trackingEnabled: boolean;
+  ingestSecret: string | undefined;
+  join: { headline: string | undefined; description: string | undefined; tags: string[] };
   send: { batchSize: number; batchDelayMs: number; maxAttempts: number };
   scheduler: { enabled: boolean; pollMs: number };
   isProduction: boolean;
@@ -78,6 +84,12 @@ function bool(key: string, fallback: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
 }
 
+function defaultPublicBaseUrl(port: number): string {
+  const host = optional('VERCEL_PROJECT_PRODUCTION_URL') ?? optional('VERCEL_URL');
+  if (host) return `https://${host.replace(/^https?:\/\//, '')}`;
+  return `http://localhost:${port}`;
+}
+
 export function loadConfig(): Config {
   const isProduction = process.env.NODE_ENV === 'production';
   const warnings: string[] = [];
@@ -94,22 +106,32 @@ export function loadConfig(): Config {
     throw new Error('NODE_ENV=production 時必須設定 APP_SECRET 與 ADMIN_TOKEN。');
   }
 
-  const driver = str('STORE_DRIVER', 'sqlite') as StoreDriver;
-  if (!['sqlite', 'json', 'memory'].includes(driver)) {
-    throw new Error(`STORE_DRIVER 只能是 sqlite / json / memory，收到：${driver}`);
+  const onVercel = process.env.VERCEL === '1';
+  const driver = (optional('STORE_DRIVER') ?? (onVercel ? 'json' : 'sqlite')) as StoreDriver;
+  if (!['sqlite', 'json', 'memory', 'insforge'].includes(driver)) {
+    throw new Error(`STORE_DRIVER 只能是 sqlite / json / memory / insforge，收到：${driver}`);
   }
-  const defaultPath = driver === 'json' ? './data/newsletter.json' : './data/newsletter.db';
+  const defaultPath = onVercel
+    ? driver === 'memory'
+      ? ':memory:'
+      : driver === 'json'
+        ? '/tmp/newsletter.json'
+        : '/tmp/newsletter.db'
+    : driver === 'json'
+      ? './data/newsletter.json'
+      : './data/newsletter.db';
 
   const port = num('PORT', 4400);
   const corsRaw = str('CORS_ORIGINS', '*');
 
   return {
     port,
-    publicBaseUrl: str('PUBLIC_BASE_URL', `http://localhost:${port}`).replace(/\/+$/, ''),
+    publicBaseUrl: str('PUBLIC_BASE_URL', defaultPublicBaseUrl(port)).replace(/\/+$/, ''),
     siteName: str('SITE_NAME', 'Newsletter'),
     appSecret,
     adminToken,
     store: { driver, path: str('STORE_PATH', defaultPath) },
+    uploadsPath: str('UPLOADS_PATH', onVercel ? '/tmp/newsletter-uploads' : './data/uploads'),
     email: {
       provider: str('EMAIL_PROVIDER', 'dry_run'),
       from: str('MAIL_FROM', 'Newsletter <newsletter@example.com>'),
@@ -119,17 +141,29 @@ export function loadConfig(): Config {
       resendApiKey: optional('RESEND_API_KEY'),
       zeaburEndpoint: optional('ZEABUR_ENDPOINT'),
       zeaburToken: optional('ZEABUR_TOKEN'),
+      insforgeUrl: optional('INSFORGE_URL'),
+      insforgeApiKey: optional('INSFORGE_API_KEY'),
     },
     doubleOptIn: bool('DOUBLE_OPT_IN', true),
     corsOrigins: corsRaw === '*' ? ['*'] : corsRaw.split(',').map((o) => o.trim()).filter(Boolean),
     publicRateLimitPerMin: num('PUBLIC_RATE_LIMIT_PER_MIN', 20),
+    trackingEnabled: bool('TRACKING_ENABLED', true),
+    ingestSecret: optional('INGEST_SECRET'),
+    join: {
+      headline: optional('JOIN_HEADLINE'),
+      description: optional('JOIN_DESCRIPTION'),
+      tags: str('JOIN_TAGS', '')
+        .split(',')
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean),
+    },
     send: {
       batchSize: Math.max(1, num('SEND_BATCH_SIZE', 20)),
       batchDelayMs: num('SEND_BATCH_DELAY_MS', 1000),
       maxAttempts: Math.max(1, num('SEND_MAX_ATTEMPTS', 3)),
     },
     scheduler: {
-      enabled: bool('SCHEDULER_ENABLED', true),
+      enabled: bool('SCHEDULER_ENABLED', !onVercel),
       pollMs: Math.max(1000, num('SCHEDULER_POLL_MS', 30_000)),
     },
     isProduction,

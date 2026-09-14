@@ -11,6 +11,8 @@
   },
   "files": [
     "dist",
+    "admin/dist",
+    "docs",
     "README.md",
     "LICENSE",
     ".env.example"
@@ -19,12 +21,16 @@
     "node": ">=20.11"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "concurrently -k \"tsx watch src/server.ts\" \"vite build --watch --config admin/vite.config.mjs\"",
+    "dev:server": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && vite build --config admin/vite.config.mjs",
+    "build:admin": "vite build --config admin/vite.config.mjs",
+    "build:vercel": "node scripts/vercel-build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mcp": "tsx src/mcp/cli.ts"
   },
   "keywords": [
     "newsletter",
@@ -38,16 +44,34 @@
     "qs": "^6.16.0"
   },
   "dependencies": {
+    "@insforge/sdk": "^1.5.2",
+    "@tiptap/extension-image": "^2.11.7",
+    "@tiptap/extension-link": "^2.11.7",
+    "@tiptap/extension-placeholder": "^2.11.7",
+    "@tiptap/extension-text-align": "^2.27.3",
+    "@tiptap/extension-underline": "^2.11.7",
+    "@tiptap/react": "^2.11.7",
+    "@tiptap/starter-kit": "^2.11.7",
     "better-sqlite3": "^13.0.3",
     "express": "^5.2.1",
-    "marked": "^15.0.7"
+    "lucide-react": "^0.487.0",
+    "marked": "^15.0.7",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.5.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.6",
     "@types/node": "^22.13.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
+    "vite": "^6.2.0",
     "vitest": "^5.0.0"
   }
 }

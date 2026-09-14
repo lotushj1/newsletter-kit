@@ -1,6 +1,7 @@
 import { createDryRunAdapter } from './adapters/dry-run.js';
 import { createResendAdapter } from './adapters/resend.js';
 import { createWebhookAdapter } from './adapters/webhook.js';
+import { createInsForgeAdapter } from './adapters/insforge.js';
 import { createZeaburAdapter } from './adapters/zeabur.js';
 import type { AdapterContext, EmailAdapter, EmailAdapterFactory, EmailMessage, SendResult } from './types.js';
 
@@ -9,6 +10,7 @@ const registry = new Map<string, EmailAdapterFactory>([
   ['webhook', createWebhookAdapter],
   ['resend', createResendAdapter],
   ['zeabur', createZeaburAdapter],
+  ['insforge', createInsForgeAdapter],
 ]);
 
 /** 接自家供應商：registerEmailAdapter('my-provider', (ctx) => ({ ... })) */

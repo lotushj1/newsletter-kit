@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cancelSchedule,
   createCampaign,
+  listCampaigns,
   previewCampaign,
   renderCampaign,
   renderPublicCampaign,
@@ -14,6 +15,16 @@ import { makeContext } from './helpers.js';
 const later = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
 describe('電子報內容', () => {
+  it('同一標題再新增時會自動換 slug', async () => {
+    const { ctx } = await makeContext();
+    const first = await createCampaign(ctx, { title: '未命名電子報' });
+    const second = await createCampaign(ctx, { title: '未命名電子報' });
+
+    expect(first.slug).toBe('未命名電子報');
+    expect(second.slug).toBe('未命名電子報-2');
+    expect(second.id).not.toBe(first.id);
+  });
+
   it('新建時預設是草稿，主旨沒填就沿用標題', async () => {
     const { ctx } = await makeContext();
     const campaign = await createCampaign(ctx, { title: '九月號' });
@@ -30,7 +41,7 @@ describe('電子報內容', () => {
       subject: '嗨 {{name}}',
       bodyMarkdown: '## 標題\n\n你好 {{name}}，[退訂]({{unsubscribe_url}})',
     });
-    const rendered = renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
 
     expect(rendered.subject).toBe('嗨 阿明');
     expect(rendered.html).toContain('<h2>標題</h2>');
@@ -42,16 +53,46 @@ describe('電子報內容', () => {
   it('沒有名字時用預設稱呼，不會把 {{name}} 寄出去', async () => {
     const { ctx } = await makeContext();
     const campaign = await createCampaign(ctx, { title: 't', bodyMarkdown: '嗨 {{name}}' });
-    const rendered = renderCampaign(ctx, campaign, { email: 'a@example.com', name: undefined });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: undefined });
 
     expect(rendered.html).toContain('嗨 朋友');
     expect(rendered.html).not.toContain('{{');
   });
 
+  it('按鈕與影音在寄出時會轉成信箱吃得下的連結', async () => {
+    const { ctx } = await makeContext();
+    const campaign = await createCampaign(ctx, {
+      title: 't',
+      bodyHtml:
+        '<div data-email-btn="1" data-href="https://example.com/join">立刻訂閱</div><figure data-email-audio data-src="https://example.com/a.mp3"></figure>',
+    });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
+    expect(rendered.html).toContain('立刻訂閱');
+    expect(rendered.html).toContain('https://example.com/join');
+    expect(rendered.html).toContain('播放音訊');
+    expect(rendered.html).toContain('background:#1c1917');
+  });
+
+  it('按鈕顏色、外框與圓角會帶進寄出 HTML', async () => {
+    const { ctx } = await makeContext();
+    const campaign = await createCampaign(ctx, {
+      title: 't',
+      bodyHtml:
+        '<div data-email-btn="1" data-href="https://example.com/join" data-bg="#fff7ed" data-border="3" data-border-color="#c2410c" data-radius="24">立刻訂閱</div>',
+    });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
+    expect(rendered.html).toContain('background:#fff7ed');
+    expect(rendered.html).toContain('background:#c2410c');
+    expect(rendered.html).toContain('padding:3px');
+    expect(rendered.html).toContain('border-radius:24px');
+    expect(rendered.html).toContain('border-radius:27px');
+    expect(rendered.html).toContain('color:#1c1917');
+  });
+
   it('變數值會做 HTML escape', async () => {
     const { ctx } = await makeContext();
     const campaign = await createCampaign(ctx, { title: 't', bodyMarkdown: '{{name}}' });
-    const rendered = renderCampaign(ctx, campaign, {
+    const rendered = await renderCampaign(ctx, campaign, {
       email: 'a@example.com',
       name: '<script>alert(1)</script>',
     });
@@ -113,6 +154,27 @@ describe('排程', () => {
 });
 
 describe('公開封存', () => {
+  it('bodyHtml 優先於 Markdown', async () => {
+    const { ctx } = await makeContext();
+    const campaign = await createCampaign(ctx, {
+      title: 't',
+      bodyMarkdown: '舊 markdown',
+      bodyHtml: '<p>新 HTML {{name}}</p>',
+    });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
+    expect(rendered.html).toContain('新 HTML 阿明');
+    expect(rendered.html).not.toContain('舊 markdown');
+  });
+
+  it('列表可用搜尋與時間篩選', async () => {
+    const { ctx } = await makeContext();
+    await createCampaign(ctx, { title: '九月號週報', subject: '秋天' });
+    await createCampaign(ctx, { title: '產品更新' });
+    const found = await listCampaigns(ctx, { search: '週報' });
+    expect(found.total).toBe(1);
+    expect(found.items[0]?.title).toBe('九月號週報');
+  });
+
   it('只吐已寄出的電子報', async () => {
     const { ctx } = await makeContext();
     const campaign = await createCampaign(ctx, { title: 't', slug: 'issue-1', bodyMarkdown: '哈囉' });

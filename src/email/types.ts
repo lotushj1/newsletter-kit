@@ -39,6 +39,8 @@ export interface AdapterContext {
   resendApiKey?: string | undefined;
   zeaburEndpoint?: string | undefined;
   zeaburToken?: string | undefined;
+  insforgeUrl?: string | undefined;
+  insforgeApiKey?: string | undefined;
 }
 
 export type EmailAdapterFactory = (context: AdapterContext) => EmailAdapter;

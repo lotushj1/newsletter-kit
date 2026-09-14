@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createCampaign } from '../src/services/campaigns.js';
+import { createFolder } from '../src/services/folders.js';
 import { createScheduler } from '../src/services/scheduler.js';
 import { cancelSending, sendTestEmail, startCampaign } from '../src/services/sending.js';
 import { createSubscriber } from '../src/services/subscribers.js';
@@ -35,6 +36,20 @@ describe('寄送', () => {
     expect(toA?.html).toContain('嗨 阿明');
     expect(toB?.html).toContain('嗨 小美');
     expect(toA?.unsubscribeUrl).toContain('/unsubscribe?token=');
+  });
+
+  it('資料夾會縮小寄送範圍', async () => {
+    const { ctx, adapter } = await makeContext();
+    const vip = await createFolder(ctx, { name: 'VIP' });
+    await createSubscriber(ctx, { email: 'a@example.com', folderId: vip.id });
+    await createSubscriber(ctx, { email: 'b@example.com' });
+    const campaign = await createCampaign(ctx, {
+      title: 't',
+      bodyMarkdown: '內容',
+      audienceFolderId: vip.id,
+    });
+    await startCampaign(ctx, campaign.id);
+    expect(adapter.sent.map((m) => m.to)).toEqual(['a@example.com']);
   });
 
   it('標籤會縮小寄送範圍', async () => {
