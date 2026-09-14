@@ -1,6 +1,7 @@
 import { logger } from '../core/logger.js';
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
+import { processDueEnrollments } from './sequences.js';
 import { isSending, processCampaign, startCampaign } from './sending.js';
 
 export interface Scheduler {
@@ -32,6 +33,8 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
         logger.info('排程時間到，開始寄送', { campaignId: campaign.id, slug: campaign.slug });
         await startCampaign(ctx, campaign.id);
       }
+      const sequenced = await processDueEnrollments(ctx);
+      if (sequenced > 0) logger.info('序列信已寄出', { count: sequenced });
     } catch (error) {
       logger.error('排程器執行失敗', { error: (error as Error).message });
     } finally {

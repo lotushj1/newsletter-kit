@@ -105,6 +105,32 @@ describe('名單匯入匯出', () => {
     expect((await ctx.store.getSubscriberByEmail('a@example.com'))?.tags).toEqual(['vip', 'early']);
   });
 
+  it('Excel 檔會轉成 CSV 再匯入', async () => {
+    const XLSX = await import('xlsx');
+    const { spreadsheetToCsv } = await import('../src/core/spreadsheet.js');
+    const { ctx } = await makeContext();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['email', 'name', 'tags'],
+      ['xls@example.com', 'Excel 人', 'vip'],
+    ]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, '名單');
+    const xlsx = spreadsheetToCsv(Buffer.from(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' })), 'list.xlsx');
+    const xls = spreadsheetToCsv(Buffer.from(XLSX.write(book, { type: 'buffer', bookType: 'xls' })), 'list.xls');
+
+    expect(xlsx).toContain('xls@example.com');
+    const result = await importSubscribersCsv(ctx, xls);
+    expect(result.created).toBe(1);
+    expect((await ctx.store.getSubscriberByEmail('xls@example.com'))?.name).toBe('Excel 人');
+  });
+
+  it('會列出所有用過的標籤', async () => {
+    const { ctx } = await makeContext();
+    await createSubscriber(ctx, { email: 'a@example.com', tags: 'VIP, early' });
+    await createSubscriber(ctx, { email: 'b@example.com', tags: 'vip' });
+    expect(await ctx.store.listSubscriberTags()).toEqual(['early', 'vip']);
+  });
+
   it('匯出的 CSV 含表頭與每一筆資料', async () => {
     const { ctx } = await makeContext();
     await createSubscriber(ctx, { email: 'a@example.com', name: '阿明', tags: 'vip' });

@@ -19,12 +19,13 @@ export {
   sendMessages,
 } from './email/registry.js';
 
-export { createStore, JsonStore, MemoryStore, SqliteStore } from './store/index.js';
+export { createStore, InsForgeStore, JsonStore, MemoryStore, SqliteStore } from './store/index.js';
 export type {
   Campaign,
   CampaignStatus,
   Delivery,
   Paged,
+  Sequence,
   Store,
   Subscriber,
   SubscriberStatus,
@@ -34,8 +35,11 @@ export type { ServiceContext } from './services/context.js';
 export * as subscribers from './services/subscribers.js';
 export * as campaigns from './services/campaigns.js';
 export * as sending from './services/sending.js';
+export * as sequences from './services/sequences.js';
 export { createScheduler, type Scheduler } from './services/scheduler.js';
 
 export { createApp } from './http/app.js';
 export { markdownToHtml, renderEmailLayout, applyVariables, htmlToText } from './core/render.js';
-export { createToken, verifyToken } from './core/tokens.js';
+export { campaignContentHtml, campaignHasBody } from './core/body.js';
+export { injectTracking } from './core/tracking.js';
+export { createToken, createTrackingToken, verifyToken } from './core/tokens.js';

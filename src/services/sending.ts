@@ -1,12 +1,30 @@
+import { campaignHasBody } from '../core/body.js';
 import { badRequest } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
+import { injectTracking } from '../core/tracking.js';
 import { sendMessages } from '../email/registry.js';
 import type { EmailMessage } from '../email/types.js';
-import type { Campaign, Delivery } from '../store/types.js';
+import type { Campaign, Delivery, Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getCampaign, renderCampaign } from './campaigns.js';
 import { unsubscribeUrl } from './subscribers.js';
+
+function trackedHtml(
+  ctx: ServiceContext,
+  html: string,
+  delivery: Pick<Delivery, 'id' | 'campaignId' | 'subscriberId' | 'email'>,
+): string {
+  if (!ctx.config.trackingEnabled) return html;
+  return injectTracking(html, {
+    secret: ctx.config.appSecret,
+    publicBaseUrl: ctx.config.publicBaseUrl,
+    email: delivery.email,
+    campaignId: delivery.campaignId,
+    deliveryId: delivery.id,
+    subscriberId: delivery.subscriberId,
+  });
+}
 
 const inFlight = new Set<string>();
 
@@ -31,7 +49,7 @@ export async function sendTestEmail(
   to: string,
 ): Promise<{ ok: boolean; message: string }> {
   const campaign = await getCampaign(ctx, campaignId);
-  const rendered = renderCampaign(ctx, campaign, { email: to, name: '測試收件人' });
+  const rendered = await renderCampaign(ctx, campaign, { email: to, name: '測試收件人' });
   const result = await ctx.adapter.send({
     to,
     from: ctx.config.email.from,
@@ -39,7 +57,7 @@ export async function sendTestEmail(
     html: rendered.html,
     text: rendered.text,
     replyTo: ctx.config.email.replyTo,
-    unsubscribeUrl: unsubscribeUrl(ctx, to),
+    unsubscribeUrl: unsubscribeUrl(ctx, to, { campaignId }),
   });
   return result.ok
     ? { ok: true, message: `已透過 ${ctx.adapter.name} 送出測試信。` }
@@ -53,7 +71,10 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
     return (await ctx.store.deliveryStats(campaign.id)).total;
   }
-  const audience = await ctx.store.listAudience(campaign.audienceTags);
+  const audience = await ctx.store.listAudience({
+    tags: campaign.audienceTags,
+    folderId: campaign.audienceFolderId,
+  });
   if (audience.length === 0) throw badRequest('目前沒有符合條件的收件人');
 
   const deliveries: Delivery[] = audience.map((subscriber) => ({
@@ -82,15 +103,19 @@ async function deliverBatch(
       await ctx.store.updateDelivery(delivery.id, { status: 'skipped', error: '已非訂閱狀態' });
       continue;
     }
-    const rendered = renderCampaign(ctx, campaign, recipient);
+    const rendered = await renderCampaign(ctx, campaign, recipient);
     messages.push({
       to: delivery.email,
       from: ctx.config.email.from,
       subject: rendered.subject,
-      html: rendered.html,
+      html: trackedHtml(ctx, rendered.html, delivery),
       text: rendered.text,
       replyTo: ctx.config.email.replyTo,
-      unsubscribeUrl: unsubscribeUrl(ctx, delivery.email),
+      unsubscribeUrl: unsubscribeUrl(ctx, delivery.email, {
+        campaignId: campaign.id,
+        deliveryId: delivery.id,
+        subscriberId: delivery.subscriberId,
+      }),
     });
   }
   if (messages.length === 0) return;
@@ -192,7 +217,7 @@ export async function startCampaign(
   const campaign = await getCampaign(ctx, campaignId);
   if (campaign.status === 'sending') throw badRequest('這份電子報正在寄送中');
   if (campaign.status === 'sent') throw badRequest('這份電子報已經寄過了');
-  if (campaign.bodyMarkdown.trim() === '') throw badRequest('內文還是空的，不能寄送');
+  if (!campaignHasBody(campaign)) throw badRequest('內文還是空的，不能寄送');
 
   const total = await prepareDeliveries(ctx, campaign);
   await ctx.store.updateCampaign(campaignId, {
@@ -227,3 +252,51 @@ export async function cancelSending(ctx: ServiceContext, campaignId: string): Pr
 }
 
 export const isSending = (campaignId: string): boolean => inFlight.has(campaignId);
+
+/** 序列信：只寄給一個人，不改範本 campaign 的狀態。 */
+export async function sendCampaignToSubscriber(
+  ctx: ServiceContext,
+  campaign: Campaign,
+  subscriber: Subscriber,
+  options: { allowUnsubscribed?: boolean } = {},
+): Promise<{ ok: boolean; error?: string }> {
+  if (subscriber.status !== 'subscribed' && !options.allowUnsubscribed) {
+    return { ok: false, error: '已非訂閱狀態' };
+  }
+  const delivery: Delivery = {
+    id: newId('dlv'),
+    campaignId: campaign.id,
+    subscriberId: subscriber.id,
+    email: subscriber.email,
+    status: 'pending',
+    attempts: 1,
+  };
+  await ctx.store.createDeliveries([delivery]);
+  const rendered = await renderCampaign(ctx, campaign, subscriber);
+  const result = await ctx.adapter.send({
+    to: subscriber.email,
+    from: ctx.config.email.from,
+    subject: rendered.subject,
+    html: trackedHtml(ctx, rendered.html, delivery),
+    text: rendered.text,
+    replyTo: ctx.config.email.replyTo,
+    unsubscribeUrl: unsubscribeUrl(ctx, subscriber.email, {
+      campaignId: campaign.id,
+      deliveryId: delivery.id,
+      subscriberId: subscriber.id,
+    }),
+  });
+  if (result.ok) {
+    await ctx.store.updateDelivery(delivery.id, {
+      status: 'sent',
+      sentAt: nowIso(),
+      providerMessageId: result.id,
+    });
+    return { ok: true };
+  }
+  await ctx.store.updateDelivery(delivery.id, {
+    status: 'failed',
+    error: result.error,
+  });
+  return { ok: false, error: result.error };
+}
