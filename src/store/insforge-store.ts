@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { createInsForgeBackend, type InsForgeBackend } from '../core/insforge.js';
 import { logger } from '../core/logger.js';
 import { MemoryStore, type MemorySnapshot } from './memory-store.js';
@@ -149,9 +150,10 @@ export class InsForgeStore extends MemoryStore {
         this.lastSyncAt = Date.now();
         return;
       }
-      // 有尚未寫回的本地改動時不要在讀取路徑合併，馬上接續的 persist 會處理。
-      if (JSON.stringify(local) !== JSON.stringify(this.shadow)) return;
-      this.adopt(mergeSnapshots(this.shadow, local, payload), remoteVersion);
+      // shadow 與 local 都是 loadSnapshot 後的形狀；物件鍵序不代表本地修改。
+      // 真有未寫回的修改時保留舊 base，讓接續的 persist 做三方合併。
+      if (!isDeepStrictEqual(local, this.shadow)) return;
+      this.adopt(payload, remoteVersion);
       return;
     }
 
@@ -160,7 +162,13 @@ export class InsForgeStore extends MemoryStore {
         ? mergeSnapshots(this.shadow, local, payload)
         : local;
     const nextVersion = await this.saveVersioned(merged, Math.max(this.version, remoteVersion));
+    // saveSnapshot 等待期間另一個寫入可能已修改 Map，但它的 persist 還排在 queue 後面。
+    // 先記下這段期間的改動，再讓 adopt 更新已存檔的 base，避免覆蓋尚未寫回的修改。
+    const latestLocal = this.snapshot();
     this.adopt(merged, nextVersion);
+    if (!isDeepStrictEqual(local, latestLocal)) {
+      this.loadSnapshot(mergeSnapshots(local, latestLocal, this.shadow));
+    }
   }
 
   private async saveVersioned(snapshot: MemorySnapshot, baseVersion = 0): Promise<number> {
@@ -173,7 +181,8 @@ export class InsForgeStore extends MemoryStore {
   private adopt(snapshot: MemorySnapshot, version: number): void {
     const { __nk_version: _ignored, ...pure } = snapshot as VersionedSnapshot;
     this.loadSnapshot(pure as MemorySnapshot);
-    this.shadow = structuredClone(pure) as MemorySnapshot;
+    // 三方合併的 base 必須與 snapshot() 同形狀，包含 loadSnapshot 補上的預設欄位。
+    this.shadow = structuredClone(this.snapshot());
     this.version = version;
     this.lastSyncAt = Date.now();
   }

@@ -1,23 +1,38 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createInsForgeAdapter } from '../src/email/adapters/insforge.js';
 import type { InsForgeBackend } from '../src/core/insforge.js';
 import { InsForgeStore } from '../src/store/insforge-store.js';
 import type { MemorySnapshot } from '../src/store/memory-store.js';
 import { mergeSnapshots } from '../src/store/snapshot-merge.js';
-import type { Campaign } from '../src/store/types.js';
+import type { Campaign, CampaignStarter } from '../src/store/types.js';
 import { EMPTY_TRACKING } from '../src/store/types.js';
 
-function fakeBackend(initial: MemorySnapshot | null = null): InsForgeBackend & { saved: MemorySnapshot[] } {
-  let current = initial;
+function sortedJsonKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(sortedJsonKeys) as T;
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, nested]) => [key, sortedJsonKeys(nested)]),
+    ) as T;
+  }
+  return value;
+}
+
+function fakeBackend(
+  initial: MemorySnapshot | null = null,
+  { reorderKeys = false }: { reorderKeys?: boolean } = {},
+): InsForgeBackend & { saved: MemorySnapshot[] } {
+  let current = initial ? structuredClone(initial) : null;
   const saved: MemorySnapshot[] = [];
   return {
     saved,
     async loadSnapshot() {
-      return current;
+      return current ? (reorderKeys ? sortedJsonKeys(current) : structuredClone(current)) : null;
     },
     async saveSnapshot(snapshot) {
-      current = snapshot;
-      saved.push(snapshot);
+      current = structuredClone(snapshot);
+      saved.push(structuredClone(snapshot));
     },
     async uploadImage(fileName) {
       return { url: `https://files.example/${fileName}` };
@@ -101,6 +116,25 @@ function makeCampaign(patch: Partial<Campaign> = {}): Campaign {
   };
 }
 
+function makeStarter(id: string, name: string): CampaignStarter {
+  return {
+    id,
+    name,
+    description: '測試模板',
+    title: '電子報標題',
+    preheader: '預覽文字',
+    bodyHtml: '<p>內容</p>',
+    createdAt: '2026-10-08T00:00:00.000Z',
+    updatedAt: '2026-10-08T00:00:00.000Z',
+  };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe('快照三方合併', () => {
   it('兩邊動到同一份電子報時做欄位級合併，不會蓋掉寄送狀態', () => {
     const base = emptySnapshot();
@@ -145,6 +179,166 @@ describe('快照三方合併', () => {
 });
 
 describe('InsForgeStore 多實例並行', () => {
+  it('jsonb 逐層重排鍵序後，讀取仍會採納遠端新版本', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-08T00:00:00.000Z'));
+      const initial = emptySnapshot();
+      initial.campaigns = [makeCampaign()]; // stats / tracking 也會被重排
+      initial.settings = { zeta: 'z', alpha: 'a' };
+      const backend = fakeBackend(initial, { reorderKeys: true });
+      const loaded = await backend.loadSnapshot();
+      expect(Object.keys(loaded!.campaigns[0]!.stats)).toEqual(['failed', 'sent', 'total']);
+
+      const writer = new InsForgeStore(backend);
+      const reader = new InsForgeStore(backend);
+      await writer.init();
+      await reader.init();
+      await writer.setSetting('fresh', 'remote');
+
+      vi.advanceTimersByTime(3001);
+      expect(await reader.getSetting('fresh')).toBe('remote');
+
+      // 第一次採納後的 shadow 也要維持與 snapshot() 同形狀，才能繼續更新。
+      await writer.setSetting('second', 'remote-again');
+      vi.advanceTimersByTime(3001);
+      expect(await reader.getSetting('second')).toBe('remote-again');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('另一個實例新增電子報模板後，過 TTL 可讀到並拒絕同名模板', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-08T00:00:00.000Z'));
+      const backend = fakeBackend(emptySnapshot(), { reorderKeys: true });
+      const writer = new InsForgeStore(backend);
+      const reader = new InsForgeStore(backend);
+      await writer.init();
+      await reader.init();
+
+      await writer.createCampaignStarter(makeStarter('starter_a', '每週精選'));
+      vi.advanceTimersByTime(3001);
+
+      expect(await reader.listCampaignStarters()).toMatchObject([{ id: 'starter_a', name: '每週精選' }]);
+      await expect(reader.createCampaignStarter(makeStarter('starter_b', '每週精選')))
+        .rejects.toThrow('這個模板名稱已被使用');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('讀取同步期間產生的本地寫入，遇到遠端再更新也不會遺失', async () => {
+    vi.useFakeTimers();
+    const readEntered = deferred();
+    const releaseRead = deferred();
+    const persistEntered = deferred();
+    const releasePersist = deferred();
+    try {
+      vi.setSystemTime(new Date('2026-10-08T00:00:00.000Z'));
+      const backend = fakeBackend(emptySnapshot());
+      let nextGate: { entered: ReturnType<typeof deferred>; release: ReturnType<typeof deferred> } | null = null;
+      const readerBackend: InsForgeBackend = {
+        ...backend,
+        async loadSnapshot() {
+          const gate = nextGate;
+          nextGate = null;
+          if (gate) {
+            gate.entered.resolve();
+            await gate.release.promise;
+          }
+          return backend.loadSnapshot();
+        },
+      };
+      const writer = new InsForgeStore(backend);
+      const reader = new InsForgeStore(readerBackend);
+      await writer.init();
+      await reader.init();
+      await writer.setSetting('remote', 'new');
+
+      vi.advanceTimersByTime(3001);
+      nextGate = { entered: readEntered, release: releaseRead };
+      const reading = reader.getSetting('remote');
+      await readEntered.promise;
+
+      // 讀取的 backend.loadSnapshot 尚未返回時，寫入先改本地 Map，persist 排在讀取後。
+      nextGate = { entered: persistEntered, release: releasePersist };
+      const writing = reader.setSetting('local', 'mine');
+      releaseRead.resolve();
+      await persistEntered.promise;
+
+      // 若讀取路徑把未寫入的 local 納入 shadow，這次遠端更新會在三方合併時吃掉 mine。
+      await writer.setSetting('local', 'theirs');
+      releasePersist.resolve();
+      await Promise.all([reading, writing]);
+
+      expect(backend.saved.at(-1)?.settings).toEqual({ remote: 'new', local: 'mine' });
+    } finally {
+      releaseRead.resolve();
+      releasePersist.resolve();
+      vi.useRealTimers();
+    }
+  });
+
+  it('前一筆儲存等待後端時，下一筆本地寫入不會被 adopt 覆蓋', async () => {
+    const saveEntered = deferred();
+    const releaseSave = deferred();
+    try {
+      const backend = fakeBackend(emptySnapshot());
+      let holdNextSave = false;
+      const gatedBackend: InsForgeBackend = {
+        ...backend,
+        async saveSnapshot(snapshot) {
+          if (holdNextSave) {
+            holdNextSave = false;
+            saveEntered.resolve();
+            await releaseSave.promise;
+          }
+          await backend.saveSnapshot(snapshot);
+        },
+      };
+      const store = new InsForgeStore(gatedBackend);
+      await store.init();
+
+      holdNextSave = true;
+      const first = store.setSetting('first', 'one');
+      await saveEntered.promise;
+      const second = store.setSetting('second', 'two');
+      releaseSave.resolve();
+      await Promise.all([first, second]);
+
+      expect(backend.saved.at(-1)?.settings).toEqual({ first: 'one', second: 'two' });
+      expect(await store.getSetting('second')).toBe('two');
+    } finally {
+      releaseSave.resolve();
+    }
+  });
+
+  it('舊快照缺少 campaign 預設欄位時，不會永遠誤判為本地改動', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-08T00:00:00.000Z'));
+      const initial = emptySnapshot();
+      const legacy = makeCampaign();
+      delete (legacy as Partial<Campaign>).bodyHtml;
+      delete (legacy as Partial<Campaign>).tracking;
+      initial.campaigns = [legacy];
+      const backend = fakeBackend(initial);
+      const writer = new InsForgeStore(backend);
+      const reader = new InsForgeStore(backend);
+      await writer.init();
+      await reader.init();
+      await writer.setSetting('fresh', 'normalised');
+
+      vi.advanceTimersByTime(3001);
+      expect(await reader.getSetting('fresh')).toBe('normalised');
+      expect((await reader.getCampaign('cmp_1'))?.bodyHtml).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('舊實例的自動儲存不會把寄送中的電子報蓋回草稿', async () => {
     const initial = emptySnapshot();
     initial.campaigns = [makeCampaign()];
