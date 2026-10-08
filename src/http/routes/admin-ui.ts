@@ -109,7 +109,7 @@ export function adminUiRouter(ctx: ServiceContext, googleFetch: typeof fetch = f
     }
     const html = spaIndex();
     if (html) {
-      res.type('html').send(html);
+      res.set('Cache-Control', 'no-store').type('html').send(html);
       return;
     }
     res
