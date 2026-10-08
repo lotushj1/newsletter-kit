@@ -33,6 +33,7 @@
   --sidebar-collapsed: 3.5rem;
   --header-h: 3.75rem;
   --content-max: 78rem;
+  --email-canvas: #f3f1ec;
 }
 * { box-sizing: border-box; }
 html { font-size: var(--font-size); }
@@ -1078,15 +1079,35 @@ button.folder-chip { padding-right: 14px; }
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  position: relative;
   aspect-ratio: 4 / 5;
   overflow: hidden;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: #f3f1ec;
+  background: var(--email-canvas);
   box-shadow:
     0 1px 2px oklch(0.145 0 0 / 0.04),
     0 10px 28px oklch(0.145 0 0 / 0.06);
+}
+/* Long templates are cropped by the 4:5 frame; fade the bottom into the
+   email canvas so the cut reads as the email continuing. Eased stops avoid
+   a visible band where the gradient starts. */
+.template-pick-frame:not(.dashed)::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 32%;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--email-canvas) 0%, transparent) 0%,
+    color-mix(in srgb, var(--email-canvas) 18%, transparent) 25%,
+    color-mix(in srgb, var(--email-canvas) 50%, transparent) 50%,
+    color-mix(in srgb, var(--email-canvas) 82%, transparent) 72%,
+    var(--email-canvas) 90%
+  );
 }
 .template-pick-frame.dashed {
   display: grid;
@@ -1111,7 +1132,7 @@ button.folder-chip { padding-right: 14px; }
   min-height: 0;
   width: 100%;
   overflow: hidden;
-  background: #f3f1ec;
+  background: var(--email-canvas);
 }
 .template-thumb-scale {
   position: absolute;
@@ -1124,7 +1145,7 @@ button.folder-chip { padding-right: 14px; }
   border: 0;
   display: block;
   pointer-events: none;
-  background: #f3f1ec;
+  background: var(--email-canvas);
 }
 @media (prefers-reduced-motion: no-preference) {
   .template-pick-frame {

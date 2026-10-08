@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus } from 'lucide-react';
-import { EMAIL_BODY_PAD_X, EMAIL_CANVAS_WIDTH, EMAIL_FRAME_PAD } from '../../../src/core/render';
+import { EMAIL_CANVAS_WIDTH } from '../../../src/core/render';
 import { renderPreviewEmail } from '../../../src/core/preview-email';
 import { EMPTY_BRAND, type BrandProfile } from '../api';
 
@@ -57,20 +57,9 @@ export function TemplateThumb({
 
 function Frame({ dashed, children }: { dashed?: boolean; children: ReactNode }) {
   return (
-    <span
-      className={`template-pick-frame${dashed ? ' dashed' : ''}`}
-      style={
-        dashed
-          ? undefined
-          : {
-              // Cropped thumbs otherwise sit flush on the bottom edge; match
-              // the visible inset from the frame to the body text (gray + pad).
-              paddingBottom: `${((EMAIL_FRAME_PAD + EMAIL_BODY_PAD_X) / EMAIL_CANVAS_WIDTH) * 100}%`,
-            }
-      }
-    >
-      {children}
-    </span>
+    // Cropped thumbs fill the frame; the bottom fade (styles.css) replaces
+    // the old bottom inset so the cut never shows as a hard edge.
+    <span className={`template-pick-frame${dashed ? ' dashed' : ''}`}>{children}</span>
   );
 }
 
