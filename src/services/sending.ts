@@ -9,6 +9,7 @@ import type { EmailMessage } from '../email/types.js';
 import type { Campaign, Delivery, Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getCampaign, renderCampaign } from './campaigns.js';
+import { clearSending, isSendingNow, markSending } from './send-state.js';
 import { unsubscribeUrl } from './subscribers.js';
 
 function trackedHtml(
@@ -26,8 +27,6 @@ function trackedHtml(
     subscriberId: delivery.subscriberId,
   });
 }
-
-const inFlight = new Set<string>();
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -71,9 +70,10 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
   if (existing.length > 0) {
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
     if (campaign.status === 'failed') {
-      // 重寄失敗的電子報：把失敗的收件人重新排入。冪等鍵仍是 delivery id，
-      // 支援冪等的供應商（如 Portaly）會擋掉其實已寄出的重複信。
-      for (const delivery of await ctx.store.listDeliveries(campaign.id, { status: 'failed' })) {
+      // 重寄失敗／卡死的電子報：失敗與還停在 pending 的都重新排入。
+      // 冪等鍵仍是 delivery id，支援冪等的供應商（如 Portaly）會擋掉其實已寄出的重複信。
+      for (const delivery of await ctx.store.listDeliveries(campaign.id)) {
+        if (delivery.status !== 'failed' && delivery.status !== 'pending') continue;
         await ctx.store.updateDelivery(delivery.id, { status: 'pending', attempts: 0, error: undefined });
       }
     }
@@ -158,10 +158,10 @@ async function deliverBatch(
 
 /** 實際跑寄送迴圈：批次 + 批次間節流 + 失敗退避重試。 */
 export async function processCampaign(ctx: ServiceContext, campaignId: string): Promise<SendSummary> {
-  if (inFlight.has(campaignId)) {
+  if (isSendingNow(campaignId)) {
     throw badRequest('這份電子報正在寄送中');
   }
-  inFlight.add(campaignId);
+  markSending(campaignId);
   try {
     const campaign = await getCampaign(ctx, campaignId);
     const { batchSize, batchDelayMs, maxAttempts } = ctx.config.send;
@@ -179,6 +179,8 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
 
         for (let i = 0; i < pending.length; i += batchSize) {
           await deliverBatch(ctx, campaign, pending.slice(i, i + batchSize));
+          // 心跳：updatedAt 代表「還有進度」，別的實例才不會把活著的寄送當成卡死。
+          await ctx.store.updateCampaign(campaignId, { updatedAt: nowIso() });
           if (i + batchSize < pending.length) await sleep(batchDelayMs);
         }
       }
@@ -210,7 +212,7 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
     logger.info('電子報寄送結束', { campaignId, ...stats, status });
     return { campaignId, ...stats, status };
   } finally {
-    inFlight.delete(campaignId);
+    clearSending(campaignId);
   }
 }
 
@@ -279,7 +281,7 @@ export async function cancelSending(ctx: ServiceContext, campaignId: string): Pr
   return updated!;
 }
 
-export const isSending = (campaignId: string): boolean => inFlight.has(campaignId);
+export const isSending = (campaignId: string): boolean => isSendingNow(campaignId);
 
 /** 序列信：只寄給一個人，不改範本 campaign 的狀態。 */
 export async function sendCampaignToSubscriber(
