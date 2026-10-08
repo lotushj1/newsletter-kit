@@ -45,7 +45,7 @@ describe('電子報內容', () => {
     const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
 
     expect(rendered.subject).toBe('嗨 阿明');
-    expect(rendered.html).toContain('<h2>標題</h2>');
+    expect(rendered.html).toMatch(/<h2 style="[^"]*font-size:22px[^"]*">標題<\/h2>/);
     expect(rendered.html).toContain('你好 阿明');
     expect(rendered.html).toContain('/unsubscribe?token=');
     expect(rendered.text).toContain('你好 阿明');

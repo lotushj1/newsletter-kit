@@ -1,4 +1,5 @@
-import { escapeHtml } from '../../core/render.js';
+import { EMAIL_BODY_PAD_X, EMAIL_CARD_WIDTH, escapeHtml } from '../../core/render.js';
+import { EMAIL_COLORS, EMAIL_FONT } from '../../core/email-theme.js';
 
 /**
  * shadcn/ui 視覺：官方 semantic token（neutral）
@@ -190,6 +191,32 @@ iframe.preview{width:100%;height:520px;border:1px solid var(--border);border-rad
 .archive-wrap{width:min(42rem,100%);max-width:42rem}
 .archive-letter{margin-top:1.25rem}
 .archive-letter table{max-width:100%}
+/* 單期封存直接用信件的畫布，後台表格樣式不要滲進信裡；inline style 仍然生效。 */
+.archive-page{min-height:100vh;background:${EMAIL_COLORS.canvas};padding:24px 0 48px}
+.archive-bar{max-width:${EMAIL_CARD_WIDTH}px;margin:0 auto;padding:0 ${EMAIL_BODY_PAD_X}px;display:flex;justify-content:space-between;
+  font-family:${EMAIL_FONT};font-size:12px;letter-spacing:0.03em;color:${EMAIL_COLORS.muted}}
+.archive-bar a{color:${EMAIL_COLORS.soft}}
+.archive-bar a:hover{text-decoration:underline}
+.archive-page .archive-letter{margin:12px 0 0}
+.archive-page .archive-letter table{border-collapse:separate;font-size:inherit}
+.archive-page .archive-letter table:not([width]){width:auto}
+.archive-page .archive-letter tbody tr td,.archive-page .archive-letter tbody tr:hover td{padding:0;border-bottom:0;background:transparent}
+.archive-page .archive-letter td:not([align]){text-align:inherit}
+.archive-page .archive-letter td:not([valign]){vertical-align:inherit}
+.archive-page .archive-letter td a{font-weight:inherit}
+.archive-page .archive-letter td[align="center"]{text-align:center}
+.archive-page .archive-letter td[align="right"]{text-align:right}
+.archive-page .archive-letter td[align="center"] > table,.archive-page .archive-letter table[align="center"]{margin-left:auto;margin-right:auto}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media (max-width:640px){
+  .archive-page{padding-top:16px}
+  .archive-bar{padding:0 24px}
+  .archive-page .nk-frame{padding:12px 0 32px !important}
+  .archive-page .nk-card{border-radius:0 !important;border-left:0 !important;border-right:0 !important}
+  .archive-page .nk-pad,.archive-page .nk-edge{padding-left:24px !important;padding-right:24px !important}
+  .archive-page .nk-card h1{font-size:26px !important}
+  .archive-page .nk-card h2{font-size:20px !important}
+}
 .ad-result-icon{width:3rem;height:3rem;border-radius:999px;display:flex;align-items:center;justify-content:center;
   margin:0 auto 1.25rem;font-size:1.25rem;border:1px solid var(--border);background:var(--secondary)}
 .ad-result-icon.ok{background:var(--primary);color:var(--primary-foreground);border:0}

@@ -220,7 +220,7 @@ describe('後台 API', () => {
       body: JSON.stringify({ bodyMarkdown: '**尚未存檔**' }),
     });
     const data = await preview.json();
-    expect(data.html).toContain('<strong>尚未存檔</strong>');
+    expect(data.html).toMatch(/<strong style="[^"]*">尚未存檔<\/strong>/);
 
     const saved = await asAdmin(`/api/admin/campaigns/${campaign.id}`);
     expect((await saved.json()).bodyMarkdown).not.toContain('尚未存檔');

@@ -6,7 +6,8 @@ import {
   normalizeEmailButtonStyle,
   sanitizeHex,
 } from '../src/core/email-button.js';
-import { styleRichContent } from '../src/core/render.js';
+import { EMAIL_TEXT_WIDTH, styleRichContent } from '../src/core/render.js';
+import { EMAIL_HERO_STYLE } from '../src/core/email-image.js';
 
 describe('email button style', () => {
   it('只接受 hex，其餘回退預設', () => {
@@ -40,18 +41,19 @@ describe('email button style', () => {
   });
 
   it('空的建議置入圖片區塊寄出時會拿掉', () => {
-    expect(styleRichContent('<p>正文</p><figure data-email-image-slot="1" data-label="建議置入圖片">建議置入圖片</figure>')).toBe(
-      '<p>正文</p>',
-    );
+    const html = styleRichContent('<p>正文</p><figure data-email-image-slot="1" data-label="建議置入圖片">建議置入圖片</figure>');
+    expect(html).toMatch(/^<p style="[^"]*">正文<\/p>$/);
+    expect(html).not.toContain('建議置入圖片');
   });
 
   it('信中段封面圖會補上固定圓角', () => {
     const html = styleRichContent(
       '<p>正文</p><img data-email-hero="1" src="https://example.com/cover.jpg" alt="封面" width="1200" />',
     );
-    expect(html).toContain(
-      'style="width:100%;max-width:100%;height:auto;display:block;border:0;border-radius:10px;margin:16px auto;"',
-    );
+    expect(html).toContain(`style="${EMAIL_HERO_STYLE}"`);
+    // Outlook 不吃 max-width，寬度屬性要鎖在內文欄寬。
+    expect(html).toContain(`width="${EMAIL_TEXT_WIDTH}"`);
+    expect(html).not.toContain('width="1200"');
     expect(html).toContain('https://example.com/cover.jpg');
   });
 

@@ -1,3 +1,5 @@
+import { EMAIL_FONT } from './email-theme.js';
+
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 export const DEFAULT_EMAIL_BUTTON = {
@@ -62,11 +64,13 @@ export function emailButtonNodeStyle(style: EmailButtonStyle): string {
 }
 
 export function emailButtonMarkup(href: string, label: string, style: EmailButtonStyle): string {
-  const link = `<a href="${href}" style="display:inline-block;padding:12px 22px;color:${style.fg};text-decoration:none;font:600 15px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;border-radius:${style.radius}px;">${label}</a>`;
-  const inner = `<td style="border-radius:${style.radius}px;background:${style.bg};">${link}</td>`;
+  // 深底按鈕在深色模式會跟卡片融在一起，標記起來讓 <style> 反白。
+  const tone = style.fg === '#fafaf9' ? ' class="nk-btn-dark"' : '';
+  const link = `<a class="nk-btn" href="${href}" style="display:inline-block;padding:14px 30px;color:${style.fg};text-decoration:none;font-family:${EMAIL_FONT};font-size:15px;line-height:1.2;font-weight:600;letter-spacing:0.06em;border-radius:${style.radius}px;">${label}</a>`;
+  const inner = `<td${tone} style="border-radius:${style.radius}px;background:${style.bg};mso-padding-alt:14px 30px;">${link}</td>`;
   if (style.borderWidth <= 0) {
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto;"><tr>${inner}</tr></table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:32px auto;"><tr>${inner}</tr></table>`;
   }
   const outerRadius = style.radius + style.borderWidth;
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto;"><tr><td style="background:${style.borderColor};border-radius:${outerRadius}px;padding:${style.borderWidth}px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>${inner}</tr></table></td></tr></table>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:32px auto;"><tr><td style="background:${style.borderColor};border-radius:${outerRadius}px;padding:${style.borderWidth}px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>${inner}</tr></table></td></tr></table>`;
 }

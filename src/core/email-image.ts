@@ -12,14 +12,15 @@ export function emailImageSlot(label = '建議置入圖片'): string {
 }
 
 /** 內文圖片與非滿版首圖共用，不給使用者調。 */
-export const EMAIL_IMAGE_RADIUS = 10;
+export const EMAIL_IMAGE_RADIUS = 6;
 
+/** 一般圖：對齊內文欄寬，上下留白比段落多一點。 */
 export const EMAIL_IMAGE_STYLE =
-  `width:100%;max-width:420px;height:auto;display:block;border:0;border-radius:${EMAIL_IMAGE_RADIUS}px;margin:16px auto;`;
+  `width:100%;max-width:100%;height:auto;display:block;border:0;border-radius:${EMAIL_IMAGE_RADIUS}px;margin:28px auto;`;
 
 /** 信中段的封面圖：滿欄、固定圓角。開頭那張會另外抽成滿版首圖。 */
 export const EMAIL_HERO_STYLE =
-  `width:100%;max-width:100%;height:auto;display:block;border:0;border-radius:${EMAIL_IMAGE_RADIUS}px;margin:16px auto;`;
+  `width:100%;max-width:100%;height:auto;display:block;border:0;border-radius:${EMAIL_IMAGE_RADIUS}px;margin:28px auto;`;
 
 /** 白卡片最上方的滿版首圖：貼齊卡片邊緣，圓角交給卡片 overflow。 */
 export const EMAIL_COVER_STYLE =
@@ -84,4 +85,12 @@ export function splitBleedSegments(html: string): EmailBodySegment[] {
 export function applyImgStyle(tag: string, style: string): string {
   if (/\sstyle="/i.test(tag)) return tag.replace(/\sstyle="[^"]*"/i, ` style="${style}"`);
   return tag.replace(/<img\b/i, `<img style="${style}"`);
+}
+
+/** Outlook 不吃 max-width，用 width 屬性把圖鎖在欄寬內。 */
+export function setImgWidth(tag: string, width: number): string {
+  if (/\swidth\s*=\s*["']?[^"'\s>]*["']?/i.test(tag)) {
+    return tag.replace(/\swidth\s*=\s*["']?[^"'\s>]*["']?/i, ` width="${width}"`);
+  }
+  return tag.replace(/<img\b/i, `<img width="${width}"`);
 }

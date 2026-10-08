@@ -618,7 +618,7 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
   content: attr(data-placeholder); color: var(--muted-foreground); float: left; height: 0; pointer-events: none;
 }
 .preview-frame {
-  width: 100%; height: min(72vh, 760px); border: 0; background: #f5f5f4; display: block;
+  width: 100%; height: min(72vh, 760px); border: 0; background: #f3f1ec; display: block;
 }
 .ai-side { display: grid; gap: 8px; }
 .ai-side .btn { width: 100%; }
@@ -654,7 +654,7 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .modal-header h2 { margin: 0; font-size: var(--text-xl); font-weight: 600; }
 .modal-header .modal-close { margin: -2px -6px 0 0; flex-shrink: 0; }
 .modal-header p { margin: 4px 0 0; }
-.modal-body { overflow: auto; background: #f5f5f4; }
+.modal-body { overflow: auto; background: #f3f1ec; }
 .modal-body.form { padding: 20px; background: var(--background); }
 .modal-body.form form { display: grid; gap: 10px; }
 .modal-body.form label { margin: 0; }
@@ -741,7 +741,7 @@ button.folder-chip { padding-right: 14px; }
   padding: 22px 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #f5f5f4;
+  background: #f3f1ec;
 }
 .brand-signature-preview.empty { display: block; }
 .brand-signature-preview p { margin: 0 0 4px; }
@@ -1034,7 +1034,7 @@ button.folder-chip { padding-right: 14px; }
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: #f5f5f4;
+  background: #f3f1ec;
   box-shadow:
     0 1px 2px oklch(0.145 0 0 / 0.04),
     0 10px 28px oklch(0.145 0 0 / 0.06);
@@ -1062,7 +1062,7 @@ button.folder-chip { padding-right: 14px; }
   min-height: 0;
   width: 100%;
   overflow: hidden;
-  background: #f5f5f4;
+  background: #f3f1ec;
 }
 .template-thumb-scale {
   position: absolute;
@@ -1075,7 +1075,7 @@ button.folder-chip { padding-right: 14px; }
   border: 0;
   display: block;
   pointer-events: none;
-  background: #f5f5f4;
+  background: #f3f1ec;
 }
 @media (prefers-reduced-motion: no-preference) {
   .template-pick-frame {

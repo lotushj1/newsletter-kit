@@ -46,7 +46,7 @@ describe('圖片滿版／一般', () => {
     const out = letter(html);
     expect(out).toContain('padding:0;font-size:0;line-height:0;');
     expect(out).toContain(EMAIL_COVER_STYLE);
-    expect(out.indexOf(EMAIL_COVER_STYLE)).toBeLessThan(out.indexOf('padding:28px 32px 32px'));
+    expect(out.indexOf(EMAIL_COVER_STYLE)).toBeLessThan(out.indexOf('class="nk-pad"'));
   });
 
   it('內文滿版圖拆成獨立的 padding:0 列，一般圖留在有左右內距的格子', () => {
@@ -62,8 +62,8 @@ describe('圖片滿版／一般', () => {
     const bleedAt = out.indexOf('padding:0;font-size:0;line-height:0;');
     expect(bleedAt).toBeGreaterThan(-1);
     expect(wideAt).toBeGreaterThan(bleedAt);
-    expect(out.slice(bleedAt, wideAt)).not.toContain('padding:28px 32px');
-    expect(out.slice(out.lastIndexOf('padding:', narrowAt), narrowAt)).toContain('32px');
+    expect(out.slice(bleedAt, wideAt)).not.toContain('class="nk-pad"');
+    expect(out.slice(out.lastIndexOf('class="nk-pad"', narrowAt), narrowAt)).toContain(' 40px ');
   });
 
   it('舊的中段封面仍用固定圓角，不拆成貼邊列', () => {

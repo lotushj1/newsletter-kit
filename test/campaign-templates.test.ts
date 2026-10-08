@@ -69,7 +69,9 @@ describe('電子報建立模板', () => {
     expect(thumb.html).toContain('max-width:600px');
     expect(thumb.html).toContain('padding:24px;');
     expect(thumb.html).not.toContain('padding:24px 12px');
-    expect(thumb.html).not.toContain(ctx.config.siteName);
+    // 刊頭放在白卡片外，封面仍貼齊卡片頂端。
+    expect(thumb.html).toContain(ctx.config.siteName);
+    expect(thumb.html.indexOf(ctx.config.siteName)).toBeLessThan(thumb.html.indexOf('class="nk-card"'));
     expect(thumb.html).not.toContain('{{signature}}');
     expect(thumb.html).not.toContain('data-email-image-slot');
   });
@@ -84,7 +86,7 @@ describe('電子報建立模板', () => {
     }).html;
     expect(weeklyHtml).toContain('padding:0;font-size:0;line-height:0;');
     expect(weeklyHtml).toContain(EMAIL_COVER_STYLE);
-    expect(weeklyHtml.indexOf(EMAIL_COVER_STYLE)).toBeLessThan(weeklyHtml.indexOf('padding:28px 32px 32px'));
+    expect(weeklyHtml.indexOf(EMAIL_COVER_STYLE)).toBeLessThan(weeklyHtml.indexOf('class="nk-pad"'));
 
     const workHtml = renderPreviewEmail({
       bodyHtml: work.bodyHtml,
