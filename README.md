@@ -67,6 +67,7 @@ npm run dev
 | `dry_run` | 預設。只寫 log，不寄信 | — |
 | `webhook` | 把每封信 POST 給你的服務，你決定怎麼寄 | `WEBHOOK_URL`、`WEBHOOK_SECRET`（選填） |
 | `resend` | 範例：直接打 Resend API | `RESEND_API_KEY` |
+| `portaly` | Portaly Email（邀請制 beta） | `PORTALY_EMAIL_API_KEY`，選填 `PORTALY_API_HOST` |
 | `zeabur` | 範例：打你自架的寄信端點 | `ZEABUR_ENDPOINT`、`ZEABUR_TOKEN`（選填） |
 | `insforge` | 可選：打你自己的 InsForge 專案 | `INSFORGE_URL`、`INSFORGE_API_KEY` |
 | `postmark`、`sendgrid`、`mailgun`、`brevo`、`mailchimp` | 常用平台 | `EMAIL_API_KEY`，Mailgun 再加 `EMAIL_API_EXTRA`（網域） |
@@ -90,6 +91,38 @@ npm run dev
 有設 `WEBHOOK_SECRET` 時會帶 `X-Newsletter-Signature: sha256=<hex>`（HMAC-SHA256 of raw body），
 請在你那端驗簽。回 2xx 代表成功，回 5xx 或 429 會被重試。
 可執行的接收端範例在 `examples/webhook-receiver.mjs`。
+
+### Portaly Email 設定步驟
+
+Portaly Email 目前是**邀請制 beta**：只有 Portaly 開通的帳號能用，其他帳號每次呼叫都會收到
+`403 FORBIDDEN`。建立金鑰與綁網域需要 Premium 方案。
+
+1. 到 <https://portaly.cc/admin/email/api-keys> 按「建立 API Key」，複製金鑰（只顯示一次，`pem_` 開頭）。
+   - 先試水溫選「僅寄信」＋ `sandbox.portaly.tw`；要寄給真實讀者選「完整權限」並在
+     <https://portaly.cc/admin/email/domains> 綁自己的寄信網域、照指示加 DNS 紀錄。
+2. 寫進 `.env`（金鑰只放伺服器端，不要進版本庫）：
+
+   ```
+   EMAIL_PROVIDER=portaly
+   PORTALY_EMAIL_API_KEY=pem_xxx
+   MAIL_FROM=你的名字 <orders@sandbox.portaly.tw>
+   ```
+
+   也可以在後台「設定 → 寄信 → Portaly Email」直接貼金鑰。
+3. 後台按「檢查設定」會打 Portaly 的額度 API，順便回報本月剩餘額度。
+
+幾件要知道的事：
+
+- 沙箱寄件人 `<名稱>@sandbox.portaly.tw` 只能寄到帳號本人驗證過的信箱，一天 50 封；
+  名稱 3–32 字（英數與 `._-`），不能含 `portaly`，也不能用 `noreply`、`support` 這類保留字。
+- kit 自己管名單、模板與退訂（Portaly 還沒有這些 API）；每封信會自動帶
+  `List-Unsubscribe` / `List-Unsubscribe-Post` 一鍵退訂 header。
+- 每封信都帶冪等鍵（delivery id），重試不會寄兩次；大量寄送走 Portaly 的批次 API
+  （一次最多 100 封），由 Portaly 背景投遞。
+- Portaly 還沒有 webhook：排程器每 10 分鐘回查一次投遞狀態（往回看 7 天），
+  硬退信與被抑制的地址會標成 `bounced`、被檢舉的視同退訂，之後不再寄給他們。
+- 額度不足（`SEND_QUOTA_EXCEEDED`）與帳號未開通（`403 FORBIDDEN`）會直接判定失敗並寫清楚原因，
+  不會傻傻重試；短暫限流（429）會依 `Retry-After` 自動緩退。
 
 ### 寫自己的 adapter
 
