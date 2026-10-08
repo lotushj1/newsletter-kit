@@ -32,7 +32,7 @@ export function renderPreviewEmail(input: PreviewEmailInput): { subject: string;
   const base = {
     name: PREVIEW_RECIPIENT.name,
     email: PREVIEW_RECIPIENT.email,
-    site_name: brandName || input.siteName,
+    site_name: brandName,
     unsubscribe_url: '',
     writer,
     website,

@@ -357,11 +357,27 @@ describe('刊頭的品牌名稱來自各站自己的設定', () => {
   it('什麼都沒設時，寄出的信不顯示刊頭與頁尾站名', async () => {
     const { ctx, adapter } = await makeContext({ siteName: DEFAULT_SITE_NAME });
     await createSubscriber(ctx, { email: 'a@example.com', name: '阿明' });
-    const campaign = await createCampaign(ctx, { title: 't', bodyHtml: '<p>正文</p>' });
+    const campaign = await createCampaign(ctx, {
+      title: 't',
+      slug: 'no-brand',
+      bodyHtml: '<p>正文[{{site_name}}]</p>',
+    });
+    const previewed = (await previewCampaign(ctx, campaign.id)).html;
+    const thumb = renderPreviewEmail({
+      bodyHtml: '<p>正文[{{site_name}}]</p>',
+      siteName: DEFAULT_SITE_NAME,
+      brand: EMPTY_BRAND,
+    }).html;
     await startCampaign(ctx, campaign.id);
     const sent = adapter.sent.at(-1)!.html;
+    await ctx.store.updateCampaign(campaign.id, { status: 'sent' });
+    const archived = (await renderPublicCampaign(ctx, 'no-brand'))!.html;
+    // 刊頭隱藏時，{{site_name}} 也換成空字串，不會冒出預設的 Newsletter。
+    for (const html of [previewed, thumb, sent, archived]) {
+      expect(html).toContain('正文[]');
+      expect(html).not.toContain(DEFAULT_SITE_NAME);
+    }
     expect(sent).not.toContain('class="nk-edge nk-masthead"');
-    expect(sent).not.toContain(DEFAULT_SITE_NAME);
     expect(sent).toContain('取消訂閱');
   });
 });

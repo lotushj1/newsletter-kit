@@ -153,8 +153,8 @@ export function mergeBrandVariables(
 ): Record<string, string> {
   const writer = brand.writerName;
   const website = websiteFromBrand(brand);
-  // {{site_name}} 跟刊頭用同一個名稱；都沒設時才退回 SITE_NAME 原值。
-  const siteName = emailBrandName(brand, base.site_name ?? '') || (base.site_name ?? '');
+  // {{site_name}} 跟刊頭用同一個名稱；都沒設時（刊頭隱藏）換成空字串。
+  const siteName = emailBrandName(brand, base.site_name ?? '');
   const named = { ...base, site_name: siteName };
   const source = buildBrandSignatureHtml(brand, { publicBaseUrl });
   const signature = applyVariables(source, { ...named, writer, website }, 'html');
