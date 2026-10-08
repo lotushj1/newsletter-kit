@@ -612,6 +612,29 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 }
 .tt-editor .tiptap blockquote p { margin: 0 0 0.45em; }
 .tt-editor .tiptap blockquote p:last-child { margin: 0; }
+/* 模板區塊：只是給編輯時認得出來，寄出的樣子由 src/core/email-blocks.ts 決定。 */
+.tt-editor .tiptap [data-email-style] { --tone: #9a5f2c; --tone-tint: #f7f0e7; --tone-rule: #e8d9c6; }
+.tt-editor .tiptap [data-email-tone="sage"] { --tone: #3f6b58; --tone-tint: #eef3ef; --tone-rule: #d2dfd6; }
+.tt-editor .tiptap [data-email-tone="vermilion"] { --tone: #ad4329; --tone-tint: #faefe9; --tone-rule: #efd2c6; }
+.tt-editor .tiptap [data-email-tone="indigo"] { --tone: #34507a; --tone-tint: #eef1f6; --tone-rule: #d4dbe7; }
+.tt-editor .tiptap [data-email-tone="ink"] { --tone: #6b5d4f; --tone-tint: #f6f4ef; --tone-rule: #e6e1d8; }
+.tt-editor .tiptap p[data-email-style="kicker"] { font-size: 0.75em; font-weight: 700; letter-spacing: 0.18em; color: var(--tone); }
+.tt-editor .tiptap p[data-email-style="lead"] { font-size: 1.12em; }
+.tt-editor .tiptap p[data-email-style="note"] { font-size: 0.875em; color: var(--muted-foreground); }
+.tt-editor .tiptap p[data-email-style="meta"] {
+  padding: 8px 0; font-size: 0.82em; letter-spacing: 0.08em; color: var(--muted-foreground);
+  border-top: 1px solid var(--tone-rule); border-bottom: 1px solid var(--tone-rule);
+}
+.tt-editor .tiptap blockquote[data-email-style="panel"] { border-left: 0; border-radius: var(--radius-md); background: var(--tone-tint); }
+.tt-editor .tiptap blockquote[data-email-style="panel"] strong { color: var(--tone); letter-spacing: 0.1em; margin-right: 0.8em; }
+.tt-editor .tiptap blockquote[data-email-style="card"] {
+  border: 1px solid var(--tone-rule); border-top: 3px solid var(--tone); border-radius: var(--radius-md); background: var(--background);
+}
+.tt-editor .tiptap blockquote[data-email-style="pull"] {
+  border-left: 0; background: transparent; text-align: center; font-size: 1.2em; font-weight: 600;
+}
+.tt-editor .tiptap ol[data-email-style="steps"] li::marker { color: var(--tone); font-weight: 700; }
+.tt-editor .tiptap hr[data-email-style="ornament"] { border-top: 1px dotted var(--tone); width: 64px; margin-left: auto; margin-right: auto; }
 .tt-editor .tiptap p.is-editor-empty:first-child::before,
 .tt-editor .tiptap blockquote p.is-empty::before,
 .tt-editor .tiptap blockquote.is-empty::before {

@@ -25,6 +25,7 @@ export function TemplateThumb({
         siteName,
         publicBaseUrl,
         brand: brand ?? EMPTY_BRAND,
+        imageSlots: 'placeholder',
       }).html,
     [html, siteName, publicBaseUrl, brand],
   );

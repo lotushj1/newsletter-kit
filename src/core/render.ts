@@ -1,8 +1,10 @@
 import { marked } from 'marked';
 import { emailButtonMarkup, normalizeEmailButtonStyle } from './email-button.js';
+import { emailBlockHeadStyle, EMAIL_CARD_THUMB, styleEmailBlocks, tightenAfterKicker } from './email-blocks.js';
 import {
   applyImgStyle,
   EMAIL_FULLWIDTH_STYLE,
+  fillImageSlotPlaceholders,
   EMAIL_IMAGE_STYLE,
   imageInlineStyle,
   isFullWidthImageTag,
@@ -85,7 +87,7 @@ const attrOf = (raw: string, name: string): string => {
 export function styleRichContent(html: string): string {
   const withComponents = html
     .replace(/<hr\b([^>]*)\/?>/gi, (match, attrs: string) => {
-      if (/\sstyle\s*=/i.test(attrs ?? '')) return match;
+      if (/\s(?:style|data-email-style)\s*=/i.test(attrs ?? '')) return match;
       return `<hr style="border:0;border-top:1px solid ${EMAIL_COLORS.line};height:0;margin:40px 0;" />`;
     })
     .replace(/<div\b([^>]*data-email-btn[^>]*)>([\s\S]*?)<\/div>/gi, (_match, attrs: string, body: string) => {
@@ -118,7 +120,7 @@ export function styleRichContent(html: string): string {
       const width = isFullWidthImageTag(match) ? EMAIL_CARD_WIDTH : EMAIL_TEXT_WIDTH;
       return setImgWidth(`<img${attrs} style="${imageInlineStyle(match)}">`, width);
     });
-  return styleTypography(withComponents);
+  return tightenAfterKicker(styleTypography(styleEmailBlocks(withComponents)));
 }
 
 export function absolutizeMediaUrls(html: string, baseUrl?: string): string {
@@ -155,6 +157,11 @@ export interface EmailLayoutInput {
   footerNote?: string | undefined;
   /** 線上閱讀網址（例如公開封存頁）。有給才在刊頭顯示連結。 */
   webViewUrl?: string | undefined;
+  /**
+   * 還沒放圖的空位怎麼處理。寄出、封存、後台預覽一律 `drop`（預設）；
+   * 模板縮圖用 `placeholder` 畫出中性占位圖，讓人看得出版面。
+   */
+  imageSlots?: 'drop' | 'placeholder' | undefined;
 }
 
 const C = EMAIL_COLORS;
@@ -248,6 +255,7 @@ a[x-apple-data-detectors]{color:inherit !important;text-decoration:none !importa
   .nk-edge p,.nk-edge td{color:#a39b90 !important;}
   .nk-edge a{color:#d6cfc5 !important;}
 }
+${emailBlockHeadStyle()}
 </style>`;
 
 const MSO_HEAD = `<!--[if mso]>
@@ -300,7 +308,11 @@ function footerHtml(input: EmailLayoutInput): string {
  */
 export function renderEmailLayout(input: EmailLayoutInput): string {
   const { subject } = input;
-  const split = splitLeadingHero(input.contentHtml);
+  const source =
+    input.imageSlots === 'placeholder'
+      ? fillImageSlotPlaceholders(input.contentHtml, EMAIL_TEXT_WIDTH, EMAIL_CARD_WIDTH, EMAIL_CARD_THUMB)
+      : input.contentHtml;
+  const split = splitLeadingHero(source);
   const coverHtml = split.coverHtml
     ? absolutizeMediaUrls(split.coverHtml, input.publicBaseUrl)
     : '';

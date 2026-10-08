@@ -1,10 +1,15 @@
-import { Node, mergeAttributes } from '@tiptap/core';
+import { Extension, Node, mergeAttributes } from '@tiptap/core';
 import Image from '@tiptap/extension-image';
+import Link from '@tiptap/extension-link';
+import TextAlign from '@tiptap/extension-text-align';
+import Underline from '@tiptap/extension-underline';
+import StarterKit from '@tiptap/starter-kit';
 import {
   DEFAULT_EMAIL_BUTTON,
   emailButtonNodeStyle,
   normalizeEmailButtonStyle,
 } from '../../../../src/core/email-button.js';
+import { EMAIL_BLOCK_STYLES, EMAIL_TONE_NAMES } from '../../../../src/core/email-blocks.js';
 
 export type EmailButtonAttrs = {
   href: string;
@@ -257,3 +262,62 @@ export const VideoBlock = Node.create({
     };
   },
 });
+
+const TONES: readonly string[] = EMAIL_TONE_NAMES;
+
+/**
+ * 模板用的版面區塊（標籤、資訊面板、推薦卡片、步驟清單…）只是在既有節點上多兩個屬性，
+ * 這裡讓編輯器讀得進、存得回去。按 Enter 分段時不沿用，免得下一段也變成標籤。
+ */
+export const EmailBlockStyle = Extension.create({
+  name: 'emailBlockStyle',
+  addGlobalAttributes() {
+    return (Object.keys(EMAIL_BLOCK_STYLES) as (keyof typeof EMAIL_BLOCK_STYLES)[]).map((type) => {
+      const allowed: readonly string[] = EMAIL_BLOCK_STYLES[type];
+      return {
+        types: [type],
+        attributes: {
+          emailStyle: {
+            default: null,
+            keepOnSplit: false,
+            parseHTML: (el: HTMLElement) => {
+              const value = el.getAttribute('data-email-style') ?? '';
+              return allowed.includes(value) ? value : null;
+            },
+            renderHTML: (attrs: Record<string, unknown>) =>
+              attrs.emailStyle ? { 'data-email-style': String(attrs.emailStyle) } : {},
+          },
+          emailTone: {
+            default: null,
+            keepOnSplit: false,
+            parseHTML: (el: HTMLElement) => {
+              const value = el.getAttribute('data-email-tone') ?? '';
+              return TONES.includes(value) ? value : null;
+            },
+            renderHTML: (attrs: Record<string, unknown>) =>
+              attrs.emailTone ? { 'data-email-tone': String(attrs.emailTone) } : {},
+          },
+        },
+      };
+    });
+  },
+});
+
+/**
+ * 決定信件內容能存哪些節點與屬性的那組 extension。編輯器與往返測試共用，
+ * 免得測試過了、編輯器卻把模板的區塊洗掉。
+ */
+export function emailContentExtensions() {
+  return [
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
+    Underline,
+    Link.configure({ openOnClick: false, autolink: true }),
+    EmailImage,
+    TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'], defaultAlignment: 'left' }),
+    EmailButton,
+    ImageSlot,
+    AudioBlock,
+    VideoBlock,
+    EmailBlockStyle,
+  ];
+}

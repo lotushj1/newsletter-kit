@@ -154,3 +154,21 @@ export function trimEdgeMargins(html: string): string {
   if (lastChild !== undefined) tokens[lastChild] = zeroMargin(tokens[lastChild]!, 'bottom');
   return tokens.join('');
 }
+
+/**
+ * 每種信件各一個點綴色，只用在標籤、編號、資訊面板與按鈕；底色、字色仍共用上面那組。
+ * dark* 是深色模式下的替換值。
+ */
+export const EMAIL_TONES = {
+  clay: { accent: '#9a5f2c', tint: '#f7f0e7', rule: '#e8d9c6', darkAccent: '#dfa877', darkTint: '#2a241e' },
+  sage: { accent: '#3f6b58', tint: '#eef3ef', rule: '#d2dfd6', darkAccent: '#8fc1a8', darkTint: '#1f2622' },
+  vermilion: { accent: '#ad4329', tint: '#faefe9', rule: '#efd2c6', darkAccent: '#ec9a80', darkTint: '#2c201c' },
+  indigo: { accent: '#34507a', tint: '#eef1f6', rule: '#d4dbe7', darkAccent: '#9db4d8', darkTint: '#1e222a' },
+  ink: { accent: '#6b5d4f', tint: '#f6f4ef', rule: '#e6e1d8', darkAccent: '#bfb3a5', darkTint: '#24221f' },
+} as const;
+
+export type EmailTone = keyof typeof EMAIL_TONES;
+
+export function isEmailTone(value: string): value is EmailTone {
+  return Object.prototype.hasOwnProperty.call(EMAIL_TONES, value);
+}

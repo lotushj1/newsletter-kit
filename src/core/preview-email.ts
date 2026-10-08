@@ -14,6 +14,8 @@ export interface PreviewEmailInput {
   siteName: string;
   publicBaseUrl?: string;
   brand: BrandProfile;
+  /** 模板縮圖傳 `placeholder`，空位會畫成占位圖；其餘預覽照寄出的樣子拿掉空位。 */
+  imageSlots?: 'drop' | 'placeholder';
 }
 
 /** 跟後台「預覽」同一條路：變數 → 品牌簽名 → email 版型。 */
@@ -43,6 +45,7 @@ export function renderPreviewEmail(input: PreviewEmailInput): { subject: string;
     unsubscribeUrl: '#',
     unsubscribePrompt: input.brand.unsubscribePrompt,
     unsubscribeLabel: input.brand.unsubscribeLabel,
+    imageSlots: input.imageSlots,
   });
   return { subject, html, text: htmlToText(html) };
 }

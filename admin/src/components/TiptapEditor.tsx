@@ -2,15 +2,12 @@ import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type Mu
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
-import TextAlign from '@tiptap/extension-text-align';
 import { NodeSelection } from '@tiptap/pm/state';
 import { DOMParser, DOMSerializer } from '@tiptap/pm/model';
 import { planSelectionReplacement } from './editor/replace-selection';
 import { RewriteHold } from './editor/rewrite-hold';
+import { isFullWidthSlotLabel } from '../../../src/core/email-image';
 import {
   AlignCenter,
   AlignJustify,
@@ -58,7 +55,7 @@ import {
   shouldAcceptImageDrag,
 } from '../image-drop';
 import { looksLikeImageFile } from '../prepare-image';
-import { AudioBlock, EmailButton, EmailImage, ImageSlot, VideoBlock, type EmailButtonAttrs } from './editor/extensions';
+import { emailContentExtensions, type EmailButtonAttrs } from './editor/extensions';
 
 interface CommandItem {
   id: string;
@@ -553,7 +550,7 @@ export function TiptapEditor({
   openImageSlotRef.current = (pos) => {
     const node = editorRef.current?.state.doc.nodeAt(pos);
     const label = String(node?.attrs.label ?? '');
-    openImagePicker({ slotPos: pos, hero: label.includes('封面') });
+    openImagePicker({ slotPos: pos, hero: isFullWidthSlotLabel(label) });
   };
   replaceImageRef.current = (pos, hero) => openImagePicker({ replacePos: pos, hero });
 
@@ -657,16 +654,8 @@ export function TiptapEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [...HEADINGS] } }),
+      ...emailContentExtensions(),
       RewriteHold,
-      Underline,
-      Link.configure({ openOnClick: false, autolink: true }),
-      EmailImage,
-      TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'], defaultAlignment: 'left' }),
-      EmailButton,
-      ImageSlot,
-      AudioBlock,
-      VideoBlock,
       Placeholder.configure({
         includeChildren: true,
         placeholder: ({ node, pos, editor: current }) => {

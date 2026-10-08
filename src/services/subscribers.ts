@@ -2,7 +2,8 @@ import { parseCsv, toCsv } from '../core/csv.js';
 import { badRequest, conflict, notFound } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
-import { applyVariables, htmlToText, markdownToHtml, renderEmailLayout } from '../core/render.js';
+import { applyVariables, htmlToText, renderEmailLayout } from '../core/render.js';
+import { confirmEmailContentHtml } from '../core/system-emails.js';
 import { createToken, verifyToken } from '../core/tokens.js';
 import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.js';
 import type { Paged, Subscriber, SubscriberQuery, SubscriberStatus } from '../store/types.js';
@@ -40,17 +41,7 @@ export function unsubscribeUrl(
 
 async function sendConfirmEmail(ctx: ServiceContext, subscriber: Subscriber): Promise<void> {
   const link = confirmUrl(ctx, subscriber.email);
-  const contentHtml = markdownToHtml(
-    [
-      `### 再一步就完成訂閱`,
-      '',
-      `請點下面的連結確認你要收到 ${ctx.config.siteName} 的電子報。`,
-      '',
-      `[確認訂閱](${link})`,
-      '',
-      '如果這不是你本人操作，直接忽略這封信就好，我們不會把你加進名單。',
-    ].join('\n'),
-  );
+  const contentHtml = confirmEmailContentHtml(ctx.config.siteName, link);
   const html = renderEmailLayout({
     subject: `確認訂閱 ${ctx.config.siteName}`,
     preheader: '點一下連結就完成訂閱',
