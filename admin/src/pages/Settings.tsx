@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { api, type Session } from '../api';
 
 type Page = 'email' | 'ai' | 'agent';
-type EmailKind = 'dry_run' | 'webhook' | 'resend' | 'zeabur' | 'insforge' | 'http' | 'ses';
+type EmailKind = 'dry_run' | 'webhook' | 'resend' | 'portaly' | 'zeabur' | 'insforge' | 'http' | 'ses';
 type AgentPath = 'cursor' | 'claude' | 'codex' | 'http';
 
 interface EmailChoice {
@@ -157,6 +157,8 @@ function EmailSettings() {
       body.webhookSecret = secretInput;
     } else if (choice.kind === 'resend') {
       body.resendApiKey = secretInput;
+    } else if (choice.kind === 'portaly') {
+      body.portalyApiKey = secretInput;
     } else if (choice.kind === 'zeabur') {
       body.zeaburEndpoint = extraInput;
       body.zeaburToken = secretInput;
@@ -457,6 +459,7 @@ function emailEnvSample(choice: EmailChoice | undefined): string {
   if (!choice || choice.kind === 'dry_run') return `EMAIL_PROVIDER=dry_run\n${from}`;
   if (choice.kind === 'webhook') return `EMAIL_PROVIDER=webhook\nWEBHOOK_URL=https://example.com/send\nWEBHOOK_SECRET=\n${from}`;
   if (choice.kind === 'resend') return `EMAIL_PROVIDER=resend\nRESEND_API_KEY=\n${from}`;
+  if (choice.kind === 'portaly') return `EMAIL_PROVIDER=portaly\n# 金鑰在 https://portaly.cc/admin/email/api-keys 建立\nPORTALY_EMAIL_API_KEY=\n${from}`;
   if (choice.kind === 'zeabur') return `EMAIL_PROVIDER=zeabur\nZEABUR_ENDPOINT=https://example.com/send\nZEABUR_TOKEN=\n${from}`;
   if (choice.kind === 'insforge') return `EMAIL_PROVIDER=insforge\nINSFORGE_URL=\nINSFORGE_API_KEY=\n${from}`;
   if (choice.kind === 'ses') return `EMAIL_PROVIDER=webhook\nWEBHOOK_URL=https://example.com/ses\n${from}`;

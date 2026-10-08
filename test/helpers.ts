@@ -25,6 +25,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
       zeaburToken: undefined,
       insforgeUrl: undefined,
       insforgeApiKey: undefined,
+      portalyApiKey: undefined,
+      portalyApiHost: undefined,
       apiKey: undefined,
       apiExtra: undefined,
       platformSecrets: {},

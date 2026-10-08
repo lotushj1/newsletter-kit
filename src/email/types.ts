@@ -8,6 +8,11 @@ export interface EmailMessage {
   /** adapter 可以把它轉成 List-Unsubscribe header */
   unsubscribeUrl?: string | undefined;
   headers?: Record<string, string> | undefined;
+  /**
+   * 安全重試用的冪等鍵（例如 delivery id）。支援的供應商（如 Portaly）
+   * 會帶給 API，同一個鍵重試不會寄出第二封；其他 adapter 可忽略。
+   */
+  idempotencyKey?: string | undefined;
 }
 
 export type SendResult =
@@ -41,6 +46,10 @@ export interface AdapterContext {
   zeaburToken?: string | undefined;
   insforgeUrl?: string | undefined;
   insforgeApiKey?: string | undefined;
+  /** Portaly Email 的 API 金鑰（pem_…）。 */
+  portalyApiKey?: string | undefined;
+  /** 覆寫 Portaly API 位址，預設 https://portaly.ai。 */
+  portalyApiHost?: string | undefined;
   /** HTTP 平台的金鑰，例如 Postmark、SendGrid。 */
   apiKey?: string | undefined;
   /** 網域、端點或 Project ID。 */
