@@ -35,24 +35,30 @@ const toLocalInput = (iso?: string | null): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
-export function loginPage(siteName: string, options: { error?: string; next?: string } = {}): string {
+export function loginPage(siteName: string, options: { error?: string; next?: string; googleEnabled?: boolean } = {}): string {
   const error = options.error ? `<div class="notice error">${escapeHtml(options.error)}</div>` : '';
+  const next = escapeHtml(options.next ?? '/admin');
+  const tokenForm = `<form method="post" action="/admin/login">
+    <input type="hidden" name="next" value="${next}" />
+    <div class="ad-form-item">
+      <label for="token">ADMIN_TOKEN</label>
+      <input id="token" name="token" type="password" autocomplete="current-password" required />
+    </div>
+    <button type="submit" style="width:100%;margin-top:8px">登入</button>
+  </form>`;
+  const loginMethods = options.googleEnabled
+    ? `<p class="lede" style="text-align:center">使用有後台權限的 Google 帳號登入。</p>
+  <a class="btn google-login" href="/admin/auth/google?next=${encodeURIComponent(options.next ?? '/admin')}">用 Google 登入</a>
+  <details class="token-login"><summary>用管理密碼登入</summary>${tokenForm}</details>`
+    : `<p class="lede" style="text-align:center">輸入 <code>ADMIN_TOKEN</code>（設在 .env）。</p>${tokenForm}`;
   return page({
     title: `後台登入 — ${siteName}`,
     siteName,
     chrome: false,
     body: `<div class="ad-login-wrap"><div class="center-card">
   <h1 style="text-align:center">後台登入</h1>
-  <p class="lede" style="text-align:center">輸入 <code>ADMIN_TOKEN</code>（設在 .env）。</p>
   ${error}
-  <form method="post" action="/admin/login">
-    <input type="hidden" name="next" value="${escapeHtml(options.next ?? '/admin')}" />
-    <div class="ad-form-item">
-      <label for="token">ADMIN_TOKEN</label>
-      <input id="token" name="token" type="password" autocomplete="current-password" required />
-    </div>
-    <button type="submit" style="width:100%;margin-top:8px">登入</button>
-  </form>
+  ${loginMethods}
 </div></div>`,
   });
 }

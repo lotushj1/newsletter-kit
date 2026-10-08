@@ -5,10 +5,14 @@ import express, { Router } from 'express';
 import type { ServiceContext } from '../../services/context.js';
 import {
   clearAdminCookie,
+  createGoogleAdminSession,
+  isGoogleConfigured,
   isAuthorized,
   requireAdminPage,
+  sanitizeAdminNext,
   setAdminCookie,
 } from '../auth.js';
+import { createGoogleOAuth, GoogleLoginError } from '../google-auth.js';
 import { loginPage } from '../views/pages.js';
 
 const str = (value: unknown): string | undefined =>
@@ -28,30 +32,66 @@ function spaIndex(): string | null {
   return existsSync(index) ? readFileSync(index, 'utf8') : null;
 }
 
-export function adminUiRouter(ctx: ServiceContext): Router {
+export function adminUiRouter(ctx: ServiceContext, googleFetch: typeof fetch = fetch): Router {
   const router = Router();
   const { siteName } = ctx.config;
+  const googleOAuth = createGoogleOAuth(ctx.config, googleFetch);
+  const loginOptions = (next: string) => ({ next, googleEnabled: isGoogleConfigured(ctx.config) });
 
   router.get('/login', (req, res) => {
+    const next = sanitizeAdminNext(str(req.query.next));
     if (isAuthorized(ctx.config, req)) {
-      res.redirect('/admin');
+      res.redirect(next);
       return;
     }
-    res.type('html').send(loginPage(siteName, { next: str(req.query.next) ?? '/admin' }));
+    res.type('html').send(loginPage(siteName, loginOptions(next)));
   });
 
   router.post('/login', (req, res) => {
     const token = String(req.body?.token ?? '');
-    const next = String(req.body?.next ?? '/admin');
+    const next = sanitizeAdminNext(String(req.body?.next ?? '/admin'));
     if (token !== ctx.config.adminToken) {
       res
         .status(401)
         .type('html')
-        .send(loginPage(siteName, { error: 'Token 不正確。', next }));
+        .send(loginPage(siteName, { ...loginOptions(next), error: 'Token 不正確。' }));
       return;
     }
     setAdminCookie(res, token, ctx.config.publicBaseUrl.startsWith('https://'));
-    res.redirect(next.startsWith('/') ? next : '/admin');
+    res.redirect(next);
+  });
+
+  router.get('/auth/google', (req, res) => {
+    if (!isGoogleConfigured(ctx.config)) {
+      res.status(404).type('html').send(loginPage(siteName, {
+        ...loginOptions('/admin'),
+        error: 'Google 登入目前未啟用。',
+      }));
+      return;
+    }
+    const next = sanitizeAdminNext(str(req.query.next));
+    res.redirect(googleOAuth.begin(res, next));
+  });
+
+  router.get('/auth/google/callback', async (req, res) => {
+    try {
+      const { email, next } = await googleOAuth.finish(req, res);
+      setAdminCookie(
+        res,
+        createGoogleAdminSession(ctx.config, email),
+        ctx.config.publicBaseUrl.startsWith('https://'),
+      );
+      res.redirect(next);
+    } catch (error) {
+      const status = error instanceof GoogleLoginError ? error.status : 502;
+      const message = error instanceof GoogleLoginError
+        ? error.message
+        : '無法完成 Google 登入，請稍後重試。';
+      res.status(status).type('html').send(loginPage(siteName, {
+        ...loginOptions('/admin'),
+        error: message,
+      }));
+    }
   });
 
   router.post('/logout', (_req, res) => {
