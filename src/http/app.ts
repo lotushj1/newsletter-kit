@@ -32,7 +32,7 @@ function cors(
   };
 }
 
-export function createApp(ctx: ServiceContext): Express {
+export function createApp(ctx: ServiceContext, options: { googleFetch?: typeof fetch } = {}): Express {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -59,7 +59,7 @@ export function createApp(ctx: ServiceContext): Express {
   app.use('/', trackingRouter(ctx));
   app.use('/mcp', mcpRouter(ctx));
   app.use('/api/admin', adminApiRouter(ctx));
-  app.use('/admin', adminUiRouter(ctx));
+  app.use('/admin', adminUiRouter(ctx, options.googleFetch));
 
   app.use((req, res) => {
     if (req.path.startsWith('/api/')) {

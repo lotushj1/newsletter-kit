@@ -31,7 +31,7 @@
 - **自動化**：新訂閱／匯入標籤／外部事件觸發簡單序列信（第 0／3／7 天）
 - **預覽**：後台即時預覽、寄測試信
 - **公開端點**：訂閱 API、確認頁、退訂頁、已寄出電子報的封存頁（`/archive`）
-- **後台**：React SPA，單一 token 登入
+- **後台**：React SPA，可用管理密碼登入，也可選配 Google 登入
 - **Agent**：Admin API 與 MCP 對齊，後台能做的操作都能呼叫
 
 ## 不做什麼
@@ -50,6 +50,14 @@ npm run dev
 ```
 
 打開 <http://localhost:4400/admin>，用 `.env` 裡的 `ADMIN_TOKEN` 登入。
+
+### 後台登入
+
+管理密碼登入預設可用。若要讓指定 Google 帳號登入，在 Google Cloud 建立「網頁應用程式」OAuth 用戶端，將授權重新導向 URI 設為 `PUBLIC_BASE_URL` 加上 `/admin/auth/google/callback`。例如 `PUBLIC_BASE_URL=https://newsletter.example.com` 時，回呼網址是 `https://newsletter.example.com/admin/auth/google/callback`。若使用 `GOOGLE_REDIRECT_URI` 覆寫，也要在 Google Cloud 登錄完全相同的網址。
+
+設定 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 與 `ADMIN_GOOGLE_EMAILS`（逗號分隔，可填多個 email）後，登入頁才會顯示「用 Google 登入」。只有白名單中的已驗證 email 能進入後台；只設定其中一部分時，Google 登入會停用並顯示設定警告，管理密碼仍可登入。Google 授權從 `GET /admin/auth/google` 開始，回呼路徑是 `GET /admin/auth/google/callback`。
+
+瀏覽器登入使用 HttpOnly、SameSite=Lax 的 `nk_admin` Cookie；對外網址為 HTTPS 時會加上 Secure。Google 登入產生由 `APP_SECRET` 簽署的 14 天工作階段，移除白名單 email 或更換 `APP_SECRET` 都會讓該 Google 工作階段失效。`ADMIN_TOKEN` 仍是正式環境必填，也仍可供管理密碼登入、Admin API 和 MCP 的 `Authorization: Bearer <ADMIN_TOKEN>` 使用。Agent 請用 Bearer token，不要使用瀏覽器 Cookie。
 
 預設是 `EMAIL_PROVIDER=dry_run`，不會真的寄出任何東西 —— 先把流程跑一遍，
 確認沒問題再換成真的供應商。
@@ -322,9 +330,13 @@ NEWSLETTER_URL=https://your-newsletter.example npm run mcp
 
 | 變數 | 預設 | 說明 |
 | --- | --- | --- |
-| `APP_SECRET` | — | **正式環境必填**，簽確認／退訂／追蹤連結 |
-| `ADMIN_TOKEN` | — | **正式環境必填**，後台、Admin API、MCP 共用 |
-| `PUBLIC_BASE_URL` | `http://localhost:4400` | 組信裡連結用的對外網址 |
+| `APP_SECRET` | — | **正式環境必填**，簽確認／退訂／追蹤連結與 Google 後台工作階段 |
+| `ADMIN_TOKEN` | — | **正式環境必填**，管理密碼登入及 Admin API、MCP 的 Bearer token |
+| `PUBLIC_BASE_URL` | `http://localhost:4400` | 對外網址，用於信件連結及 Google 登入回呼網址 |
+| `GOOGLE_CLIENT_ID` | — | Google OAuth 網頁應用程式用戶端 ID；須連同下列兩項設定才會啟用 |
+| `GOOGLE_CLIENT_SECRET` | — | Google OAuth 用戶端密鑰 |
+| `ADMIN_GOOGLE_EMAILS` | — | 可登入後台的 Google email，逗號分隔；比對前會去除空白並轉小寫 |
+| `GOOGLE_REDIRECT_URI` | `PUBLIC_BASE_URL/admin/auth/google/callback` | 選填。覆寫 Google 回呼網址，須與 Google Cloud 的設定一致 |
 | `NEWSLETTER_URL` | — | 選填。本機 `npm run mcp` 要打遠端實例時用 |
 | `SITE_NAME` | `Newsletter` | 顯示在後台與信件頁尾 |
 | `EMAIL_PROVIDER` | `dry_run` | 用哪個 adapter |

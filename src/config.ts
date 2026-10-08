@@ -37,6 +37,12 @@ export interface Config {
   siteName: string;
   appSecret: string;
   adminToken: string;
+  google: {
+    clientId: string | undefined;
+    clientSecret: string | undefined;
+    adminEmails: string[];
+    redirectUri: string;
+  };
   store: { driver: StoreDriver; path: string };
   uploadsPath: string;
   email: {
@@ -146,15 +152,34 @@ export function loadConfig(): Config {
       : './data/newsletter.db';
 
   const port = num('PORT', 4400);
+  const publicBaseUrl = str('PUBLIC_BASE_URL', defaultPublicBaseUrl(port)).replace(/\/+$/, '');
   const corsRaw = str('CORS_ORIGINS', '*');
   const provider = aiProvider();
+  const googleClientId = optional('GOOGLE_CLIENT_ID')?.trim() || undefined;
+  const googleClientSecret = optional('GOOGLE_CLIENT_SECRET')?.trim() || undefined;
+  const googleEmails = [...new Set(
+    (optional('ADMIN_GOOGLE_EMAILS') ?? '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  )];
+  const googleParts = [Boolean(googleClientId), Boolean(googleClientSecret), googleEmails.length > 0];
+  if (googleParts.some(Boolean) && !googleParts.every(Boolean)) {
+    warnings.push('Google 後台登入設定不完整；需同時設定 GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET 與 ADMIN_GOOGLE_EMAILS，已停用 Google 登入。');
+  }
 
   return {
     port,
-    publicBaseUrl: str('PUBLIC_BASE_URL', defaultPublicBaseUrl(port)).replace(/\/+$/, ''),
+    publicBaseUrl,
     siteName: str('SITE_NAME', DEFAULT_SITE_NAME),
     appSecret,
     adminToken,
+    google: {
+      clientId: googleClientId,
+      clientSecret: googleClientSecret,
+      adminEmails: googleEmails,
+      redirectUri: optional('GOOGLE_REDIRECT_URI')?.trim() || `${publicBaseUrl}/admin/auth/google/callback`,
+    },
     store: { driver, path: str('STORE_PATH', defaultPath) },
     uploadsPath: str('UPLOADS_PATH', onVercel ? '/tmp/newsletter-uploads' : './data/uploads'),
     email: {

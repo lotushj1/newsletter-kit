@@ -224,6 +224,11 @@ iframe.preview{width:100%;height:520px;border:1px solid var(--border);border-rad
 .ad-result-icon.error{background:var(--destructive);color:#fff}
 .ad-login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--muted);padding:1.5rem}
 .ad-login-wrap .center-card{margin:0}
+.google-login{display:flex;width:100%;margin:8px 0 20px}
+.token-login{border-top:1px solid var(--border);padding-top:14px}
+.token-login summary{cursor:pointer;text-align:center;color:var(--muted-foreground);font-size:var(--text-sm)}
+.token-login summary:hover{color:var(--foreground);text-decoration:underline}
+.token-login form{margin-top:18px}
 `;
 
 export interface PageOptions {

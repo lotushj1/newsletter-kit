@@ -12,6 +12,12 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     siteName: '測試電子報',
     appSecret: 'test-secret',
     adminToken: 'test-admin-token',
+    google: {
+      clientId: undefined,
+      clientSecret: undefined,
+      adminEmails: [],
+      redirectUri: 'https://newsletter.test/admin/auth/google/callback',
+    },
     store: { driver: 'memory', path: ':memory:' },
     uploadsPath: join(tmpdir(), 'newsletter-kit-test-uploads'),
     email: {
