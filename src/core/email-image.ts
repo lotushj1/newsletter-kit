@@ -25,13 +25,60 @@ export const EMAIL_HERO_STYLE =
 export const EMAIL_COVER_STYLE =
   'width:100%;max-width:600px;height:auto;display:block;border:0;margin:0;';
 
-const LEADING_HERO_RE =
-  /^\s*(?:<p\b[^>]*>\s*(<img\b[^>]*\bdata-email-hero\b[^>]*>)\s*<\/p>|(<img\b[^>]*\bdata-email-hero\b[^>]*>))/i;
+/** 內文滿版圖與封面共用：貼齊白卡片左右邊緣。 */
+export const EMAIL_FULLWIDTH_STYLE = EMAIL_COVER_STYLE;
+
+const LEADING_IMG_RE =
+  /^\s*(?:<p\b[^>]*>\s*(<img\b[^>]*>)\s*<\/p>|(<img\b[^>]*>))/i;
+
+const BLEED_IMG_RE =
+  /(?:<p\b[^>]*>\s*)?(<img\b[^>]*\bdata-email-fullwidth\s*=\s*["']?1["']?[^>]*>)\s*(?:<\/p>)?/gi;
+
+export function isFullWidthImageTag(tag: string): boolean {
+  return /data-email-fullwidth\s*=\s*["']?1["']?/i.test(tag);
+}
+
+export function isNormalWidthImageTag(tag: string): boolean {
+  return /data-email-fullwidth\s*=\s*["']?0["']?/i.test(tag);
+}
+
+/** 開頭要抽成貼邊封面：明確滿版，或舊的 hero 且沒有指定一般寬度。 */
+export function isCoverImageTag(tag: string): boolean {
+  if (isNormalWidthImageTag(tag)) return false;
+  return isFullWidthImageTag(tag) || /\bdata-email-hero\b/i.test(tag);
+}
+
+export function imageInlineStyle(tag: string): string {
+  if (isFullWidthImageTag(tag)) return EMAIL_FULLWIDTH_STYLE;
+  if (isNormalWidthImageTag(tag)) return EMAIL_IMAGE_STYLE;
+  if (/\bdata-email-hero\b/i.test(tag)) return EMAIL_HERO_STYLE;
+  return EMAIL_IMAGE_STYLE;
+}
 
 export function splitLeadingHero(html: string): { coverHtml: string | null; bodyHtml: string } {
-  const match = LEADING_HERO_RE.exec(html);
+  const match = LEADING_IMG_RE.exec(html);
   if (!match) return { coverHtml: null, bodyHtml: html };
-  return { coverHtml: match[1] || match[2] || null, bodyHtml: html.slice(match[0].length) };
+  const tag = match[1] || match[2] || '';
+  if (!tag || !isCoverImageTag(tag)) return { coverHtml: null, bodyHtml: html };
+  return { coverHtml: tag, bodyHtml: html.slice(match[0].length) };
+}
+
+export type EmailBodySegment = { type: 'content' | 'bleed'; html: string };
+
+export function splitBleedSegments(html: string): EmailBodySegment[] {
+  const segments: EmailBodySegment[] = [];
+  let last = 0;
+  BLEED_IMG_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BLEED_IMG_RE.exec(html))) {
+    const before = html.slice(last, match.index);
+    if (before) segments.push({ type: 'content', html: before });
+    segments.push({ type: 'bleed', html: match[1] ?? match[0] });
+    last = match.index + match[0].length;
+  }
+  const rest = html.slice(last);
+  if (rest) segments.push({ type: 'content', html: rest });
+  return segments;
 }
 
 export function applyImgStyle(tag: string, style: string): string {

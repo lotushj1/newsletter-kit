@@ -2,9 +2,10 @@ import { marked } from 'marked';
 import { emailButtonMarkup, normalizeEmailButtonStyle } from './email-button.js';
 import {
   applyImgStyle,
-  EMAIL_COVER_STYLE,
-  EMAIL_HERO_STYLE,
+  EMAIL_FULLWIDTH_STYLE,
   EMAIL_IMAGE_STYLE,
+  imageInlineStyle,
+  splitBleedSegments,
   splitLeadingHero,
 } from './email-image.js';
 import { DEFAULT_UNSUBSCRIBE_LABEL, DEFAULT_UNSUBSCRIBE_PROMPT } from '../store/types.js';
@@ -107,8 +108,7 @@ export function styleRichContent(html: string): string {
     })
     .replace(/<img\b([^>]*)>/gi, (match, attrs: string) => {
       if (/\sstyle\s*=/i.test(attrs)) return match;
-      const style = /data-email-hero/i.test(attrs) ? EMAIL_HERO_STYLE : EMAIL_IMAGE_STYLE;
-      return `<img${attrs} style="${style}">`;
+      return `<img${attrs} style="${imageInlineStyle(match)}">`;
     });
 }
 
@@ -116,6 +116,12 @@ export function absolutizeMediaUrls(html: string, baseUrl?: string): string {
   if (!baseUrl) return html;
   const origin = baseUrl.replace(/\/+$/, '');
   return html.replace(/(src=")(\/(?:media|sig-icons)\/[^"]+)/gi, `$1${origin}$2`);
+}
+
+/** 把完整信件 HTML 抽成 <body> 內容，給公開封存頁嵌進既有版型。 */
+export function innerEmailHtml(documentHtml: string): string {
+  const match = /<body[^>]*>([\s\S]*)<\/body>/i.exec(documentHtml);
+  return (match?.[1] ?? documentHtml).trim();
 }
 
 export const EMAIL_CARD_WIDTH = 600;
@@ -161,16 +167,48 @@ export function buildUnsubscribeHtml(
  * 通用 email 版型：table 排版 + inline style，避免各家信箱把 CSS 丟掉。
  * 想換設計就改這一個函式，核心不碰樣式。
  */
+const EMAIL_BODY_FONT =
+  "400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC','PingFang TC',sans-serif";
+
+function bleedRow(imgHtml: string): string {
+  return `<tr><td style="padding:0;font-size:0;line-height:0;">${applyImgStyle(imgHtml, EMAIL_FULLWIDTH_STYLE)}</td></tr>`;
+}
+
+function contentRow(html: string, padTop: number, padBottom: number): string {
+  return `<tr>
+          <td style="padding:${padTop}px ${EMAIL_BODY_PAD_X}px ${padBottom}px;font:${EMAIL_BODY_FONT};color:#1c1917;">
+            ${html}
+          </td>
+        </tr>`;
+}
+
+function emailCardRows(coverHtml: string, bodyHtml: string): string {
+  const coverRow = coverHtml ? bleedRow(coverHtml) : '';
+  const segments = splitBleedSegments(bodyHtml).filter(
+    (segment) => segment.type === 'bleed' || segment.html.trim(),
+  );
+  if (segments.length === 0) {
+    return `${coverRow}${contentRow('', EMAIL_BODY_PAD_TOP, EMAIL_BODY_PAD_BOTTOM)}`;
+  }
+  if (segments.length === 1 && segments[0]?.type === 'content') {
+    return `${coverRow}${contentRow(segments[0].html, EMAIL_BODY_PAD_TOP, EMAIL_BODY_PAD_BOTTOM)}`;
+  }
+  const rows = segments.map((segment, index) => {
+    if (segment.type === 'bleed') return bleedRow(segment.html);
+    const padTop = index === 0 ? EMAIL_BODY_PAD_TOP : 16;
+    const padBottom = index === segments.length - 1 ? EMAIL_BODY_PAD_BOTTOM : 16;
+    return contentRow(segment.html, padTop, padBottom);
+  });
+  return `${coverRow}${rows.join('')}`;
+}
+
 export function renderEmailLayout(input: EmailLayoutInput): string {
   const { subject, preheader, unsubscribeUrl, footerNote } = input;
   const split = splitLeadingHero(input.contentHtml);
   const coverHtml = split.coverHtml
-    ? absolutizeMediaUrls(applyImgStyle(split.coverHtml, EMAIL_COVER_STYLE), input.publicBaseUrl)
+    ? absolutizeMediaUrls(split.coverHtml, input.publicBaseUrl)
     : '';
   const contentHtml = absolutizeMediaUrls(styleRichContent(split.bodyHtml), input.publicBaseUrl);
-  const coverRow = coverHtml
-    ? `<tr><td style="padding:0;font-size:0;line-height:0;">${coverHtml}</td></tr>`
-    : '';
   const preheaderBlock = preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0;">${escapeHtml(preheader)}</div>`
     : '';
@@ -198,12 +236,7 @@ ${preheaderBlock}
   <tr>
     <td align="center" style="padding:${EMAIL_FRAME_PAD}px;">
       <table role="presentation" width="${EMAIL_CARD_WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${EMAIL_CARD_WIDTH}px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        ${coverRow}
-        <tr>
-          <td style="padding:${EMAIL_BODY_PAD_TOP}px ${EMAIL_BODY_PAD_X}px ${EMAIL_BODY_PAD_BOTTOM}px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC','PingFang TC',sans-serif;color:#1c1917;">
-            ${contentHtml}
-          </td>
-        </tr>
+        ${emailCardRows(coverHtml, contentHtml)}
       </table>
       ${belowCard}
     </td>

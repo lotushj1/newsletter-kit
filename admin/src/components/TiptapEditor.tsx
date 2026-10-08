@@ -51,6 +51,13 @@ import {
   normalizeEmailButtonStyle,
 } from '../../../src/core/email-button.js';
 import { api, type ContentTemplate } from '../api';
+import {
+  filesFromDataTransfer,
+  filesFromDrop,
+  isExternalImageDrop,
+  shouldAcceptImageDrag,
+} from '../image-drop';
+import { looksLikeImageFile } from '../prepare-image';
 import { AudioBlock, EmailButton, EmailImage, ImageSlot, VideoBlock, type EmailButtonAttrs } from './editor/extensions';
 
 interface CommandItem {
@@ -311,6 +318,10 @@ export function TiptapEditor({
   const fileRef = useRef<HTMLInputElement>(null);
   const openImageSlotRef = useRef<(pos: number) => void>(() => undefined);
   const replaceImageRef = useRef<(pos: number, hero: boolean) => void>(() => undefined);
+  const ingestFilesRef = useRef<(files: File[], mode: 'picker' | 'drop', dropPos?: number) => Promise<void>>(
+    async () => undefined,
+  );
+  const ingestDropRef = useRef<(dt: DataTransfer, dropPos?: number) => Promise<void>>(async () => undefined);
   const [imageError, setImageError] = useState('');
   const [imageBusy, setImageBusy] = useState(false);
   const onInspectingChangeRef = useRef(onInspectingChange);
@@ -427,16 +438,18 @@ export function TiptapEditor({
     fileRef.current?.click();
   };
 
-  const insertUploadedImage = (src: string) => {
+  const insertUploadedImage = (src: string, opts?: { pos?: number; asNew?: boolean }) => {
     const current = editorRef.current;
     if (!current) return;
-    const slotPos = slotPosRef.current;
-    const replacePos = replacePosRef.current;
-    const hero = imageHeroRef.current;
-    slotPosRef.current = null;
-    replacePosRef.current = null;
-    imageHeroRef.current = false;
-    const attrs = hero ? { src, hero: '1' } : { src };
+    const slotPos = opts?.asNew ? null : slotPosRef.current;
+    const replacePos = opts?.asNew ? null : replacePosRef.current;
+    const hero = opts?.asNew ? false : imageHeroRef.current;
+    if (!opts?.asNew) {
+      slotPosRef.current = null;
+      replacePosRef.current = null;
+      imageHeroRef.current = false;
+    }
+    const attrs = hero ? { src, hero: '1', fullwidth: '1' } : { src, fullwidth: '0' };
     if (slotPos != null) {
       const node = current.state.doc.nodeAt(slotPos);
       if (node?.type.name === 'imageSlot') {
@@ -455,34 +468,60 @@ export function TiptapEditor({
           .chain()
           .focus(undefined, FOCUS)
           .command(({ tr }) => {
-            tr.setNodeMarkup(replacePos, undefined, { ...node.attrs, ...attrs });
+            tr.setNodeMarkup(replacePos, undefined, { ...node.attrs, src, hero: hero ? '1' : node.attrs.hero });
             return true;
           })
           .run();
         return;
       }
     }
+    if (opts?.pos != null) {
+      const size = current.state.doc.content.size;
+      const pos = Math.max(0, Math.min(opts.pos, size));
+      current.chain().focus(undefined, FOCUS).insertContentAt(pos, { type: 'image', attrs }).run();
+      return;
+    }
     current.chain().focus(undefined, FOCUS).setImage(attrs).run();
   };
 
-  const onPickImage = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (file.type === 'image/svg+xml' || !file.type.startsWith('image/')) {
+  const ingestFiles = async (files: File[], mode: 'picker' | 'drop', dropPos?: number) => {
+    const images = files.filter((file) => looksLikeImageFile(file) && file.type !== 'image/svg+xml');
+    if (files.length > 0 && images.length === 0) {
       setImageError('只接受 JPG、PNG、GIF 或 WebP');
       return;
     }
+    if (images.length === 0) return;
     setImageBusy(true);
     setImageError('');
     try {
-      const uploaded = await api.uploadImage(file);
-      insertUploadedImage(uploaded.url);
+      for (let index = 0; index < images.length; index += 1) {
+        const uploaded = await api.uploadImage(images[index]!);
+        if (mode === 'picker' && index === 0) insertUploadedImage(uploaded.url);
+        else insertUploadedImage(uploaded.url, { pos: dropPos, asNew: true });
+        dropPos = undefined;
+      }
     } catch (err) {
       setImageError(err instanceof Error ? err.message : '上傳失敗');
     } finally {
       setImageBusy(false);
     }
+  };
+  ingestFilesRef.current = ingestFiles;
+
+  const ingestDrop = async (dt: DataTransfer, dropPos?: number) => {
+    try {
+      const files = await filesFromDrop(dt);
+      await ingestFiles(files, 'drop', dropPos);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : '上傳失敗');
+    }
+  };
+  ingestDropRef.current = ingestDrop;
+
+  const onPickImage = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    void ingestFiles(files, 'picker');
   };
 
   const openUrl = (field: UrlField) => {
@@ -645,6 +684,33 @@ export function TiptapEditor({
     editable,
     editorProps: {
       attributes: { class: 'tiptap' },
+      handleDOMEvents: {
+        dragover: (_view, event) => {
+          if (!editableRef.current || !shouldAcceptImageDrag(event.dataTransfer)) return false;
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+          return false;
+        },
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        if (!editableRef.current || moved) return false;
+        const dt = event.dataTransfer;
+        if (!dt || !isExternalImageDrop(dt)) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        void ingestDropRef.current(dt, pos);
+        return true;
+      },
+      handlePaste: (_view, event) => {
+        if (!editableRef.current) return false;
+        const dt = event.clipboardData;
+        if (!dt) return false;
+        const files = filesFromDataTransfer(dt);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void ingestFilesRef.current(files, 'drop');
+        return true;
+      },
       handleClickOn: (_view, _pos, node, nodePos) => {
         if (!editableRef.current) return false;
         if (node.type.name === 'imageSlot') {
@@ -997,6 +1063,27 @@ export function TiptapEditor({
 
   const menuItems = menu?.kind === 'plus' || menu?.kind === 'slash' ? slashItems : [];
   const currentAlign = ALIGNS.find((item) => editor.isActive({ textAlign: item.id })) ?? ALIGNS[0];
+  const imageLayout = (() => {
+    if (!editable) return null;
+    const { selection } = editor.state;
+    if (!(selection instanceof NodeSelection) || selection.node.type.name !== 'image') return null;
+    const wrap = wrapRef.current?.getBoundingClientRect();
+    const dom = editor.view.nodeDOM(selection.from);
+    if (!(dom instanceof HTMLElement) || !wrap) return null;
+    const rect = dom.getBoundingClientRect();
+    const leading = selection.$from.index(0) === 0;
+    const attr = String(selection.node.attrs.fullwidth ?? '');
+    const full =
+      attr === '1' || (attr !== '0' && Boolean(selection.node.attrs.hero) && leading);
+    return {
+      full,
+      top: Math.max(4, rect.top - wrap.top - 36),
+      left: Math.max(36, rect.left - wrap.left),
+    };
+  })();
+  const setImageFullwidth = (fullwidth: '1' | '0') => {
+    editor.chain().focus(undefined, FOCUS).updateAttributes('image', { fullwidth }).run();
+  };
 
   return (
     <div className="tt-editor" ref={wrapRef}>
@@ -1211,10 +1298,26 @@ export function TiptapEditor({
         ref={fileRef}
         type="file"
         accept="image/jpeg,image/png,image/gif,image/webp"
+        multiple
         hidden
         onChange={(event) => void onPickImage(event)}
       />
-      <div className="tt-canvas">
+      <div
+        className="tt-canvas"
+        onDragOver={(event) => {
+          if (!shouldAcceptImageDrag(event.dataTransfer)) return;
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={(event) => {
+          if (event.defaultPrevented) return;
+          const dt = event.dataTransfer;
+          if (!dt || !isExternalImageDrop(dt)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          void ingestDropRef.current(dt);
+        }}
+      >
         {imageBusy && <div className="tt-image-status">圖片上傳中…</div>}
         {imageError && <div className="notice error">{imageError}</div>}
         <EditorContent editor={editor} />
@@ -1277,6 +1380,28 @@ export function TiptapEditor({
               </form>
             </>
           )}
+        </div>
+      )}
+      {editable && imageLayout && (
+        <div className="tt-image-layout" style={{ top: imageLayout.top, left: imageLayout.left }} role="group" aria-label="圖片寬度">
+          <button
+            type="button"
+            className={imageLayout.full ? 'is-active' : ''}
+            aria-pressed={imageLayout.full}
+            onMouseDown={keepFocus}
+            onClick={() => setImageFullwidth('1')}
+          >
+            滿版
+          </button>
+          <button
+            type="button"
+            className={!imageLayout.full ? 'is-active' : ''}
+            aria-pressed={!imageLayout.full}
+            onMouseDown={keepFocus}
+            onClick={() => setImageFullwidth('0')}
+          >
+            一般
+          </button>
         </div>
       )}
       {editable && plus && menu?.kind !== 'plus' && (
