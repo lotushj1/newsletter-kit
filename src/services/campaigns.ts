@@ -366,9 +366,15 @@ export async function renderPublicCampaign(
   const campaign = await ctx.store.getCampaignBySlug(slug);
   if (!campaign || campaign.status !== 'sent') return null;
   const variables = mergeBrandVariables(publicVariables(ctx), await getBrand(ctx), ctx.config.publicBaseUrl);
-  return {
-    campaign,
-    subject: applyCampaignVariables(campaign.subject, variables, 'text'),
-    html: brandedContentHtml(campaignContentHtml(campaign), variables),
-  };
+  const subject = applyCampaignVariables(campaign.subject, variables, 'text');
+  const html = renderEmailLayout({
+    subject,
+    preheader: campaign.preheader
+      ? applyCampaignVariables(campaign.preheader, variables, 'text')
+      : undefined,
+    contentHtml: brandedContentHtml(campaignContentHtml(campaign), variables),
+    siteName: ctx.config.siteName,
+    publicBaseUrl: ctx.config.publicBaseUrl,
+  });
+  return { campaign, subject, html };
 }

@@ -1,4 +1,4 @@
-import { escapeHtml } from '../../core/render.js';
+import { escapeHtml, innerEmailHtml } from '../../core/render.js';
 import type {
   Campaign,
   CampaignStatus,
@@ -959,7 +959,7 @@ export function archiveItemPage(
     `<p class="muted" style="margin:0 0 16px"><a href="/archive">← 全部封存</a></p>
 <h1>${escapeHtml(campaign.title)}</h1>
 <p class="lede">${escapeHtml(subject)}${campaign.sentAt ? ` · ${formatTime(campaign.sentAt)}` : ''}</p>
-<article>${html}</article>`,
+<article class="archive-letter">${innerEmailHtml(html)}</article>`,
   );
 }
 

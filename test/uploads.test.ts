@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppError } from '../src/core/errors.js';
 import { absolutizeMediaUrls } from '../src/core/render.js';
+import { IMAGE_TOO_LARGE_MESSAGE, MAX_IMAGE_BYTES } from '../src/core/upload-limits.js';
 import { resolvePublicUpload, saveImageUpload, sniffImage } from '../src/core/uploads.js';
 
 const PNG_1X1 =
@@ -37,6 +38,13 @@ describe('圖片上傳', () => {
     expect(sniffImage(Buffer.from(SVG, 'base64'))).toBeNull();
     expect(resolvePublicUpload(dir, '../secret.png')).toBeNull();
     expect(resolvePublicUpload(dir, 'not-an-upload.jpg')).toBeNull();
+  });
+
+  it('解碼後超過上限時拒絕，避免 JSON 打到 Vercel 4.5 MB', () => {
+    const dir = tempDir();
+    const png = Buffer.from(PNG_1X1, 'base64');
+    const huge = Buffer.concat([png, Buffer.alloc(MAX_IMAGE_BYTES + 1)]);
+    expect(() => saveImageUpload(dir, huge.toString('base64'))).toThrow(IMAGE_TOO_LARGE_MESSAGE);
   });
 
   it('寄出時把相對 /media 與簽名圖示補成絕對網址', () => {

@@ -4,8 +4,9 @@ import type { StoreDriver } from '../config.js';
 import { badRequest } from './errors.js';
 import { newId } from './ids.js';
 import { createInsForgeBackend } from './insforge.js';
+import { IMAGE_TOO_LARGE_MESSAGE, MAX_IMAGE_BYTES } from './upload-limits.js';
 
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export { MAX_IMAGE_BYTES } from './upload-limits.js';
 
 const TYPES = {
   jpg: 'image/jpeg',
@@ -58,7 +59,7 @@ export function saveImageUpload(
 ): { fileName: string; url: string; mime: string } {
   const buf = decodeImageBase64(fileBase64);
   if (buf.length === 0) throw badRequest('請選擇圖片');
-  if (buf.length > MAX_IMAGE_BYTES) throw badRequest('圖片請小於 5 MB');
+  if (buf.length > MAX_IMAGE_BYTES) throw badRequest(IMAGE_TOO_LARGE_MESSAGE);
   const kind = sniffImage(buf);
   if (!kind) throw badRequest('只接受 JPG、PNG、GIF 或 WebP');
   mkdirSync(dir, { recursive: true });
@@ -74,7 +75,7 @@ export async function saveCampaignImage(
   if (input.driver !== 'insforge') return saveImageUpload(input.uploadsPath, fileBase64);
   const buf = decodeImageBase64(fileBase64);
   if (buf.length === 0) throw badRequest('請選擇圖片');
-  if (buf.length > MAX_IMAGE_BYTES) throw badRequest('圖片請小於 5 MB');
+  if (buf.length > MAX_IMAGE_BYTES) throw badRequest(IMAGE_TOO_LARGE_MESSAGE);
   const kind = sniffImage(buf);
   if (!kind) throw badRequest('只接受 JPG、PNG、GIF 或 WebP');
   const fileName = `${newId('img')}.${kind.ext}`;

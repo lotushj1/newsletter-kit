@@ -176,6 +176,8 @@ iframe.preview{width:100%;height:520px;border:1px solid var(--border);border-rad
 .center-card,.archive-wrap{max-width:26rem;margin:0 auto;background:var(--card);border:1px solid var(--border);
   border-radius:var(--radius-lg);padding:2rem;box-shadow:0 1px 2px oklch(0.145 0 0 / 0.04)}
 .archive-wrap{width:min(42rem,100%);max-width:42rem}
+.archive-letter{margin-top:1.25rem}
+.archive-letter table{max-width:100%}
 .ad-result-icon{width:3rem;height:3rem;border-radius:999px;display:flex;align-items:center;justify-content:center;
   margin:0 auto 1.25rem;font-size:1.25rem;border:1px solid var(--border);background:var(--secondary)}
 .ad-result-icon.ok{background:var(--primary);color:var(--primary-foreground);border:0}

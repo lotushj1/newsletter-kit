@@ -40,7 +40,22 @@ export const EmailImage = Image.extend({
         parseHTML: (element) => element.getAttribute('data-email-hero'),
         renderHTML: (attributes) => (attributes.hero ? { 'data-email-hero': String(attributes.hero) } : {}),
       },
+      fullwidth: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-email-fullwidth'),
+        renderHTML: (attributes) =>
+          attributes.fullwidth === '1' || attributes.fullwidth === '0'
+            ? { 'data-email-fullwidth': String(attributes.fullwidth) }
+            : {},
+      },
     };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'img[src]:not([src^="data:"]):not([src^="blob:"]):not([src^="file:"])',
+      },
+    ];
   },
 });
 

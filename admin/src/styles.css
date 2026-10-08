@@ -536,11 +536,27 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .tt-editor .tiptap .email-media figcaption { margin-top: 8px; font-size: 12px; color: var(--muted-foreground); }
 .tt-editor .tiptap img { max-width: 420px; width: 100%; height: auto; display: block; margin: 16px auto; outline: 1px solid oklch(0 0 0 / 0.1); border-radius: 10px; }
 .tt-editor .tiptap img[data-email-hero] { max-width: 100%; margin: 16px auto; outline: 0; border-radius: 10px; }
-.tt-editor .tiptap > img[data-email-hero]:first-child,
-.tt-editor .tiptap > p:first-child:has(> img[data-email-hero]:only-child) img {
+.tt-editor .tiptap img[data-email-fullwidth="0"] { max-width: 420px; margin: 16px auto; border-radius: 10px; outline: 1px solid oklch(0 0 0 / 0.1); }
+.tt-editor .tiptap img[data-email-fullwidth="1"] { width: 100%; max-width: 100%; margin: 16px auto; border-radius: 0; outline: 0; }
+.tt-editor .tiptap > img[data-email-hero]:first-child:not([data-email-fullwidth="0"]),
+.tt-editor .tiptap > img[data-email-fullwidth="1"]:first-child,
+.tt-editor .tiptap > p:first-child:has(> img[data-email-hero]:only-child):not(:has([data-email-fullwidth="0"])) img,
+.tt-editor .tiptap > p:first-child:has(> img[data-email-fullwidth="1"]:only-child) img {
   width: 100%; max-width: 100%; margin: 0 0 20px; border-radius: 0; outline: 0;
 }
-.tt-editor .tiptap > p:first-child:has(> img[data-email-hero]:only-child) { margin: 0 0 20px; }
+.tt-editor .tiptap > p:first-child:has(> img[data-email-hero]:only-child),
+.tt-editor .tiptap > p:first-child:has(> img[data-email-fullwidth="1"]:only-child) { margin: 0 0 20px; }
+.tt-editor .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--ring); outline-offset: 3px; }
+.tt-image-layout {
+  position: absolute; z-index: 6; display: flex; gap: 2px; padding: 3px;
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px oklch(0.145 0 0 / 0.08);
+}
+.tt-image-layout button {
+  height: 1.75rem; width: auto; min-width: auto; padding: 0 8px; font-size: 12px; line-height: 1;
+  border: 0; border-radius: calc(var(--radius) - 2px); background: transparent; color: var(--muted-foreground);
+}
+.tt-image-layout button.is-active { background: var(--secondary); color: var(--foreground); }
 .tt-editor .tiptap .email-image-slot {
   display: flex; align-items: center; justify-content: center;
   min-height: 168px; margin: 1.2em 0; padding: 20px;

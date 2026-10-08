@@ -1,3 +1,6 @@
+import { IMAGE_TOO_LARGE_MESSAGE, MAX_UPLOAD_JSON_BYTES } from '../../src/core/upload-limits.js';
+import { fileToBase64, jsonBodyBytes, prepareImageForUpload } from './prepare-image.js';
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -21,9 +24,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(401, '需要登入');
   }
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as T & { error?: string }) : ({} as T);
+  let data: T & { error?: string };
+  try {
+    data = text ? (JSON.parse(text) as T & { error?: string }) : ({} as T);
+  } catch {
+    if (response.status === 413) throw new ApiError(413, IMAGE_TOO_LARGE_MESSAGE);
+    throw new ApiError(response.status, '請求失敗');
+  }
   if (!response.ok) {
-    throw new ApiError(response.status, (data as { error?: string }).error ?? '請求失敗');
+    const fallback = response.status === 413 ? IMAGE_TOO_LARGE_MESSAGE : '請求失敗';
+    throw new ApiError(response.status, (data as { error?: string }).error ?? fallback);
   }
   return data;
 }
@@ -36,24 +46,17 @@ export const api = {
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   uploadImage: async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) throw new ApiError(400, '圖片請小於 5 MB');
+    const prepared = await prepareImageForUpload(file);
+    const fileBase64 = await fileToBase64(prepared);
+    if (jsonBodyBytes(prepared.name, fileBase64) > MAX_UPLOAD_JSON_BYTES) {
+      throw new ApiError(400, IMAGE_TOO_LARGE_MESSAGE);
+    }
     return request<{ url: string; fileName: string; mime: string }>('/uploads', {
       method: 'POST',
-      body: JSON.stringify({ fileName: file.name, fileBase64: await fileToBase64(file) }),
+      body: JSON.stringify({ fileName: prepared.name, fileBase64 }),
     });
   },
 };
-
-async function fileToBase64(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + step));
-  }
-  return btoa(binary);
-}
 
 export interface CampaignStats {
   total: number;
