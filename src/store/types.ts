@@ -289,6 +289,8 @@ export interface Store {
 
   createDeliveries(deliveries: Delivery[]): Promise<void>;
   updateDelivery(id: string, patch: Partial<Delivery>): Promise<void>;
+  /** 用供應商回傳的訊息 id 反查寄送紀錄（Portaly 投遞狀態回查用）。 */
+  findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null>;
   listDeliveries(
     campaignId: string,
     options?: { status?: DeliveryStatus | undefined; limit?: number | undefined },

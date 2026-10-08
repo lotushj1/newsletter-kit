@@ -845,6 +845,13 @@ export class SqliteStore implements Store {
       });
   }
 
+  async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
+    const row = this.db
+      .prepare('SELECT * FROM deliveries WHERE provider_message_id = ? LIMIT 1')
+      .get(providerMessageId) as DeliveryRow | undefined;
+    return row ? toDelivery(row) : null;
+  }
+
   async listDeliveries(
     campaignId: string,
     options: { status?: DeliveryStatus | undefined; limit?: number | undefined } = {},

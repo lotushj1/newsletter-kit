@@ -371,6 +371,13 @@ export class MemoryStore implements Store {
     await this.persist();
   }
 
+  async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
+    for (const delivery of this.deliveries.values()) {
+      if (delivery.providerMessageId === providerMessageId) return clone(delivery);
+    }
+    return null;
+  }
+
   async listDeliveries(
     campaignId: string,
     options: { status?: DeliveryStatus | undefined; limit?: number | undefined } = {},
