@@ -1,3 +1,4 @@
+import { scheduleBackgroundWork } from '../core/background.js';
 import { campaignHasBody } from '../core/body.js';
 import { badRequest } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
@@ -69,6 +70,13 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
   const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
   if (existing.length > 0) {
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
+    if (campaign.status === 'failed') {
+      // 重寄失敗的電子報：把失敗的收件人重新排入。冪等鍵仍是 delivery id，
+      // 支援冪等的供應商（如 Portaly）會擋掉其實已寄出的重複信。
+      for (const delivery of await ctx.store.listDeliveries(campaign.id, { status: 'failed' })) {
+        await ctx.store.updateDelivery(delivery.id, { status: 'pending', attempts: 0, error: undefined });
+      }
+    }
     return (await ctx.store.deliveryStats(campaign.id)).total;
   }
   const audience = await ctx.store.listAudience({
@@ -228,12 +236,30 @@ export async function startCampaign(
     updatedAt: nowIso(),
   });
 
-  if (options.background) {
-    void processCampaign(ctx, campaignId).catch((error: unknown) => {
+  const run = async (): Promise<SendSummary | undefined> => {
+    try {
+      return await processCampaign(ctx, campaignId);
+    } catch (error) {
       logger.error('背景寄送失敗', { campaignId, error: (error as Error).message });
-      void ctx.store.updateCampaign(campaignId, { status: 'failed', updatedAt: nowIso() });
-    });
-    return { total };
+      // 不能卡在「寄送中」或悄悄變回草稿：明確標成失敗，後台才看得到。
+      try {
+        await ctx.store.updateCampaign(campaignId, { status: 'failed', updatedAt: nowIso() });
+      } catch (markError) {
+        logger.error('標記寄送失敗狀態也失敗', {
+          campaignId,
+          error: (markError as Error).message,
+        });
+      }
+      return undefined;
+    }
+  };
+
+  if (options.background) {
+    // Vercel 用 waitUntil 讓工作在回應後繼續跑；長駐程序照舊 fire-and-forget。
+    if (scheduleBackgroundWork(run)) return { total };
+    // serverless 拿不到 waitUntil 時退回「請求內寄完」，否則函式一凍結寄送就斷頭。
+    const summary = await run();
+    return summary ? { total, summary } : { total };
   }
   return { total, summary: await processCampaign(ctx, campaignId) };
 }

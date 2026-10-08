@@ -2,10 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "express",
   "buildCommand": "npm run build:vercel",
+  "regions": ["sin1"],
   "functions": {
     "app.ts": {
       "includeFiles": "{admin/dist/**,public/admin/**}",
-      "maxDuration": 60
+      "maxDuration": 300
     }
   }
 }
