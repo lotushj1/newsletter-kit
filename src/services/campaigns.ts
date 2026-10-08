@@ -11,7 +11,9 @@ import {
 import type { Campaign, CampaignQuery, Paged, Subscriber } from '../store/types.js';
 import { audienceFromCampaign, EMPTY_TRACKING } from '../store/types.js';
 import type { ServiceContext } from './context.js';
+import { logger } from '../core/logger.js';
 import { resolveFolderId } from './folders.js';
+import { isSendingNow } from './send-state.js';
 import { PREVIEW_RECIPIENT } from '../core/preview-email.js';
 import { applyCampaignVariables, brandedContentHtml, getBrand, mergeBrandVariables } from './brand.js';
 import { subscriberVariables, unsubscribeUrl } from './subscribers.js';
@@ -109,17 +111,45 @@ export async function copyCampaign(ctx: ServiceContext, id: string): Promise<Cam
   });
 }
 
+/** 「寄送中」超過這個時間沒有任何進度，就當成寄送已經中斷。 */
+export const STALE_SENDING_MS = 5 * 60 * 1000;
+
+function isStaleSending(campaign: Campaign): boolean {
+  if (campaign.status !== 'sending') return false;
+  // 這個程序正在寄的不算卡死；寄送迴圈每批都會更新 updatedAt 當心跳，
+  // 所以別的實例寄到一半的也會有新的 updatedAt。
+  if (isSendingNow(campaign.id)) return false;
+  const updated = Date.parse(campaign.updatedAt);
+  return Number.isFinite(updated) && Date.now() - updated > STALE_SENDING_MS;
+}
+
+/**
+ * 卡死的「寄送中」（例如舊版在 serverless 上被凍結斷頭）讀到時就地標成失敗，
+ * 後台才看得到、也才能重寄。重寄會沿用原本的 delivery id 當冪等鍵，不會重複寄。
+ */
+async function healStaleSending(ctx: ServiceContext, campaign: Campaign): Promise<Campaign> {
+  if (!isStaleSending(campaign)) return campaign;
+  logger.warn('寄送中斷超過時限，標成失敗', { campaignId: campaign.id, updatedAt: campaign.updatedAt });
+  const healed = await ctx.store.updateCampaign(campaign.id, {
+    status: 'failed',
+    updatedAt: nowIso(),
+  });
+  return healed ?? campaign;
+}
+
 export async function getCampaign(ctx: ServiceContext, id: string): Promise<Campaign> {
   const campaign = await ctx.store.getCampaign(id);
   if (!campaign) throw notFound('找不到這份電子報');
-  return campaign;
+  return healStaleSending(ctx, campaign);
 }
 
-export function listCampaigns(
+export async function listCampaigns(
   ctx: ServiceContext,
   query: CampaignQuery,
 ): Promise<Paged<Campaign>> {
-  return ctx.store.listCampaigns(query);
+  const page = await ctx.store.listCampaigns(query);
+  const items = await Promise.all(page.items.map((item) => healStaleSending(ctx, item)));
+  return { ...page, items };
 }
 
 export interface OverviewRates {

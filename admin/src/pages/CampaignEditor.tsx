@@ -157,6 +157,17 @@ export function CampaignEditor() {
           <span className={`pill ${campaign.status}`}>{STATUS_LABEL[campaign.status]}</span>
           <p className="muted" style={{ margin: '8px 0 0' }}>更新於 {formatTime(campaign.updatedAt)}</p>
         </div>
+        {campaign.status === 'failed' && (
+          <div className="notice error">
+            上次寄送失敗或中斷。可以直接「立刻寄送」重寄：已成功寄出的收件人不會再收到一次，
+            只會補寄失敗與未寄出的部分。
+          </div>
+        )}
+        {campaign.status === 'sending' && (
+          <div className="notice">
+            寄送中。若超過 5 分鐘沒有進度，重新整理後會顯示為「失敗」，即可重新寄送。
+          </div>
+        )}
         <div>
           <label>寄給誰</label>
           <select value={folderId} disabled={!editable} onChange={(e) => setFolderId(e.target.value)}>
