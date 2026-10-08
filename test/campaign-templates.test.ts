@@ -7,10 +7,11 @@ import { renderPreviewEmail } from '../src/core/preview-email.js';
 import { renderEmailLayout } from '../src/core/render.js';
 import { confirmEmailContentHtml } from '../src/core/system-emails.js';
 import { getBrand, updateBrand } from '../src/services/brand.js';
-import { createCampaign, previewCampaign } from '../src/services/campaigns.js';
+import { createCampaign, previewCampaign, renderPublicCampaign } from '../src/services/campaigns.js';
 import { startCampaign } from '../src/services/sending.js';
-import { createSubscriber } from '../src/services/subscribers.js';
-import { EMPTY_BRAND } from '../src/store/types.js';
+import { createSubscriber, subscribe } from '../src/services/subscribers.js';
+import { emailBrandName } from '../src/core/brand-signature.js';
+import { DEFAULT_SITE_NAME, EMPTY_BRAND } from '../src/store/types.js';
 import { makeContext } from './helpers.js';
 
 const BLEED_ROW = 'padding:0;font-size:0;line-height:0;';
@@ -37,9 +38,9 @@ function skeleton(html: string): string {
 }
 
 describe('電子報建立模板', () => {
-  it('五種內建模板各有名稱、可編輯內文與簽名', () => {
+  it('七種內建模板各有名稱、可編輯內文與簽名', () => {
     const ids = BUILTIN_CAMPAIGN_STARTERS.map((item) => item.id);
-    expect(ids).toEqual(['weekly', 'welcome', 'announcement', 'work', 'letter']);
+    expect(ids).toEqual(['weekly', 'welcome', 'announcement', 'work', 'letter', 'tutorial', 'promo']);
     for (const item of BUILTIN_CAMPAIGN_STARTERS) {
       expect(item.name).toBeTruthy();
       expect(item.description).toBeTruthy();
@@ -47,6 +48,10 @@ describe('電子報建立模板', () => {
       expect(item.bodyHtml.endsWith('{{signature}}')).toBe(true);
       expect(item.bodyHtml).not.toMatch(/newsletter/i);
       expect(item.bodyHtml).not.toMatch(/新功能|產品更新|changelog|SaaS/i);
+      // 開源模板不寫特定的人或領域。
+      expect(`${item.name}${item.description}${item.title}${item.preheader}${item.bodyHtml}`).not.toMatch(
+        /凱文|Kevin|設計師|AI × 設計/,
+      );
     }
   });
 
@@ -90,9 +95,24 @@ describe('電子報建立模板', () => {
     expect(letter).toContain('data-email-style="pull"');
     expect(letter).toContain('data-email-style="ornament"');
 
+    const tutorial = starter('tutorial').bodyHtml;
+    expect(tutorial.match(/data-email-style="step"/g)).toHaveLength(3);
+    // 每一步後面都跟著一張圖。
+    expect(tutorial.match(/data-email-style="step"[^>]*>[^<]*<\/h2><p>[\s\S]*?<\/p><figure data-email-image-slot/g)).toHaveLength(3);
+    expect(tutorial).toContain('data-email-style="tip"');
+    expect(tutorial).toMatch(/data-email-style="recap"[^>]*><h3>重點整理<\/h3>/);
+    expect(tutorial).not.toMatch(/^<figure/);
+
+    const promo = starter('promo').bodyHtml;
+    expect(promo).toMatch(/^<figure data-email-image-slot="1" data-label="封面：課程或產品主視覺/);
+    expect(promo).toMatch(/data-email-style="recap"[^>]*><h3>適合誰<\/h3>/);
+    expect(promo).toContain('data-email-style="steps"');
+    for (const key of ['形式', '時間', '地點', '費用']) expect(promo).toContain(`<strong>${key}</strong>`);
+    expect(promo.match(/data-email-btn/g)).toHaveLength(1);
+
     // 每種模板一個點綴色。
     const tones = BUILTIN_CAMPAIGN_STARTERS.map((item) => /data-email-tone="([a-z]+)"/.exec(item.bodyHtml)?.[1]);
-    expect(new Set(tones).size).toBe(5);
+    expect(new Set(tones).size).toBe(BUILTIN_CAMPAIGN_STARTERS.length);
   });
 
   it('模板縮圖與後台預覽是同一封信', async () => {
@@ -192,6 +212,21 @@ describe('電子報建立模板', () => {
     expect(work).toMatch(/<p class="nk-meta nk-tone-indigo" style="[^"]*border-top:1px solid #d4dbe7/);
     expect(work).toContain('background:#34507a');
 
+    const tutorial = preview(starter('tutorial').bodyHtml);
+    expect([...tutorial.matchAll(/<td class="nk-step"[^>]*>(\d)<\/td>/g)].map((m) => m[1])).toEqual(['1', '2', '3']);
+    expect(tutorial).toMatch(/<table class="nk-tip nk-tone-teal"[\s\S]*?border-left:3px solid #2c6670/);
+    expect(tutorial).toMatch(/<table class="nk-recap nk-tone-teal"[^>]*background:#ecf4f4/);
+    expect(tutorial.match(/class="nk-check"/g)).toHaveLength(3);
+    // 寄出版拿掉三張截圖空位，縮圖版才看得到。
+    expect(tutorial).not.toContain('建議 1040×650');
+    expect(preview(starter('tutorial').bodyHtml, 'placeholder').match(/data-email-placeholder="1"/g)).toHaveLength(3);
+
+    const promo = preview(starter('promo').bodyHtml);
+    expect(promo).toMatch(/<table class="nk-recap nk-tone-plum"/);
+    expect(promo).toMatch(/<table class="nk-steps nk-tone-plum"/);
+    expect(promo).toMatch(/<table class="nk-panel nk-tone-plum"/);
+    expect(promo).toContain('background:#7d3b5f');
+
     // 深色模式每個點綴色都有替換值。
     for (const tone of Object.keys(EMAIL_TONES)) expect(work).toContain(`.nk-tone-${tone}.nk-kicker`);
   });
@@ -230,5 +265,103 @@ describe('電子報建立模板', () => {
     expect(html).not.toContain('&amp;amp;');
     expect(html).toContain('凱文設計 &lt;Kevin&gt;');
     expect(html).toContain('再一步就完成訂閱');
+  });
+});
+
+describe('簽名上方不多出空白', () => {
+  // 編輯器存檔後是 <p>{{signature}}</p>，舊信也都是這樣存的。
+  const BARE = '<p>正文最後一段。</p>{{signature}}';
+  const WRAPPED = '<p>正文最後一段。</p><p>{{signature}}</p>';
+  const WRAPPED_ALIGNED = '<p>正文最後一段。</p><p style="text-align: left">{{ signature }}</p>';
+  /** 簽名表格前面緊接的是正文段落，中間沒有被拆出來的空段落。 */
+  const TIGHT = /正文最後一段。<\/p>\s*<table data-email-signature/;
+
+  it('後台預覽與模板縮圖：裸的、包成段落的都一樣', () => {
+    const brand = { ...EMPTY_BRAND, writerName: '凱文', websiteUrl: 'https://example.com' };
+    const render = (bodyHtml: string) => renderPreviewEmail({ bodyHtml, siteName: '測試電子報', brand }).html;
+    const bare = render(BARE);
+    expect(bare).toMatch(TIGHT);
+    expect(render(WRAPPED)).toBe(bare);
+    expect(render(WRAPPED_ALIGNED)).toBe(bare);
+    expect(bare).not.toMatch(/<p[^>]*>\s*<table data-email-signature/);
+  });
+
+  it('寄出與封存：裸的、包成段落的都一樣', async () => {
+    const { ctx, adapter } = await makeContext();
+    await updateBrand(ctx, { writerName: '凱文', websiteUrl: 'https://example.com' });
+    await createSubscriber(ctx, { email: 'a@example.com', name: '阿明' });
+    const bare = await createCampaign(ctx, { title: 'a', slug: 'sig-bare', bodyHtml: BARE });
+    const wrapped = await createCampaign(ctx, { title: 'a', slug: 'sig-wrapped', bodyHtml: WRAPPED });
+    expect((await previewCampaign(ctx, wrapped.id)).html).toBe((await previewCampaign(ctx, bare.id)).html);
+
+    await startCampaign(ctx, bare.id);
+    await startCampaign(ctx, wrapped.id);
+    const [first, second] = adapter.sent;
+    expect(first!.html).toMatch(TIGHT);
+    const untracked = (html: string) => html.replace(/token=[^"&]+/g, 'token=x');
+    expect(untracked(second!.html)).toBe(untracked(first!.html));
+
+    await ctx.store.updateCampaign(bare.id, { status: 'sent' });
+    await ctx.store.updateCampaign(wrapped.id, { status: 'sent' });
+    const archived = (await renderPublicCampaign(ctx, 'sig-wrapped'))!.html;
+    expect(archived).toMatch(TIGHT);
+    expect(archived).toBe((await renderPublicCampaign(ctx, 'sig-bare'))!.html);
+  });
+
+  it('沒有簽名時，包成段落的 {{signature}} 也不會留下空段落', () => {
+    const html = renderPreviewEmail({ bodyHtml: WRAPPED, siteName: '測試電子報', brand: EMPTY_BRAND }).html;
+    expect(html).not.toMatch(/<p[^>]*><\/p>/);
+  });
+});
+
+describe('刊頭的品牌名稱來自各站自己的設定', () => {
+  const MASTHEAD = /class="nk-edge nk-masthead"[\s\S]*?letter-spacing:0\.12em;[^"]*">([^<]*)<\/td>/;
+  const render = (organization: string, siteName: string) =>
+    renderPreviewEmail({ bodyHtml: '<p>正文</p>', siteName, brand: { ...EMPTY_BRAND, organization } }).html;
+
+  it('品牌頁的單位名稱優先，其次 SITE_NAME；都沒設就不顯示刊頭', () => {
+    expect(emailBrandName({ organization: '  某某工作室 ' }, '測試電子報')).toBe('某某工作室');
+    expect(emailBrandName({ organization: '' }, '測試電子報')).toBe('測試電子報');
+    expect(emailBrandName({ organization: '' }, DEFAULT_SITE_NAME)).toBe('');
+    expect(emailBrandName({ organization: ' ' }, '  ')).toBe('');
+
+    expect(MASTHEAD.exec(render('〔示範〕某某工作室', '測試電子報'))?.[1]).toBe('〔示範〕某某工作室');
+    expect(MASTHEAD.exec(render('', '測試電子報'))?.[1]).toBe('測試電子報');
+    const hidden = render('', DEFAULT_SITE_NAME);
+    expect(hidden).not.toContain('class="nk-edge nk-masthead"');
+    expect(hidden).not.toContain(DEFAULT_SITE_NAME);
+  });
+
+  it('寄出、預覽、封存、確認信都用同一個名稱，{{site_name}} 也跟著走', async () => {
+    const { ctx, adapter } = await makeContext();
+    await updateBrand(ctx, { organization: '〔示範〕某某工作室' });
+    await createSubscriber(ctx, { email: 'a@example.com', name: '阿明' });
+    const campaign = await createCampaign(ctx, { title: 't', slug: 'brand-1', bodyHtml: '<p>來自 {{site_name}}</p>' });
+
+    const previewed = (await previewCampaign(ctx, campaign.id)).html;
+    await startCampaign(ctx, campaign.id);
+    await ctx.store.updateCampaign(campaign.id, { status: 'sent' });
+    const archived = (await renderPublicCampaign(ctx, 'brand-1'))!.html;
+    for (const html of [previewed, adapter.sent[0]!.html, archived]) {
+      expect(MASTHEAD.exec(html)?.[1]).toBe('〔示範〕某某工作室');
+      expect(html).toContain('來自 〔示範〕某某工作室');
+      expect(html).not.toContain(ctx.config.siteName);
+    }
+
+    await subscribe(ctx, { email: 'b@example.com' });
+    const confirm = adapter.sent.find((mail) => mail.to === 'b@example.com')!;
+    expect(confirm.subject).toBe('確認訂閱 〔示範〕某某工作室');
+    expect(MASTHEAD.exec(confirm.html)?.[1]).toBe('〔示範〕某某工作室');
+  });
+
+  it('什麼都沒設時，寄出的信不顯示刊頭與頁尾站名', async () => {
+    const { ctx, adapter } = await makeContext({ siteName: DEFAULT_SITE_NAME });
+    await createSubscriber(ctx, { email: 'a@example.com', name: '阿明' });
+    const campaign = await createCampaign(ctx, { title: 't', bodyHtml: '<p>正文</p>' });
+    await startCampaign(ctx, campaign.id);
+    const sent = adapter.sent.at(-1)!.html;
+    expect(sent).not.toContain('class="nk-edge nk-masthead"');
+    expect(sent).not.toContain(DEFAULT_SITE_NAME);
+    expect(sent).toContain('取消訂閱');
   });
 });

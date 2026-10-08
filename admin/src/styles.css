@@ -525,6 +525,12 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .tt-menu-check { margin-left: auto; flex-shrink: 0; }
 .tt-align-menu { min-width: 200px; }
 .tt-menu-empty { padding: 8px; color: var(--muted-foreground); font-size: var(--text-sm); }
+.tt-insert-menu { max-height: min(420px, 60vh); overflow-y: auto; overscroll-behavior: contain; }
+.tt-menu-section {
+  padding: 10px 10px 4px; font-size: var(--text-xs, 0.75rem); font-weight: 600; letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+.tt-menu-section:first-child { padding-top: 4px; }
 .tt-url { display: grid; gap: 8px; min-width: 300px; }
 .tt-url input { width: 100%; }
 .tt-image-status { margin: 0 0 10px; font-size: var(--text-sm); color: var(--muted-foreground); }
@@ -618,6 +624,8 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .tt-editor .tiptap [data-email-tone="vermilion"] { --tone: #ad4329; --tone-tint: #faefe9; --tone-rule: #efd2c6; }
 .tt-editor .tiptap [data-email-tone="indigo"] { --tone: #34507a; --tone-tint: #eef1f6; --tone-rule: #d4dbe7; }
 .tt-editor .tiptap [data-email-tone="ink"] { --tone: #6b5d4f; --tone-tint: #f6f4ef; --tone-rule: #e6e1d8; }
+.tt-editor .tiptap [data-email-tone="teal"] { --tone: #2c6670; --tone-tint: #ecf4f4; --tone-rule: #cfe0e1; }
+.tt-editor .tiptap [data-email-tone="plum"] { --tone: #7d3b5f; --tone-tint: #f6edf1; --tone-rule: #e6d0da; }
 .tt-editor .tiptap p[data-email-style="kicker"] { font-size: 0.75em; font-weight: 700; letter-spacing: 0.18em; color: var(--tone); }
 .tt-editor .tiptap p[data-email-style="lead"] { font-size: 1.12em; }
 .tt-editor .tiptap p[data-email-style="note"] { font-size: 0.875em; color: var(--muted-foreground); }
@@ -634,6 +642,24 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
   border-left: 0; background: transparent; text-align: center; font-size: 1.2em; font-weight: 600;
 }
 .tt-editor .tiptap ol[data-email-style="steps"] li::marker { color: var(--tone); font-weight: 700; }
+.tt-editor .tiptap p[data-email-style="tip"] {
+  padding: 10px 14px; font-size: 0.875em; color: var(--muted-foreground);
+  background: var(--tone-tint); border-left: 3px solid var(--tone); border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.tt-editor .tiptap blockquote[data-email-style="recap"] { border-left: 0; border-radius: var(--radius-md); background: var(--tone-tint); }
+.tt-editor .tiptap blockquote[data-email-style="recap"] h1,
+.tt-editor .tiptap blockquote[data-email-style="recap"] h2,
+.tt-editor .tiptap blockquote[data-email-style="recap"] h3 { margin: 0 0 0.5em; font-size: 0.8em; letter-spacing: 0.14em; color: var(--tone); }
+.tt-editor .tiptap blockquote[data-email-style="recap"] ul { list-style: none; padding-left: 0; margin: 0; }
+.tt-editor .tiptap blockquote[data-email-style="recap"] li::before { content: "✓"; color: var(--tone); font-weight: 700; margin-right: 0.6em; float: left; }
+/* 步驟標題的編號寄出時才算，編輯時用 CSS 計數器先看到同樣的數字。 */
+.tt-editor .tiptap { counter-reset: nk-step; }
+.tt-editor .tiptap [data-email-style="step"] { counter-increment: nk-step; display: flex; align-items: center; gap: 12px; }
+.tt-editor .tiptap [data-email-style="step"]::before {
+  content: counter(nk-step); flex: none; width: 1.6em; height: 1.6em; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--tone); color: #fff; font-size: 0.8em; font-weight: 700;
+}
 .tt-editor .tiptap hr[data-email-style="ornament"] { border-top: 1px dotted var(--tone); width: 64px; margin-left: auto; margin-right: auto; }
 .tt-editor .tiptap p.is-editor-empty:first-child::before,
 .tt-editor .tiptap blockquote p.is-empty::before,

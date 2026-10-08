@@ -1,8 +1,9 @@
 /**
- * 各類型信件用的版面區塊：標籤、導言、附註、資訊列、資訊面板、推薦卡片、引言、步驟清單、裝飾分隔。
+ * 各類型信件用的版面區塊：標籤、導言、附註、資訊列、提示框、資訊面板、推薦卡片、引言、重點清單、
+ * 步驟清單、步驟標題、裝飾分隔。
  *
  * 編輯器只多存兩個屬性：`data-email-style`（哪種區塊）與 `data-email-tone`（哪個點綴色），
- * 掛在段落、引言、編號清單與分隔線上，所以使用者照常打字、按 Enter 都不會把版面洗掉。
+ * 掛在段落、標題、引言、編號清單與分隔線上，所以使用者照常打字、按 Enter 都不會把版面洗掉。
  * 寄出時在這裡換成 table 與 inline style。
  */
 import { applyImgStyle, setImgWidth } from './email-image.js';
@@ -10,8 +11,9 @@ import { EMAIL_COLORS, EMAIL_FONT, EMAIL_TONES, isEmailTone, zeroMargin, type Em
 
 /** 每種節點可用的區塊樣式。編輯器的 parseHTML 也用這份白名單。 */
 export const EMAIL_BLOCK_STYLES = {
-  paragraph: ['kicker', 'lead', 'note', 'meta'],
-  blockquote: ['panel', 'card', 'pull'],
+  paragraph: ['kicker', 'lead', 'note', 'meta', 'tip'],
+  heading: ['step'],
+  blockquote: ['panel', 'card', 'pull', 'recap'],
   orderedList: ['steps'],
   horizontalRule: ['ornament'],
 } as const;
@@ -79,8 +81,18 @@ const PARAGRAPH_STYLES: Record<string, (tone: ReturnType<typeof toneOf>) => stri
     `margin:28px 0 28px 0;padding:12px 0 12px 0;border-top:1px solid ${t.rule};border-bottom:1px solid ${t.rule};${F}font-size:13px;line-height:1.7;letter-spacing:0.08em;color:${C.soft};`,
 };
 
+/** 提示框：淺底色加左側色條。Outlook 不吃段落的內距，所以包成表格。 */
+function tipBlock(attrs: string, inner: string): string {
+  const tone = toneOf(attrs);
+  return `<table class="nk-tip nk-tone-${tone.name}" ${TABLE} style="width:100%;margin:4px 0 28px 0;border-collapse:separate;"><tr><td class="nk-tip-cell" style="padding:14px 18px 14px 16px;background:${tone.tint};border-left:3px solid ${tone.accent};border-radius:0 8px 8px 0;${F}font-size:14px;line-height:1.75;letter-spacing:0.02em;color:${C.soft};${alignOf(attrs)}">${tintLinks(inner, tone.accent)}</td></tr></table>`;
+}
+
 function styleParagraphs(html: string): string {
-  return html.replace(/<p\b([^>]*\sdata-email-style="([a-z]+)"[^>]*)>/gi, (match, attrs: string, kind: string) => {
+  const withTips = html.replace(
+    /<p\b([^>]*\sdata-email-style="tip"[^>]*)>([\s\S]*?)<\/p>/gi,
+    (_match, attrs: string, inner: string) => tipBlock(attrs, inner),
+  );
+  return withTips.replace(/<p\b([^>]*\sdata-email-style="([a-z]+)"[^>]*)>/gi, (match, attrs: string, kind: string) => {
     const build = PARAGRAPH_STYLES[kind];
     if (!build) return match;
     const tone = toneOf(attrs);
@@ -170,16 +182,62 @@ function stepsBlock(inner: string, tone: ReturnType<typeof toneOf>): string {
   return `<table class="nk-steps nk-tone-${tone.name}" ${TABLE} style="width:100%;margin:8px 0 28px 0;">${rows.join('')}</table>`;
 }
 
+/** 重點清單：標題（引言裡的標題）加一列列打勾的項目。項目可以是清單項目或段落。 */
+function recapBlock(inner: string, tone: ReturnType<typeof toneOf>): string {
+  const children = blockChildren(inner);
+  const titleChild = children.find((child) => /^h[1-6]$/.test(child.tag));
+  const items: string[] = [];
+  for (const child of children) {
+    if (child === titleChild) continue;
+    if (child.tag === 'ul' || child.tag === 'ol') {
+      for (const li of child.inner.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)) {
+        items.push((li[1] ?? '').replace(/<\/?p\b[^>]*>/gi, ' ').trim());
+      }
+    } else if (child.tag === 'p' && child.inner.trim()) {
+      items.push(child.inner);
+    }
+  }
+  const title = titleChild
+    ? `<p class="nk-recap-title" style="margin:0 0 12px 0;${F}font-size:13px;line-height:1.6;font-weight:700;letter-spacing:0.16em;color:${tone.accent};">${titleChild.inner}</p>`
+    : '';
+  const rows = items
+    .map((item, index) => {
+      const pad = index === items.length - 1 ? 0 : 10;
+      return `<tr><td class="nk-check" valign="top" width="24" style="width:24px;padding:0 0 ${pad}px 0;${F}font-size:14px;line-height:1.75;font-weight:700;color:${tone.accent};">✓</td><td valign="top" style="padding:0 0 ${pad}px 0;${F}font-size:15px;line-height:1.75;letter-spacing:0.02em;color:${C.ink};">${tintLinks(item, tone.accent)}</td></tr>`;
+    })
+    .join('');
+  return `<table class="nk-recap nk-tone-${tone.name}" ${TABLE} style="width:100%;margin:32px 0 32px 0;background:${tone.tint};border-radius:10px;border-collapse:separate;"><tr><td class="nk-recap-cell" style="padding:22px 26px 22px 24px;">${title}<table ${TABLE} style="width:100%;">${rows}</table></td></tr></table>`;
+}
+
+const STEP_HEADING_SIZE: Record<string, number> = { h1: 24, h2: 21, h3: 18, h4: 16, h5: 15, h6: 14 };
+
+/** 步驟標題：左邊編號圓章、右邊標題。編號依信裡出現的順序自動算，使用者不用自己打。 */
+function styleStepHeadings(html: string): string {
+  let count = 0;
+  return html.replace(
+    /<(h[1-6])\b([^>]*\sdata-email-style="step"[^>]*)>([\s\S]*?)<\/\1>/gi,
+    (_match, rawTag: string, attrs: string, inner: string) => {
+      count += 1;
+      const tag = rawTag.toLowerCase();
+      const tone = toneOf(attrs);
+      const size = STEP_HEADING_SIZE[tag] ?? 21;
+      const badge = `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td class="nk-step" align="center" valign="middle" width="32" height="32" style="width:32px;height:32px;border-radius:16px;background:${tone.accent};${F}font-size:14px;line-height:32px;font-weight:700;color:#ffffff;text-align:center;">${count}</td></tr></table>`;
+      return `<table class="nk-stephead nk-tone-${tone.name}" ${TABLE} style="width:100%;margin:44px 0 14px 0;"><tr><td valign="middle" width="46" style="width:46px;padding:0;">${badge}</td><td valign="middle" style="padding:0;"><${tag} style="margin:0;font-family:${EMAIL_FONT};color:${C.ink};font-size:${size}px;line-height:1.45;font-weight:700;letter-spacing:0.02em;">${inner}</${tag}></td></tr></table>`;
+    },
+  );
+}
+
 const BLOCKQUOTE_RENDER: Record<string, (inner: string, tone: ReturnType<typeof toneOf>) => string> = {
   panel: panelBlock,
   card: cardBlock,
   pull: pullBlock,
+  recap: recapBlock,
 };
 
 /** 把帶 data-email-style 的區塊換成信箱吃得下的 markup。其他內容原樣留著。 */
 export function styleEmailBlocks(html: string): string {
   return styleParagraphs(
-    html
+    styleStepHeadings(html)
       .replace(
         /<blockquote\b([^>]*\sdata-email-style="([a-z]+)"[^>]*)>([\s\S]*?)<\/blockquote>/gi,
         (match, attrs: string, kind: string, inner: string) => {
@@ -211,8 +269,10 @@ export function emailBlockHeadStyle(): string {
   const tones = EMAIL_TONE_NAMES.map((name) => {
     const t = EMAIL_TONES[name];
     return [
-      `.nk-card .nk-tone-${name}.nk-kicker,.nk-card .nk-tone-${name} .nk-key,.nk-card .nk-tone-${name} .nk-step,.nk-card .nk-tone-${name}.nk-orn,.nk-card .nk-tone-${name} a{color:${t.darkAccent} !important;}`,
-      `.nk-card .nk-tone-${name} .nk-step,.nk-card table.nk-panel.nk-tone-${name}{background:${t.darkTint} !important;}`,
+      `.nk-card .nk-tone-${name}.nk-kicker,.nk-card .nk-tone-${name} .nk-key,.nk-card .nk-tone-${name} .nk-step,.nk-card .nk-tone-${name}.nk-orn,.nk-card .nk-tone-${name} .nk-check,.nk-card .nk-tone-${name} .nk-recap-title,.nk-card .nk-tone-${name} a{color:${t.darkAccent} !important;}`,
+      `.nk-card .nk-tone-${name} .nk-step,.nk-card table.nk-panel.nk-tone-${name},.nk-card table.nk-recap.nk-tone-${name},.nk-card .nk-tone-${name} .nk-tip-cell{background:${t.darkTint} !important;}`,
+      `.nk-card .nk-stephead.nk-tone-${name} .nk-step{background:${t.darkAccent} !important;color:#161513 !important;}`,
+      `.nk-card .nk-tone-${name} .nk-tip-cell{border-left-color:${t.darkAccent} !important;}`,
       `.nk-card .nk-tone-${name} .nk-bar{background:${t.darkAccent} !important;}`,
       `.nk-card table.nk-box.nk-tone-${name}{border-top-color:${t.darkAccent} !important;}`,
     ].join('\n  ');
@@ -222,11 +282,12 @@ export function emailBlockHeadStyle(): string {
   .nk-box-thumb img{width:96px !important;}
   .nk-box-body{padding:16px 16px 16px 14px !important;}
   .nk-panel > tbody > tr > td,.nk-panel > tr > td{padding:6px 20px !important;}
+  .nk-recap-cell{padding:18px 20px !important;}
 }
 @media (prefers-color-scheme:dark){
   .nk-card table.nk-box{background:#1f1d1b !important;border-color:#38342f !important;}
   .nk-card .nk-panel td,.nk-card .nk-meta{border-color:#38342f !important;}
-  .nk-card .nk-note,.nk-card .nk-meta{color:#a39b90 !important;}
+  .nk-card .nk-note,.nk-card .nk-meta,.nk-card .nk-tip-cell{color:#a39b90 !important;}
   .nk-card .nk-lead,.nk-card .nk-card-title,.nk-card .nk-pull p{color:#f6f2ec !important;}
   ${tones}
 }`;

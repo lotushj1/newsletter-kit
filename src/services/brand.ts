@@ -1,7 +1,9 @@
 import {
   attachBrandSignature,
   buildBrandSignatureHtml,
+  emailBrandName,
   isSignatureLayoutId,
+  unwrapSignatureToken,
   websiteFromBrand,
 } from '../core/brand-signature.js';
 import { isSignatureLinkIcon } from '../core/sig-icons.js';
@@ -151,16 +153,22 @@ export function mergeBrandVariables(
 ): Record<string, string> {
   const writer = brand.writerName;
   const website = websiteFromBrand(brand);
+  // {{site_name}} 跟刊頭用同一個名稱；都沒設時才退回 SITE_NAME 原值。
+  const siteName = emailBrandName(brand, base.site_name ?? '') || (base.site_name ?? '');
+  const named = { ...base, site_name: siteName };
   const source = buildBrandSignatureHtml(brand, { publicBaseUrl });
-  const signature = applyVariables(source, { ...base, writer, website }, 'html');
-  return { ...base, writer, website, signature };
+  const signature = applyVariables(source, { ...named, writer, website }, 'html');
+  return { ...named, writer, website, signature };
 }
 
 export function brandedContentHtml(
   template: string,
   variables: Record<string, string>,
 ): string {
-  return attachBrandSignature(applyCampaignVariables(template, variables, 'html'), variables.signature ?? '');
+  return attachBrandSignature(
+    applyCampaignVariables(unwrapSignatureToken(template), variables, 'html'),
+    variables.signature ?? '',
+  );
 }
 
 export function applyCampaignVariables(

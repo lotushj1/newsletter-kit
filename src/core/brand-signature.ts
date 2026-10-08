@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SITE_NAME,
   EMPTY_BRAND,
   SIGNATURE_LAYOUT_IDS,
   type BrandProfile,
@@ -188,6 +189,26 @@ export function buildBrandSignatureHtml(
 /** 正文裡還沒有簽名時補上 `{{signature}}`，讓模板與新草稿會帶進品牌簽名。 */
 export function ensureSignatureToken(html: string): string {
   return /\{\{\s*signature\s*\}\}/i.test(html) ? html : `${html}{{signature}}`;
+}
+
+/**
+ * 編輯器存檔時會把 `{{signature}}` 包成 `<p>`。簽名是表格，瀏覽器解析 `<p><table>` 時會把段落拆開，
+ * 多出一個空段落與它的下外距，簽名上方就多了約 20px。替換變數前先把外層段落拿掉，
+ * 舊信（已經存成 `<p>{{signature}}</p>`）也一起處理。
+ */
+export function unwrapSignatureToken(html: string): string {
+  return html.replace(/<p\b[^>]*>\s*(\{\{\s*signature\s*\}\})\s*<\/p>/gi, '$1');
+}
+
+/**
+ * 信件刊頭、頁尾與 {{site_name}} 顯示的品牌名稱：品牌頁的「單位名稱」優先，
+ * 其次是 SITE_NAME；SITE_NAME 沒設（還是預設的 Newsletter）就當作沒有，刊頭直接不顯示。
+ */
+export function emailBrandName(brand: Pick<BrandProfile, 'organization'>, siteName: string): string {
+  const organization = brand.organization.trim();
+  if (organization) return organization;
+  const site = siteName.trim();
+  return site && site !== DEFAULT_SITE_NAME ? site : '';
 }
 
 /** 變數替換後若還沒插入簽名表，就接在正文後面。 */

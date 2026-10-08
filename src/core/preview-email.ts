@@ -1,5 +1,11 @@
 import type { BrandProfile } from '../store/types.js';
-import { attachBrandSignature, buildBrandSignatureHtml, websiteFromBrand } from './brand-signature.js';
+import {
+  attachBrandSignature,
+  buildBrandSignatureHtml,
+  emailBrandName,
+  unwrapSignatureToken,
+  websiteFromBrand,
+} from './brand-signature.js';
 import { applyVariables, htmlToText, renderEmailLayout } from './render.js';
 
 export const PREVIEW_RECIPIENT = {
@@ -22,10 +28,11 @@ export interface PreviewEmailInput {
 export function renderPreviewEmail(input: PreviewEmailInput): { subject: string; html: string; text: string } {
   const writer = input.brand.writerName;
   const website = websiteFromBrand(input.brand);
+  const brandName = emailBrandName(input.brand, input.siteName);
   const base = {
     name: PREVIEW_RECIPIENT.name,
     email: PREVIEW_RECIPIENT.email,
-    site_name: input.siteName,
+    site_name: brandName || input.siteName,
     unsubscribe_url: '',
     writer,
     website,
@@ -37,10 +44,10 @@ export function renderPreviewEmail(input: PreviewEmailInput): { subject: string;
     subject,
     preheader: input.preheader ? applyVariables(input.preheader, variables, 'text') : undefined,
     contentHtml: attachBrandSignature(
-      applyVariables(input.bodyHtml, variables, 'html', { raw: ['signature'] }),
+      applyVariables(unwrapSignatureToken(input.bodyHtml), variables, 'html', { raw: ['signature'] }),
       variables.signature,
     ),
-    siteName: input.siteName,
+    siteName: brandName,
     publicBaseUrl: input.publicBaseUrl,
     unsubscribeUrl: '#',
     unsubscribePrompt: input.brand.unsubscribePrompt,

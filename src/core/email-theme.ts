@@ -165,6 +165,8 @@ export const EMAIL_TONES = {
   vermilion: { accent: '#ad4329', tint: '#faefe9', rule: '#efd2c6', darkAccent: '#ec9a80', darkTint: '#2c201c' },
   indigo: { accent: '#34507a', tint: '#eef1f6', rule: '#d4dbe7', darkAccent: '#9db4d8', darkTint: '#1e222a' },
   ink: { accent: '#6b5d4f', tint: '#f6f4ef', rule: '#e6e1d8', darkAccent: '#bfb3a5', darkTint: '#24221f' },
+  teal: { accent: '#2c6670', tint: '#ecf4f4', rule: '#cfe0e1', darkAccent: '#86c2ca', darkTint: '#1c2627' },
+  plum: { accent: '#7d3b5f', tint: '#f6edf1', rule: '#e6d0da', darkAccent: '#d79bbb', darkTint: '#2a1f25' },
 } as const;
 
 export type EmailTone = keyof typeof EMAIL_TONES;

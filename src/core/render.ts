@@ -301,6 +301,14 @@ function footerHtml(input: EmailLayoutInput): string {
         </tr>`;
 }
 
+/** 刊頭、頁尾都沒有內容時（例如沒設品牌名稱），連外層表格一起省掉。 */
+function wrapRows(shell: string, rows: string): string {
+  return rows ? `<table ${shell}>
+        ${rows}
+      </table>
+      ` : '';
+}
+
 /**
  * 通用 email 版型：table 排版 + inline style，避免各家信箱把 CSS 丟掉。
  * 刊頭與頁尾放在白卡片外、對齊內文欄；滿版首圖貼齊卡片頂端。
@@ -339,16 +347,10 @@ ${preheaderHtml(input.preheader)}
   <tr>
     <td class="nk-frame" align="center" style="padding:${EMAIL_FRAME_PAD}px;">
       <!--[if mso]><table role="presentation" width="${EMAIL_CARD_WIDTH}" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-      <table ${shell}>
-        ${mastheadHtml(input.siteName, input.webViewUrl)}
-      </table>
-      <table class="nk-card" role="presentation" width="${EMAIL_CARD_WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${EMAIL_CARD_WIDTH}px;background:${C.card};border:1px solid ${C.line};border-radius:8px;border-collapse:separate;overflow:hidden;">
+      ${wrapRows(shell, mastheadHtml(input.siteName, input.webViewUrl))}<table class="nk-card" role="presentation" width="${EMAIL_CARD_WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${EMAIL_CARD_WIDTH}px;background:${C.card};border:1px solid ${C.line};border-radius:8px;border-collapse:separate;overflow:hidden;">
         ${emailCardRows(coverHtml, contentHtml)}
       </table>
-      <table ${shell}>
-        ${footerHtml(input)}
-      </table>
-      <!--[if mso]></td></tr></table><![endif]-->
+      ${wrapRows(shell, footerHtml(input))}<!--[if mso]></td></tr></table><![endif]-->
     </td>
   </tr>
 </table>

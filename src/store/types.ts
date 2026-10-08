@@ -159,6 +159,9 @@ export interface SignatureLink {
   url: string;
 }
 
+/** 沒設 SITE_NAME 時的站名。信件刊頭把它當成「沒設定」，不顯示。 */
+export const DEFAULT_SITE_NAME = 'Newsletter';
+
 export const DEFAULT_UNSUBSCRIBE_PROMPT = '不想再收到這封信？';
 export const DEFAULT_UNSUBSCRIBE_LABEL = '取消訂閱';
 

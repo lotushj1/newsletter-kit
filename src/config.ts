@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getAiService, isKnownAiProvider } from './ai/providers.js';
+import { DEFAULT_SITE_NAME } from './store/types.js';
 
 /**
  * 極簡 .env 讀取：不覆蓋已存在的環境變數，避免蓋掉部署平台注入的值。
@@ -151,7 +152,7 @@ export function loadConfig(): Config {
   return {
     port,
     publicBaseUrl: str('PUBLIC_BASE_URL', defaultPublicBaseUrl(port)).replace(/\/+$/, ''),
-    siteName: str('SITE_NAME', 'Newsletter'),
+    siteName: str('SITE_NAME', DEFAULT_SITE_NAME),
     appSecret,
     adminToken,
     store: { driver, path: str('STORE_PATH', defaultPath) },
