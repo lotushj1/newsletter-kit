@@ -4,17 +4,25 @@ import { logger } from '../core/logger.js';
 import type { ServiceContext } from '../services/context.js';
 import { adminApiRouter } from './routes/admin-api.js';
 import { adminUiRouter } from './routes/admin-ui.js';
+import { mcpRouter } from './routes/mcp.js';
 import { publicRouter } from './routes/public.js';
+import { trackingRouter } from './routes/tracking.js';
 
-/** 只有公開端點需要跨網域，後台維持同源。 */
-function cors(allowed: string[]) {
+export type RequestWithRawBody = Request & { rawBody?: string };
+
+function cors(
+  allowed: string[],
+  options: { methods?: string; headers?: string } = {},
+) {
+  const methods = options.methods ?? 'GET,POST,OPTIONS';
+  const headers = options.headers ?? 'content-type, x-newsletter-signature';
   return (req: Request, res: Response, next: NextFunction): void => {
     const origin = req.headers.origin;
     if (origin && (allowed.includes('*') || allowed.includes(origin))) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'content-type');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', headers);
+      res.setHeader('Access-Control-Allow-Methods', methods);
     }
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
@@ -29,11 +37,27 @@ export function createApp(ctx: ServiceContext): Express {
   app.disable('x-powered-by');
   app.set('trust proxy', true);
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(
+    express.json({
+      limit: '8mb',
+      verify: (req, _res, buf) => {
+        (req as RequestWithRawBody).rawBody = buf.toString('utf8');
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 
-  app.use(/^\/(health|api\/public)/, cors(ctx.config.corsOrigins));
+  app.use(/^\/(health|api\/public|t\/)/, cors(ctx.config.corsOrigins));
+  app.use(
+    /^\/(mcp|api\/admin)/,
+    cors(ctx.config.corsOrigins, {
+      methods: 'GET,POST,PATCH,DELETE,OPTIONS',
+      headers: 'content-type, authorization, mcp-protocol-version',
+    }),
+  );
   app.use('/', publicRouter(ctx));
+  app.use('/', trackingRouter(ctx));
+  app.use('/mcp', mcpRouter(ctx));
   app.use('/api/admin', adminApiRouter(ctx));
   app.use('/admin', adminUiRouter(ctx));
 

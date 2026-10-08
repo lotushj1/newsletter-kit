@@ -3,7 +3,19 @@ import { dirname, resolve } from 'node:path';
 import { logger } from '../core/logger.js';
 import { MemoryStore, type MemorySnapshot } from './memory-store.js';
 
-const EMPTY: MemorySnapshot = { subscribers: [], campaigns: [], deliveries: [] };
+const EMPTY: MemorySnapshot = {
+  subscribers: [],
+  campaigns: [],
+  deliveries: [],
+  events: [],
+  sequences: [],
+  sequenceSteps: [],
+  enrollments: [],
+  folders: [],
+  templates: [],
+  settings: {},
+  campaignStarters: [],
+};
 
 /**
  * 單一 JSON 檔案儲存：零原生依賴，適合小名單與試跑。
@@ -33,6 +45,14 @@ export class JsonStore extends MemoryStore {
         subscribers: parsed.subscribers ?? [],
         campaigns: parsed.campaigns ?? [],
         deliveries: parsed.deliveries ?? [],
+        events: parsed.events ?? [],
+        sequences: parsed.sequences ?? [],
+        sequenceSteps: parsed.sequenceSteps ?? [],
+        enrollments: parsed.enrollments ?? [],
+        folders: parsed.folders ?? [],
+        templates: parsed.templates ?? [],
+        settings: parsed.settings ?? {},
+        campaignStarters: parsed.campaignStarters ?? [],
       });
     } catch (error) {
       logger.error('JSON 資料檔讀取失敗，改用空資料啟動', {

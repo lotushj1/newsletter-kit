@@ -6,7 +6,7 @@ export const createDryRunAdapter: EmailAdapterFactory = (): EmailAdapter => ({
   name: 'dry_run',
 
   async verify() {
-    return { ok: true, message: 'dry_run：不會真的寄信，只會寫入 log。' };
+    return { ok: true, message: '測試信只寫入紀錄。' };
   },
 
   async send(message) {

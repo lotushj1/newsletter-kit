@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Config } from '../src/config.js';
 import type { EmailAdapter, EmailMessage, SendResult } from '../src/email/types.js';
 import type { ServiceContext } from '../src/services/context.js';
@@ -11,6 +13,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     appSecret: 'test-secret',
     adminToken: 'test-admin-token',
     store: { driver: 'memory', path: ':memory:' },
+    uploadsPath: join(tmpdir(), 'newsletter-kit-test-uploads'),
     email: {
       provider: 'dry_run',
       from: 'Test <test@example.com>',
@@ -20,14 +23,25 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
       resendApiKey: undefined,
       zeaburEndpoint: undefined,
       zeaburToken: undefined,
+      insforgeUrl: undefined,
+      insforgeApiKey: undefined,
+      portalyApiKey: undefined,
+      portalyApiHost: undefined,
+      apiKey: undefined,
+      apiExtra: undefined,
+      platformSecrets: {},
     },
     doubleOptIn: true,
     corsOrigins: ['*'],
     publicRateLimitPerMin: 100,
+    trackingEnabled: true,
+    ingestSecret: 'ingest-secret',
+    join: { headline: undefined, description: undefined, tags: [] },
     send: { batchSize: 2, batchDelayMs: 0, maxAttempts: 2 },
     scheduler: { enabled: false, pollMs: 1000 },
     isProduction: false,
     warnings: [],
+    ai: { provider: 'none', apiKey: undefined, model: undefined, baseUrl: undefined },
     ...overrides,
   };
 }
@@ -66,7 +80,7 @@ export async function makeContext(
   const store = new MemoryStore();
   await store.init();
   const adapter = fakeAdapter();
-  return { ctx: { config: testConfig(overrides), store, adapter }, adapter, store };
+  return { ctx: { config: testConfig(overrides), store, adapter, ai: null }, adapter, store };
 }
 
 /** 從 fake adapter 寄出的確認信裡把 token 撈出來。 */
