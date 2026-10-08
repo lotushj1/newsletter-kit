@@ -86,7 +86,7 @@ const ALIGNS = [
 ] as const;
 
 const FOCUS = { scrollIntoView: false } as const;
-const PLUS_SIZE = 28;
+const PLUS_SIZE = 32;
 const ATOM_BLOCKS = new Set(['image', 'emailButton', 'audioBlock', 'videoBlock', 'imageSlot']);
 const HEADINGS = [1, 2, 3, 4, 5, 6] as const;
 
@@ -1091,22 +1091,22 @@ export function TiptapEditor({
         <div className="tt-toolbar">
           <div className="tt-group">
             <button type="button" disabled={!editor.can().undo()} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).undo().run())} aria-label="復原">
-              <Undo2 size={16} />
+              <Undo2 size={18} />
             </button>
             <button type="button" disabled={!editor.can().redo()} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).redo().run())} aria-label="重做">
-              <Redo2 size={16} />
+              <Redo2 size={18} />
             </button>
           </div>
           <span className="tt-sep" />
           <div className="tt-drop">
             <button type="button" className={`has-label ${bar === 'style' ? 'is-active' : ''}`} onMouseDown={keepFocus} onClick={() => toggleBar('style')} aria-expanded={bar === 'style'}>
               樣式
-              <ChevronDown size={14} />
+              <ChevronDown size={16} />
             </button>
             {bar === 'style' && (
               <div className="tt-menu tt-menu-anchored" role="listbox">
                 <button type="button" className={!editor.isActive('heading') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={() => { editor.chain().focus(undefined, FOCUS).setParagraph().run(); setBar(null); }}>
-                  <Type size={16} />
+                  <Type size={18} />
                   <span>一般文字</span>
                 </button>
                 {HEADINGS.map((level) => (
@@ -1120,13 +1120,13 @@ export function TiptapEditor({
           </div>
           <div className="tt-group">
             <button type="button" className={editor.isActive('bold') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).toggleBold().run())} aria-label="粗體">
-              <Bold size={16} />
+              <Bold size={18} />
             </button>
             <button type="button" className={editor.isActive('italic') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).toggleItalic().run())} aria-label="斜體">
-              <Italic size={16} />
+              <Italic size={18} />
             </button>
             <button type="button" className={editor.isActive('underline') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).toggleUnderline().run())} aria-label="底線">
-              <UnderlineIcon size={16} />
+              <UnderlineIcon size={18} />
             </button>
           </div>
           <div className="tt-drop">
@@ -1138,8 +1138,8 @@ export function TiptapEditor({
               aria-label="對齊"
               aria-expanded={bar === 'align'}
             >
-              <currentAlign.icon size={16} />
-              <ChevronDown size={14} />
+              <currentAlign.icon size={18} />
+              <ChevronDown size={16} />
             </button>
             {bar === 'align' && (
               <div className="tt-menu tt-menu-anchored tt-align-menu" role="listbox">
@@ -1157,9 +1157,9 @@ export function TiptapEditor({
                         setBar(null);
                       }}
                     >
-                      <item.icon size={16} />
+                      <item.icon size={18} />
                       <span>{item.label}</span>
-                      {selected ? <Check size={16} className="tt-menu-check" aria-hidden="true" /> : null}
+                      {selected ? <Check size={18} className="tt-menu-check" aria-hidden="true" /> : null}
                     </button>
                   );
                 })}
@@ -1168,25 +1168,25 @@ export function TiptapEditor({
           </div>
           <div className="tt-group">
             <button type="button" className={editor.isActive('bulletList') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).toggleBulletList().run())} aria-label="項目清單">
-              <List size={16} />
+              <List size={18} />
             </button>
             <button type="button" className={editor.isActive('orderedList') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={runMark(() => editor.chain().focus(undefined, FOCUS).toggleOrderedList().run())} aria-label="編號清單">
-              <ListOrdered size={16} />
+              <ListOrdered size={18} />
             </button>
           </div>
           <span className="tt-sep" />
           <div className="tt-group">
             <button type="button" className={editor.isActive('link') ? 'is-active' : ''} onMouseDown={keepFocus} onClick={runMark(() => openUrl('link'))} aria-label="超連結">
-              <Link2 size={16} />
+              <Link2 size={18} />
             </button>
             <button type="button" onMouseDown={keepFocus} onClick={runMark(() => openUrl('audio'))} aria-label="音訊">
-              <AudioLines size={16} />
+              <AudioLines size={18} />
             </button>
             <button type="button" onMouseDown={keepFocus} onClick={runMark(() => openUrl('video'))} aria-label="影片">
-              <Video size={16} />
+              <Video size={18} />
             </button>
             <button type="button" onMouseDown={keepFocus} onClick={runMark(() => openImagePicker())} aria-label="圖片">
-              <ImageIcon size={16} />
+              <ImageIcon size={18} />
             </button>
             <button
               type="button"
@@ -1199,17 +1199,17 @@ export function TiptapEditor({
               })}
               aria-label="引言"
             >
-              <Quote size={16} />
+              <Quote size={18} />
             </button>
           </div>
           <span className="tt-sep" />
           <div className="tt-group">
           <button type="button" onMouseDown={keepFocus} onClick={runMark(() => openUrl('button'))} aria-label="按鈕">
-            <RectangleHorizontal size={16} />
+            <RectangleHorizontal size={18} />
           </button>
           <div className="tt-drop">
             <button type="button" className={bar === 'templates' ? 'is-active' : ''} onMouseDown={keepFocus} onClick={() => toggleBar('templates')} aria-label="範本" aria-expanded={bar === 'templates'}>
-              <LayoutTemplate size={16} />
+              <LayoutTemplate size={18} />
             </button>
             {bar === 'templates' && (
               <div className="tt-menu tt-menu-anchored tt-template-menu" role="listbox">
@@ -1239,7 +1239,7 @@ export function TiptapEditor({
                               setBar(null);
                             }}
                           >
-                            <LayoutTemplate size={16} />
+                            <LayoutTemplate size={18} />
                             <span>{splitTemplateName(item.name).label}</span>
                           </button>
                           <button
@@ -1251,7 +1251,7 @@ export function TiptapEditor({
                               void api.delete(`/templates/${item.id}`).then(loadTemplates);
                             }}
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       ))}
@@ -1259,7 +1259,7 @@ export function TiptapEditor({
                   ))
                 )}
                 <button type="button" onMouseDown={keepFocus} onClick={() => openUrl('template')}>
-                  <Plus size={16} />
+                  <Plus size={18} />
                   <span>儲存為範本</span>
                 </button>
               </div>
@@ -1278,13 +1278,13 @@ export function TiptapEditor({
                   aria-label="AI"
                   aria-expanded={bar === 'ai'}
                 >
-                  <Sparkles size={16} />
+                  <Sparkles size={18} />
                   AI
                 </button>
                 {bar === 'ai' && (
                   <div className="tt-menu tt-menu-anchored" role="menu">
                     <button type="button" onMouseDown={keepFocus} onClick={() => { setBar(null); onAiDraft(); }}>
-                      <Sparkles size={16} />
+                      <Sparkles size={18} />
                       <span>從題材寫</span>
                     </button>
                   </div>
@@ -1375,7 +1375,7 @@ export function TiptapEditor({
                   }}
                 />
                 <button type="submit" aria-label="送出" disabled={!rewriteCustom.trim()}>
-                  <ArrowUp size={16} />
+                  <ArrowUp size={18} />
                 </button>
               </form>
             </>
@@ -1413,7 +1413,7 @@ export function TiptapEditor({
           onMouseDown={keepFocus}
           onClick={() => setMenu({ kind: 'plus', top: plus.top + 32, left: 36 })}
         >
-          <Plus size={16} />
+          <Plus size={18} />
         </button>
       )}
       {editable && (menu?.kind === 'slash' || menu?.kind === 'plus') && (
@@ -1435,7 +1435,7 @@ export function TiptapEditor({
                 }}
                 onClick={() => applyCommand(item)}
               >
-                <item.icon size={16} />
+                <item.icon size={18} />
                 <span>{item.label}</span>
               </button>
             ))
