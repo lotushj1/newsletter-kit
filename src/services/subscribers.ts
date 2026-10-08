@@ -2,11 +2,14 @@ import { parseCsv, toCsv } from '../core/csv.js';
 import { badRequest, conflict, notFound } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
-import { applyVariables, htmlToText, markdownToHtml, renderEmailLayout } from '../core/render.js';
+import { applyVariables, htmlToText, renderEmailLayout } from '../core/render.js';
+import { emailBrandName } from '../core/brand-signature.js';
+import { confirmEmailContentHtml } from '../core/system-emails.js';
 import { createToken, verifyToken } from '../core/tokens.js';
 import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.js';
 import type { Paged, Subscriber, SubscriberQuery, SubscriberStatus } from '../store/types.js';
 import type { ServiceContext } from './context.js';
+import { getBrand } from './brand.js';
 import { enrollSubscriber } from './enroll.js';
 import { resolveFolderId } from './folders.js';
 
@@ -40,29 +43,22 @@ export function unsubscribeUrl(
 
 async function sendConfirmEmail(ctx: ServiceContext, subscriber: Subscriber): Promise<void> {
   const link = confirmUrl(ctx, subscriber.email);
-  const contentHtml = markdownToHtml(
-    [
-      `### 再一步就完成訂閱`,
-      '',
-      `請點下面的連結確認你要收到 ${ctx.config.siteName} 的電子報。`,
-      '',
-      `[確認訂閱](${link})`,
-      '',
-      '如果這不是你本人操作，直接忽略這封信就好，我們不會把你加進名單。',
-    ].join('\n'),
-  );
+  // 刊頭跟電子報用同一個品牌名稱；內文需要一個名字時，都沒設就退回 SITE_NAME。
+  const brandName = emailBrandName(await getBrand(ctx), ctx.config.siteName);
+  const name = brandName || ctx.config.siteName;
+  const contentHtml = confirmEmailContentHtml(name, link);
   const html = renderEmailLayout({
-    subject: `確認訂閱 ${ctx.config.siteName}`,
+    subject: `確認訂閱 ${name}`,
     preheader: '點一下連結就完成訂閱',
     contentHtml,
-    siteName: ctx.config.siteName,
+    siteName: brandName,
     footerNote: '這封信是因為有人用這個地址申請訂閱才寄出的。',
   });
 
   const result = await ctx.adapter.send({
     to: subscriber.email,
     from: ctx.config.email.from,
-    subject: `確認訂閱 ${ctx.config.siteName}`,
+    subject: `確認訂閱 ${name}`,
     html,
     text: htmlToText(html),
     replyTo: ctx.config.email.replyTo,

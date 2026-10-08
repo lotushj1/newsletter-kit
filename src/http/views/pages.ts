@@ -947,20 +947,25 @@ export function archiveIndexPage(siteName: string, campaigns: Campaign[]): strin
   return readingPage(siteName, `封存 — ${siteName}`, `<h1>電子報封存</h1><p class="lede">只列出已經寄出的內容。</p>${list}`);
 }
 
+/** 單期封存：整頁就是那封信，上方只留返回與寄出日期，對齊信件內文欄。 */
 export function archiveItemPage(
   siteName: string,
   campaign: Campaign,
   subject: string,
   html: string,
 ): string {
-  return readingPage(
+  const sent = campaign.sentAt ? `<span>${formatTime(campaign.sentAt)}</span>` : '';
+  return page({
+    title: `${campaign.title} — ${siteName}`,
     siteName,
-    `${campaign.title} — ${siteName}`,
-    `<p class="muted" style="margin:0 0 16px"><a href="/archive">← 全部封存</a></p>
-<h1>${escapeHtml(campaign.title)}</h1>
-<p class="lede">${escapeHtml(subject)}${campaign.sentAt ? ` · ${formatTime(campaign.sentAt)}` : ''}</p>
-<article class="archive-letter">${innerEmailHtml(html)}</article>`,
-  );
+    chrome: false,
+    body: `<div class="archive-page">
+<nav class="archive-bar"><a href="/archive">← 全部封存</a>${sent}</nav>
+<h1 class="sr-only">${escapeHtml(campaign.title)}</h1>
+<p class="sr-only">${escapeHtml(subject)}</p>
+<article class="archive-letter">${innerEmailHtml(html)}</article>
+</div>`,
+  });
 }
 
 export function joinPage(

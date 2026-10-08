@@ -15,6 +15,7 @@ import { logger } from '../core/logger.js';
 import { resolveFolderId } from './folders.js';
 import { isSendingNow } from './send-state.js';
 import { PREVIEW_RECIPIENT } from '../core/preview-email.js';
+import { emailBrandName } from '../core/brand-signature.js';
 import { applyCampaignVariables, brandedContentHtml, getBrand, mergeBrandVariables } from './brand.js';
 import { subscriberVariables, unsubscribeUrl } from './subscribers.js';
 
@@ -327,7 +328,7 @@ export async function renderCampaign(
       ? applyCampaignVariables(campaign.preheader, variables, 'text')
       : undefined,
     contentHtml,
-    siteName: ctx.config.siteName,
+    siteName: emailBrandName(brand, ctx.config.siteName),
     publicBaseUrl: ctx.config.publicBaseUrl,
     unsubscribeUrl: unsubscribeUrl(ctx, recipient.email),
     unsubscribePrompt: brand.unsubscribePrompt,
@@ -365,7 +366,8 @@ export async function renderPublicCampaign(
 ): Promise<{ campaign: Campaign; html: string; subject: string } | null> {
   const campaign = await ctx.store.getCampaignBySlug(slug);
   if (!campaign || campaign.status !== 'sent') return null;
-  const variables = mergeBrandVariables(publicVariables(ctx), await getBrand(ctx), ctx.config.publicBaseUrl);
+  const brand = await getBrand(ctx);
+  const variables = mergeBrandVariables(publicVariables(ctx), brand, ctx.config.publicBaseUrl);
   const subject = applyCampaignVariables(campaign.subject, variables, 'text');
   const html = renderEmailLayout({
     subject,
@@ -373,7 +375,7 @@ export async function renderPublicCampaign(
       ? applyCampaignVariables(campaign.preheader, variables, 'text')
       : undefined,
     contentHtml: brandedContentHtml(campaignContentHtml(campaign), variables),
-    siteName: ctx.config.siteName,
+    siteName: emailBrandName(brand, ctx.config.siteName),
     publicBaseUrl: ctx.config.publicBaseUrl,
   });
   return { campaign, subject, html };

@@ -2,15 +2,12 @@ import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type Mu
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
-import TextAlign from '@tiptap/extension-text-align';
 import { NodeSelection } from '@tiptap/pm/state';
 import { DOMParser, DOMSerializer } from '@tiptap/pm/model';
 import { planSelectionReplacement } from './editor/replace-selection';
 import { RewriteHold } from './editor/rewrite-hold';
+import { isFullWidthSlotLabel } from '../../../src/core/email-image';
 import {
   AlignCenter,
   AlignJustify,
@@ -43,6 +40,18 @@ import {
   User,
   Video,
   ArrowUp,
+  Ellipsis,
+  Hash,
+  Info,
+  LayoutPanelLeft,
+  Lightbulb,
+  ListChecks,
+  PanelTop,
+  Pilcrow,
+  Rows2,
+  StickyNote,
+  Tag,
+  TextQuote,
 } from 'lucide-react';
 import {
   DEFAULT_EMAIL_BUTTON,
@@ -58,11 +67,15 @@ import {
   shouldAcceptImageDrag,
 } from '../image-drop';
 import { looksLikeImageFile } from '../prepare-image';
-import { AudioBlock, EmailButton, EmailImage, ImageSlot, VideoBlock, type EmailButtonAttrs } from './editor/extensions';
+import { emailContentExtensions, type EmailButtonAttrs } from './editor/extensions';
+import { insertEmailBlock } from './editor/blocks';
+import { EMAIL_BLOCK_SNIPPETS } from '../../../src/core/email-block-snippets.js';
 
 interface CommandItem {
   id: string;
   label: string;
+  /** 一組指令的第一項，選單在它上面加一行分組標題。 */
+  section?: string;
   aliases: string[];
   icon: typeof Type;
   run: (editor: Editor) => void;
@@ -182,6 +195,34 @@ function splitTemplateName(name: string): { group: string; label: string } {
   return { group: name.slice(0, index), label: name.slice(index + 1) };
 }
 
+const BLOCK_ICONS: Record<string, typeof Type> = {
+  kicker: Tag,
+  lead: Pilcrow,
+  step: Hash,
+  steps: ListOrdered,
+  panel: PanelTop,
+  card: LayoutPanelLeft,
+  recap: ListChecks,
+  tip: Lightbulb,
+  pull: TextQuote,
+  meta: Rows2,
+  note: StickyNote,
+  ornament: Ellipsis,
+};
+
+/** 模板用的版面區塊，排在基本節點之後、媒體之前。 */
+const blockCommands: CommandItem[] = EMAIL_BLOCK_SNIPPETS.map((snippet, index) => ({
+  id: `block-${snippet.id}`,
+  label: snippet.label,
+  ...(index === 0 ? { section: '版面區塊' } : {}),
+  aliases: snippet.aliases,
+  icon: BLOCK_ICONS[snippet.id] ?? Info,
+  run: (editor: Editor) => {
+    if (editor.isActive('emailButton')) return;
+    insertEmailBlock(editor, snippet.id);
+  },
+}));
+
 function commandList(openUrl: (field: UrlField) => void, openImage: () => void): CommandItem[] {
   return [
     {
@@ -229,7 +270,8 @@ function commandList(openUrl: (field: UrlField) => void, openImage: () => void):
       icon: Minus,
       run: (editor) => editor.chain().focus(undefined, FOCUS).setHorizontalRule().run(),
     },
-    { id: 'image', label: '圖片', aliases: ['img', 'image', 'pic'], icon: ImageIcon, run: () => openImage() },
+    ...blockCommands,
+    { id: 'image', section: '媒體與互動', label: '圖片', aliases: ['img', 'image', 'pic'], icon: ImageIcon, run: () => openImage() },
     {
       id: 'imageSlot',
       label: '圖片區塊',
@@ -286,6 +328,7 @@ export function TiptapEditor({
   const wrapRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const menuRef = useRef<MenuState>(null);
+  const insertMenuRef = useRef<HTMLDivElement>(null);
   const indexRef = useRef(0);
   const itemsRef = useRef<CommandItem[]>([]);
   const applyRef = useRef<(item: CommandItem) => void>(() => undefined);
@@ -553,7 +596,7 @@ export function TiptapEditor({
   openImageSlotRef.current = (pos) => {
     const node = editorRef.current?.state.doc.nodeAt(pos);
     const label = String(node?.attrs.label ?? '');
-    openImagePicker({ slotPos: pos, hero: label.includes('封面') });
+    openImagePicker({ slotPos: pos, hero: isFullWidthSlotLabel(label) });
   };
   replaceImageRef.current = (pos, hero) => openImagePicker({ replacePos: pos, hero });
 
@@ -657,16 +700,8 @@ export function TiptapEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ heading: { levels: [...HEADINGS] } }),
+      ...emailContentExtensions(),
       RewriteHold,
-      Underline,
-      Link.configure({ openOnClick: false, autolink: true }),
-      EmailImage,
-      TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'], defaultAlignment: 'left' }),
-      EmailButton,
-      ImageSlot,
-      AudioBlock,
-      VideoBlock,
       Placeholder.configure({
         includeChildren: true,
         placeholder: ({ node, pos, editor: current }) => {
@@ -1014,6 +1049,11 @@ export function TiptapEditor({
 
   const slashItems = menu?.kind === 'slash' ? filterCommands(catalog, menu.query) : catalog;
   itemsRef.current = slashItems;
+
+  // 項目變多了，選單會捲動；用方向鍵移動時讓目前項目保持在看得到的地方。
+  useEffect(() => {
+    insertMenuRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, menu?.kind]);
 
   useEffect(() => {
     if (menu?.kind === 'slash') {
@@ -1417,11 +1457,16 @@ export function TiptapEditor({
         </button>
       )}
       {editable && (menu?.kind === 'slash' || menu?.kind === 'plus') && (
-        <div className="tt-menu" style={{ top: menu.top, left: menu.left }} role="listbox">
+        <div className="tt-menu tt-insert-menu" ref={insertMenuRef} style={{ top: menu.top, left: menu.left }} role="listbox">
           {menuItems.length === 0 ? (
             <div className="tt-menu-empty">沒有符合的項目</div>
           ) : (
-            menuItems.map((item, index) => (
+            menuItems.map((item, index) => [
+              item.section && (menu.kind === 'plus' || !menu.query.trim()) ? (
+                <div key={`${item.id}-section`} className="tt-menu-section" role="presentation">
+                  {item.section}
+                </div>
+              ) : null,
               <button
                 key={item.id}
                 type="button"
@@ -1437,8 +1482,8 @@ export function TiptapEditor({
               >
                 <item.icon size={18} />
                 <span>{item.label}</span>
-              </button>
-            ))
+              </button>,
+            ])
           )}
         </div>
       )}
