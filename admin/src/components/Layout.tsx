@@ -64,13 +64,13 @@ export function Layout() {
     <div className="ad-app">
       <aside className="ad-sider">
         <div className="ad-logo">
-          <Mail size={16} />
+          <Mail size={18} />
           <span>{session?.siteName ?? 'Newsletter'}</span>
         </div>
         <nav className="ad-menu">
           {LINKS.map((link) => (
             <NavLink key={link.to} to={link.to} end={link.end} className={({ isActive }) => (isActive ? 'active' : '')}>
-              <link.icon size={16} />
+              <link.icon size={18} />
               <span>{link.label}</span>
             </NavLink>
           ))}
@@ -82,11 +82,11 @@ export function Layout() {
             aria-label={collapsed ? '展開側邊欄' : '收合側邊欄'}
             onClick={() => setCollapsed((c) => !c)}
           >
-            <PanelLeft size={16} />
+            <PanelLeft size={18} />
           </button>
           <form method="post" action="/admin/logout">
             <button className="icon" type="submit" aria-label="登出">
-              <LogOut size={16} />
+              <LogOut size={18} />
             </button>
           </form>
         </div>
