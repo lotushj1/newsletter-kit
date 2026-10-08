@@ -4,6 +4,7 @@ import { createResendAdapter } from './adapters/resend.js';
 import { createSesAdapter } from './adapters/ses.js';
 import { createWebhookAdapter } from './adapters/webhook.js';
 import { createInsForgeAdapter } from './adapters/insforge.js';
+import { createPortalyAdapter } from './adapters/portaly.js';
 import { createZeaburAdapter } from './adapters/zeabur.js';
 import { EMAIL_PLATFORMS } from './providers.js';
 import type { AdapterContext, EmailAdapter, EmailAdapterFactory, EmailMessage, SendResult } from './types.js';
@@ -12,6 +13,7 @@ const registry = new Map<string, EmailAdapterFactory>([
   ['dry_run', createDryRunAdapter],
   ['webhook', createWebhookAdapter],
   ['resend', createResendAdapter],
+  ['portaly', createPortalyAdapter],
   ['zeabur', createZeaburAdapter],
   ['insforge', createInsForgeAdapter],
   ['ses', createSesAdapter],

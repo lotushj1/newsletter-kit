@@ -49,6 +49,8 @@ export interface Config {
     zeaburToken: string | undefined;
     insforgeUrl: string | undefined;
     insforgeApiKey: string | undefined;
+    portalyApiKey: string | undefined;
+    portalyApiHost: string | undefined;
     apiKey: string | undefined;
     apiExtra: string | undefined;
     platformSecrets: Record<string, { key?: string | undefined; extra?: string | undefined }>;
@@ -165,6 +167,8 @@ export function loadConfig(): Config {
       zeaburToken: optional('ZEABUR_TOKEN'),
       insforgeUrl: optional('INSFORGE_URL'),
       insforgeApiKey: optional('INSFORGE_API_KEY'),
+      portalyApiKey: optional('PORTALY_EMAIL_API_KEY'),
+      portalyApiHost: optional('PORTALY_API_HOST'),
       apiKey: optional('EMAIL_API_KEY'),
       apiExtra: optional('EMAIL_API_EXTRA'),
       platformSecrets: {},

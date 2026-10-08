@@ -1,4 +1,4 @@
-export type EmailKind = 'dry_run' | 'webhook' | 'resend' | 'zeabur' | 'insforge' | 'http' | 'ses';
+export type EmailKind = 'dry_run' | 'webhook' | 'resend' | 'portaly' | 'zeabur' | 'insforge' | 'http' | 'ses';
 
 export interface EmailPlatform {
   id: string;
@@ -30,6 +30,14 @@ export const EMAIL_PLATFORMS: readonly EmailPlatform[] = [
     group: 'common',
     kind: 'resend',
     note: '用 Resend 的 API 金鑰寄出。',
+    keyLabel: 'API 金鑰',
+  },
+  {
+    id: 'portaly',
+    label: 'Portaly Email',
+    group: 'common',
+    kind: 'portaly',
+    note: '用 Portaly Email 的 API 金鑰（pem_…）寄出。邀請制 beta，寄信額度與網域在 Portaly 後台管理。',
     keyLabel: 'API 金鑰',
   },
   {

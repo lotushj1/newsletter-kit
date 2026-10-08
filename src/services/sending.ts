@@ -116,6 +116,8 @@ async function deliverBatch(
         deliveryId: delivery.id,
         subscriberId: delivery.subscriberId,
       }),
+      // 用 delivery id 當冪等鍵：重試同一筆不會被供應商寄第二次。
+      idempotencyKey: delivery.id,
     });
   }
   if (messages.length === 0) return;
@@ -285,6 +287,7 @@ export async function sendCampaignToSubscriber(
       deliveryId: delivery.id,
       subscriberId: subscriber.id,
     }),
+    idempotencyKey: delivery.id,
   });
   if (result.ok) {
     await ctx.store.updateDelivery(delivery.id, {

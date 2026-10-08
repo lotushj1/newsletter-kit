@@ -1,6 +1,7 @@
 import { logger } from '../core/logger.js';
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
+import { maybeSyncPortalyDeliveries } from './portaly-sync.js';
 import { processDueEnrollments } from './sequences.js';
 import { isSending, processCampaign, startCampaign } from './sending.js';
 
@@ -35,6 +36,11 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
       }
       const sequenced = await processDueEnrollments(ctx);
       if (sequenced > 0) logger.info('序列信已寄出', { count: sequenced });
+      // Portaly 沒有 webhook，退信／檢舉靠定期回查（服務內部自己節流）。
+      const portaly = await maybeSyncPortalyDeliveries(ctx);
+      if (portaly.updated > 0) {
+        logger.info('Portaly 投遞狀態已同步', { checked: portaly.checked, updated: portaly.updated });
+      }
     } catch (error) {
       logger.error('排程器執行失敗', { error: (error as Error).message });
     } finally {

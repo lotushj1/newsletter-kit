@@ -27,6 +27,8 @@ interface SavedEmail {
   zeaburToken: string | null;
   insforgeUrl: string | null;
   insforgeApiKey: string | null;
+  portalyApiKey: string | null;
+  portalyApiHost: string | null;
   apiKey: string | null;
   apiExtra: string | null;
   platformSecrets: Record<string, { key: string | null; extra: string | null }>;
@@ -64,6 +66,8 @@ function serializeEmail(email: Config['email']): SavedEmail {
     zeaburToken: emptyToNull(email.zeaburToken),
     insforgeUrl: emptyToNull(email.insforgeUrl),
     insforgeApiKey: emptyToNull(email.insforgeApiKey),
+    portalyApiKey: emptyToNull(email.portalyApiKey),
+    portalyApiHost: emptyToNull(email.portalyApiHost),
     apiKey: emptyToNull(email.apiKey),
     apiExtra: emptyToNull(email.apiExtra),
     platformSecrets: Object.fromEntries(
@@ -87,6 +91,8 @@ function emailFromSaved(saved: SavedEmail): Config['email'] {
     zeaburToken: nullToUndef(saved.zeaburToken),
     insforgeUrl: nullToUndef(saved.insforgeUrl),
     insforgeApiKey: nullToUndef(saved.insforgeApiKey),
+    portalyApiKey: nullToUndef(saved.portalyApiKey),
+    portalyApiHost: nullToUndef(saved.portalyApiHost),
     apiKey: nullToUndef(saved.apiKey),
     apiExtra: nullToUndef(saved.apiExtra),
     platformSecrets: Object.fromEntries(
@@ -148,6 +154,8 @@ export function emailAdapterContext(config: Config): AdapterContext {
     zeaburToken: config.email.zeaburToken,
     insforgeUrl: config.email.insforgeUrl,
     insforgeApiKey: config.email.insforgeApiKey,
+    portalyApiKey: config.email.portalyApiKey,
+    portalyApiHost: config.email.portalyApiHost,
     apiKey: config.email.apiKey,
     apiExtra: config.email.apiExtra,
   };
@@ -174,6 +182,7 @@ function platformState(email: Config['email'], id: string): { keySet: boolean; e
   const platform = getEmailPlatform(id);
   const saved = email.platformSecrets?.[id];
   if (platform?.kind === 'resend') return { keySet: Boolean(email.resendApiKey), extra: '' };
+  if (platform?.kind === 'portaly') return { keySet: Boolean(email.portalyApiKey), extra: '' };
   if (platform?.kind === 'webhook') return { keySet: Boolean(email.webhookSecret), extra: email.webhookUrl ?? '' };
   if (platform?.kind === 'zeabur') return { keySet: Boolean(email.zeaburToken), extra: email.zeaburEndpoint ?? '' };
   if (platform?.kind === 'insforge') return { keySet: Boolean(email.insforgeApiKey), extra: email.insforgeUrl ?? '' };
@@ -260,6 +269,7 @@ export async function updateEmailIntegration(ctx: ServiceContext, input: unknown
     replyTo,
   };
   if (provider === 'resend') email.resendApiKey = keepSecret(body.resendApiKey, email.resendApiKey);
+  if (provider === 'portaly') email.portalyApiKey = keepSecret(body.portalyApiKey, email.portalyApiKey);
   if (provider === 'webhook') {
     email.webhookUrl = assignUrl(body.webhookUrl, 'Webhook 網址', email.webhookUrl);
     email.webhookSecret = keepSecret(body.webhookSecret, email.webhookSecret);

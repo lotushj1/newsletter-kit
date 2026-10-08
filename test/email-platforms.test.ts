@@ -16,7 +16,7 @@ describe('寄信平台清單', () => {
   it('常用和較少用的平台都在', () => {
     const common = EMAIL_PLATFORMS.filter((item) => item.group === 'common').map((item) => item.id);
     const more = EMAIL_PLATFORMS.filter((item) => item.group === 'more').map((item) => item.id);
-    expect(common).toEqual(['resend', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'ses']);
+    expect(common).toEqual(['resend', 'portaly', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'ses']);
     expect(more).toEqual(['sparkpost', 'mailersend', 'plunk', 'smtp2go', 'elasticemail', 'postal', 'scaleway', 'zeabur', 'insforge']);
   });
 

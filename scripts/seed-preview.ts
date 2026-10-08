@@ -2,6 +2,7 @@ import { loadConfig, loadEnvFile } from '../src/config.js';
 import { createEmailAdapter } from '../src/email/registry.js';
 import { createCampaign } from '../src/services/campaigns.js';
 import type { ServiceContext } from '../src/services/context.js';
+import { emailAdapterContext } from '../src/services/integrations.js';
 import { startCampaign } from '../src/services/sending.js';
 import { createSubscriber } from '../src/services/subscribers.js';
 import { createStore } from '../src/store/index.js';
@@ -18,14 +19,7 @@ if (existing.total > 0) {
   process.exit(0);
 }
 
-const adapter = createEmailAdapter({
-  provider: config.email.provider,
-  webhookUrl: config.email.webhookUrl,
-  webhookSecret: config.email.webhookSecret,
-  resendApiKey: config.email.resendApiKey,
-  zeaburEndpoint: config.email.zeaburEndpoint,
-  zeaburToken: config.email.zeaburToken,
-});
+const adapter = createEmailAdapter(emailAdapterContext(config));
 const ctx: ServiceContext = { config, store, adapter, ai: null };
 
 const names = ['阿明', '小美', '志偉', '佳玲', '建宏', '雅婷', '家豪', '怡君'];
