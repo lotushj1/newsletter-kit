@@ -178,11 +178,20 @@ export interface Session {
   trackingEnabled: boolean;
   joinUrl: string;
   archiveUrl: string;
+  mcpUrl: string;
+  adminApiUrl: string;
   corsOrigins: string[];
   schedulerEnabled: boolean;
   batchSize: number;
   warnings: string[];
   availableProviders: string[];
+  ai: {
+    configured: boolean;
+    provider: string;
+    label: string;
+    model: string | null;
+    writes: boolean;
+  };
 }
 
 export const STATUS_LABEL: Record<string, string> = {

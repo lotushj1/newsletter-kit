@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { enrollSubscriber } from '../src/services/enroll.js';
 import { createCampaign } from '../src/services/campaigns.js';
 import { createFolder } from '../src/services/folders.js';
-import { createSequence, processDueEnrollments, updateSequence } from '../src/services/sequences.js';
+import { copySequence, createSequence, processDueEnrollments, updateSequence } from '../src/services/sequences.js';
 import { createSubscriber, unsubscribeByEmail, updateSubscriber } from '../src/services/subscribers.js';
 import { makeContext } from './helpers.js';
 
@@ -125,5 +125,35 @@ describe('序列自動化', () => {
     expect(await ctx.store.getEnrollment(openSeq.id, person.id)).toBeTruthy();
     expect(await enrollSubscriber(ctx, person, { type: 'click', campaignId: watched.id })).toBe(1);
     expect(await ctx.store.getEnrollment(clickSeq.id, person.id)).toBeTruthy();
+  });
+
+  it('複製序列會停用，而且不帶走進行中的人', async () => {
+    const { ctx } = await makeContext();
+    const campaign = await createCampaign(ctx, { title: '歡迎', bodyHtml: '<p>嗨</p>' });
+    const source = await createSequence(ctx, {
+      name: '歡迎序列',
+      trigger: 'tag',
+      triggerValue: 'vip',
+      steps: [
+        { delayDays: 0, campaignId: campaign.id },
+        { delayDays: 3, campaignId: campaign.id },
+      ],
+    });
+    const person = await createSubscriber(ctx, { email: 'copy@example.com', tags: 'vip' });
+    await enrollSubscriber(ctx, person, { type: 'tag', tags: ['vip'] });
+
+    const copy = await copySequence(ctx, source.id);
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.name).toBe('歡迎序列（副本）');
+    expect(copy.enabled).toBe(false);
+    expect(copy.trigger).toBe('tag');
+    expect(copy.triggerValue).toBe('vip');
+    expect(copy.steps.map((step) => ({ delayDays: step.delayDays, campaignId: step.campaignId }))).toEqual([
+      { delayDays: 0, campaignId: campaign.id },
+      { delayDays: 3, campaignId: campaign.id },
+    ]);
+    expect(copy.steps.every((step) => !source.steps.some((original) => original.id === step.id))).toBe(true);
+    expect(await ctx.store.getEnrollment(copy.id, person.id)).toBeFalsy();
+    expect((await ctx.store.getSequence(source.id))?.enabled).toBe(true);
   });
 });

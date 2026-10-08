@@ -5,8 +5,20 @@ import { decodeImportFile, spreadsheetToCsv } from '../../core/spreadsheet.js';
 import { normalizeEmail, normalizeTags } from '../../core/validate.js';
 import { listEmailAdapters } from '../../email/registry.js';
 import {
+  applyAutomation,
+  draftAutomation,
+  draftCampaign,
+  interpretFilter,
+  organizeCampaigns,
+  organizeSubscribers,
+  rewriteSelection,
+  suggestSubjects,
+} from '../../ai/tasks.js';
+import { publicSession } from '../../services/session.js';
+import {
   bulkDeleteCampaigns,
   bulkSetCampaignFolder,
+  copyCampaign,
   createCampaign,
   deleteCampaign,
   getCampaign,
@@ -20,6 +32,7 @@ import {
 } from '../../services/campaigns.js';
 import type { ServiceContext } from '../../services/context.js';
 import {
+  copySequence,
   createSequence,
   deleteSequence,
   getSequenceWithSteps,
@@ -34,6 +47,11 @@ import {
   updateFolder,
 } from '../../services/folders.js';
 import { getBrand, updateBrand } from '../../services/brand.js';
+import {
+  integrationView,
+  updateAiIntegration,
+  updateEmailIntegration,
+} from '../../services/integrations.js';
 import {
   createTemplate,
   deleteTemplate,
@@ -70,24 +88,26 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.use(requireAdmin(ctx.config));
 
   router.get('/session', (_req, res) => {
-    res.json({
-      siteName: ctx.config.siteName,
-      provider: ctx.adapter.name,
-      storeDriver: ctx.store.driver,
-      publicBaseUrl: ctx.config.publicBaseUrl,
-      from: ctx.config.email.from,
-      replyTo: ctx.config.email.replyTo ?? null,
-      doubleOptIn: ctx.config.doubleOptIn,
-      trackingEnabled: ctx.config.trackingEnabled,
-      joinUrl: `${ctx.config.publicBaseUrl}/join`,
-      archiveUrl: `${ctx.config.publicBaseUrl}/archive`,
-      corsOrigins: ctx.config.corsOrigins,
-      schedulerEnabled: ctx.config.scheduler.enabled,
-      batchSize: ctx.config.send.batchSize,
-      warnings: ctx.config.warnings,
-      availableProviders: listEmailAdapters(),
-    });
+    res.json(publicSession(ctx));
   });
+
+  router.get('/integrations', (_req, res) => {
+    res.json(integrationView(ctx));
+  });
+
+  router.patch(
+    '/integrations/email',
+    asyncRoute(async (req, res) => {
+      res.json(await updateEmailIntegration(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.patch(
+    '/integrations/ai',
+    asyncRoute(async (req, res) => {
+      res.json(await updateAiIntegration(ctx, req.body ?? {}));
+    }),
+  );
 
   router.post(
     '/uploads',
@@ -123,6 +143,74 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     asyncRoute(async (_req, res) => {
       const result = await ctx.adapter.verify();
       res.json({ ...result, provider: ctx.adapter.name, available: listEmailAdapters() });
+    }),
+  );
+
+  router.get(
+    '/ai/verify',
+    asyncRoute(async (_req, res) => {
+      if (!ctx.ai) {
+        res.json({ ok: false, message: '尚未接上 AI', provider: ctx.config.ai.provider, model: null });
+        return;
+      }
+      const result = await ctx.ai.verify();
+      res.json({ ...result, provider: ctx.ai.name, model: ctx.ai.model });
+    }),
+  );
+
+  router.post(
+    '/ai/draft',
+    asyncRoute(async (req, res) => {
+      res.json(await draftCampaign(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/rewrite',
+    asyncRoute(async (req, res) => {
+      res.json(await rewriteSelection(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/subjects',
+    asyncRoute(async (req, res) => {
+      res.json(await suggestSubjects(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/organize-subscribers',
+    asyncRoute(async (req, res) => {
+      res.json(await organizeSubscribers(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/organize-campaigns',
+    asyncRoute(async (req, res) => {
+      res.json(await organizeCampaigns(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/filter',
+    asyncRoute(async (req, res) => {
+      res.json(await interpretFilter(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/automation',
+    asyncRoute(async (req, res) => {
+      res.json(await draftAutomation(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/ai/automation/apply',
+    asyncRoute(async (req, res) => {
+      res.status(201).json(await applyAutomation(ctx, req.body ?? {}));
     }),
   );
 
@@ -422,6 +510,13 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   );
 
   router.post(
+    '/campaigns/:id/copy',
+    asyncRoute(async (req, res) => {
+      res.status(201).json(await copyCampaign(ctx, pathParam(req, 'id')));
+    }),
+  );
+
+  router.post(
     '/campaigns/:id/template',
     asyncRoute(async (req, res) => {
       res.status(201).json(await createCampaignStarterFromCampaign(ctx, pathParam(req, 'id'), req.body ?? {}));
@@ -439,6 +534,13 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     '/sequences',
     asyncRoute(async (req, res) => {
       res.status(201).json(await createSequence(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.post(
+    '/sequences/:id/copy',
+    asyncRoute(async (req, res) => {
+      res.status(201).json(await copySequence(ctx, pathParam(req, 'id')));
     }),
   );
 

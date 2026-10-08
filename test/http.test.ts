@@ -286,6 +286,30 @@ describe('後台 API', () => {
     expect(data.items[0].tags).toContain('vip');
   });
 
+  it('可以更新並刪除名單', async () => {
+    const created = await asAdmin('/api/admin/subscribers', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'edit-me@example.com', name: '舊名' }),
+    });
+    expect(created.status).toBe(201);
+    const person = await created.json();
+
+    const patched = await asAdmin(`/api/admin/subscribers/${person.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ email: 'edited@example.com', name: '新名', status: 'unsubscribed' }),
+    });
+    expect(patched.status).toBe(200);
+    expect(await patched.json()).toMatchObject({
+      email: 'edited@example.com',
+      name: '新名',
+      status: 'unsubscribed',
+    });
+
+    const removed = await asAdmin(`/api/admin/subscribers/${person.id}`, { method: 'DELETE' });
+    expect(removed.status).toBe(200);
+    expect(await ctx.store.getSubscriber(person.id)).toBeNull();
+  });
+
   it('匯出 CSV 回 text/csv', async () => {
     const response = await asAdmin('/api/admin/subscribers/export.csv');
     expect(response.headers.get('content-type')).toContain('text/csv');

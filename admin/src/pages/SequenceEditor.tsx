@@ -72,6 +72,7 @@ export function SequenceEditor() {
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const loaded = useRef(false);
   const timer = useRef<number | undefined>(undefined);
+  const hideStatus = useRef<number | undefined>(undefined);
   const toastTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -114,6 +115,7 @@ export function SequenceEditor() {
 
   const persist = useCallback(
     async (nextName = name, nextNodes = nodes, enabled?: boolean) => {
+      window.clearTimeout(hideStatus.current);
       const payload = sequencePayloadFromNodes(nextNodes);
       const updated = await api.patch<Sequence>(`/sequences/${id}`, {
         name: nextName.trim() || '未命名自動化',
@@ -123,7 +125,11 @@ export function SequenceEditor() {
         ...(enabled === undefined ? {} : { enabled }),
       });
       setSequence(updated);
+      window.clearTimeout(hideStatus.current);
       setSaveStatus('已自動儲存');
+      hideStatus.current = window.setTimeout(() => {
+        setSaveStatus((current) => (current === '已自動儲存' ? '' : current));
+      }, 2000);
       return updated;
     },
     [id, name, nodes],
@@ -137,6 +143,8 @@ export function SequenceEditor() {
     }, 800);
     return () => window.clearTimeout(timer.current);
   }, [name, nodes, persist]);
+
+  useEffect(() => () => window.clearTimeout(hideStatus.current), []);
 
   const insertNode = (kind: FlowKind, trigger: TriggerKind | undefined, at: number) => {
     if (kind === 'exit') {
@@ -266,7 +274,7 @@ export function SequenceEditor() {
   const createCampaignForNode = async () => {
     const created = await api.post<Campaign>('/campaigns', {
       title: `${name || '自動化'} · 信件`,
-      bodyHtml: '<p>嗨 {{name}}，</p><p>這裡是這封自動化信件。</p>',
+      bodyHtml: '<p>嗨 {{name}}，</p><p>這裡是這封自動化信件。</p>{{signature}}',
     });
     setCampaigns((current) => [created, ...current]);
     updateSelected({ campaignId: created.id });

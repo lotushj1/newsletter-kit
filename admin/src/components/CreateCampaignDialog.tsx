@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, EMPTY_BRAND, type BrandProfile, type CampaignTemplate, type Session } from '../api';
+import { ensureSignatureToken } from '../../../src/core/brand-signature';
 import { ModalClose } from './ModalClose';
 import { TemplatePick } from './TemplatePick';
 
@@ -11,7 +12,7 @@ export const BLANK_CAMPAIGN_TEMPLATE: CampaignTemplate = {
   title: '',
   preheader: '',
   bodyHtml:
-    '<figure data-email-image-slot="1" data-label="建議置入封面">建議置入封面</figure><p>嗨 {{name}}，</p><p>這裡是這期的內容。</p>',
+    '<figure data-email-image-slot="1" data-label="建議置入封面">建議置入封面</figure><p>嗨 {{name}}，</p><p>這裡是這期的內容。</p>{{signature}}',
   builtin: false,
 };
 
@@ -72,7 +73,10 @@ export function CreateCampaignDialog({
 
   const pick = (template: CampaignTemplate) => {
     if (saving) return;
-    onCreate(template, template.id === BLANK_CAMPAIGN_TEMPLATE.id ? '' : template.title);
+    onCreate(
+      { ...template, bodyHtml: ensureSignatureToken(template.bodyHtml) },
+      template.id === BLANK_CAMPAIGN_TEMPLATE.id ? '' : template.title,
+    );
   };
   const preview = {
     siteName: session?.siteName || 'Newsletter',

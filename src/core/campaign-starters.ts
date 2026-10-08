@@ -97,7 +97,7 @@ export const BUILTIN_CAMPAIGN_STARTERS: CampaignStarterDraft[] = [
         '<p>嗨 {{name}}，</p>',
         '<p>我剛公開一件新作品，想先寄給你。</p>',
         '<h2>作品名稱</h2>',
-        emailHero(unsplashCrop('photo-1578301978693-85fa9c0320b9', 1200, 360), '新作品預覽'),
+        emailHero(unsplashCrop('photo-1578301978693-85fa9c0320b9', 1200, 675), '新作品預覽'),
         '<p>這次想處理的，是一個我最近一直繞不開的問題。作品不長，但希望你看完會留下一句自己的話。</p>',
         '<ul>',
         '<li>形式：文章、影片、刊物或作品集</li>',

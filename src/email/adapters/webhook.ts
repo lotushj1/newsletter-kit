@@ -17,9 +17,7 @@ export const createWebhookAdapter: EmailAdapterFactory = (context): EmailAdapter
     }
     return {
       ok: true,
-      message: context.webhookSecret
-        ? 'webhook 設定完成，會帶 HMAC 簽章。'
-        : 'webhook 設定完成，但沒有 WEBHOOK_SECRET，對方無法驗簽。',
+      message: context.webhookSecret ? '會帶簽章。' : '已設定。沒有簽章金鑰。',
     };
   },
 

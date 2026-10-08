@@ -1,6 +1,13 @@
 import { marked } from 'marked';
 import { emailButtonMarkup, normalizeEmailButtonStyle } from './email-button.js';
-import { EMAIL_HERO_STYLE, EMAIL_IMAGE_STYLE } from './email-image.js';
+import {
+  applyImgStyle,
+  EMAIL_COVER_STYLE,
+  EMAIL_HERO_STYLE,
+  EMAIL_IMAGE_STYLE,
+  splitLeadingHero,
+} from './email-image.js';
+import { DEFAULT_UNSUBSCRIBE_LABEL, DEFAULT_UNSUBSCRIBE_PROMPT } from '../store/types.js';
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -113,6 +120,9 @@ export function absolutizeMediaUrls(html: string, baseUrl?: string): string {
 
 export const EMAIL_CARD_WIDTH = 600;
 export const EMAIL_FRAME_PAD = 24;
+export const EMAIL_BODY_PAD_X = 32;
+export const EMAIL_BODY_PAD_TOP = 28;
+export const EMAIL_BODY_PAD_BOTTOM = 32;
 export const EMAIL_CANVAS_WIDTH = EMAIL_CARD_WIDTH + EMAIL_FRAME_PAD * 2;
 
 export interface EmailLayoutInput {
@@ -122,7 +132,29 @@ export interface EmailLayoutInput {
   siteName: string;
   publicBaseUrl?: string | undefined;
   unsubscribeUrl?: string | undefined;
+  unsubscribePrompt?: string | undefined;
+  unsubscribeLabel?: string | undefined;
   footerNote?: string | undefined;
+}
+
+const EMAIL_FOOTER_FONT =
+  "400 13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC','PingFang TC',sans-serif";
+
+function unsubscribeLeadNeedsSpace(lead: string): boolean {
+  return !/[\s？?！!：:、，,。]$/.test(lead);
+}
+
+/** 信件白卡片下方的退訂句。說明與連結文字都可在品牌頁改。 */
+export function buildUnsubscribeHtml(
+  url: string,
+  prompt = DEFAULT_UNSUBSCRIBE_PROMPT,
+  label = DEFAULT_UNSUBSCRIBE_LABEL,
+): string {
+  const lead = prompt.trim();
+  const text = label.trim() || DEFAULT_UNSUBSCRIBE_LABEL;
+  const link = `<a href="${escapeHtml(url)}" style="color:#6b7280;">${escapeHtml(text)}</a>`;
+  const prefix = lead ? `${escapeHtml(lead)}${unsubscribeLeadNeedsSpace(lead) ? ' ' : ''}` : '';
+  return `<p style="margin:0;font:${EMAIL_FOOTER_FONT};color:#6b7280;">${prefix}${link}</p>`;
 }
 
 /**
@@ -131,14 +163,27 @@ export interface EmailLayoutInput {
  */
 export function renderEmailLayout(input: EmailLayoutInput): string {
   const { subject, preheader, unsubscribeUrl, footerNote } = input;
-  const contentHtml = absolutizeMediaUrls(styleRichContent(input.contentHtml), input.publicBaseUrl);
+  const split = splitLeadingHero(input.contentHtml);
+  const coverHtml = split.coverHtml
+    ? absolutizeMediaUrls(applyImgStyle(split.coverHtml, EMAIL_COVER_STYLE), input.publicBaseUrl)
+    : '';
+  const contentHtml = absolutizeMediaUrls(styleRichContent(split.bodyHtml), input.publicBaseUrl);
+  const coverRow = coverHtml
+    ? `<tr><td style="padding:0;font-size:0;line-height:0;">${coverHtml}</td></tr>`
+    : '';
   const preheaderBlock = preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0;">${escapeHtml(preheader)}</div>`
     : '';
   const unsubscribeBlock = unsubscribeUrl
-    ? `<p style="margin:0 0 8px;">不想再收到這封信？<a href="${escapeHtml(unsubscribeUrl)}" style="color:#6b7280;">取消訂閱</a></p>`
+    ? buildUnsubscribeHtml(unsubscribeUrl, input.unsubscribePrompt, input.unsubscribeLabel)
     : '';
-  const noteBlock = footerNote ? `<p style="margin:0;">${escapeHtml(footerNote)}</p>` : '';
+  const noteBlock = footerNote
+    ? `<p style="margin:${unsubscribeBlock ? '8px 0 0' : '0'};font:${EMAIL_FOOTER_FONT};color:#6b7280;">${escapeHtml(footerNote)}</p>`
+    : '';
+  const belowCard =
+    unsubscribeBlock || noteBlock
+      ? `<div style="max-width:${EMAIL_CARD_WIDTH}px;margin:16px auto 0;padding:0 ${EMAIL_BODY_PAD_X}px;text-align:left;">${unsubscribeBlock}${noteBlock}</div>`
+      : '';
 
   return `<!doctype html>
 <html lang="zh-Hant">
@@ -153,18 +198,14 @@ ${preheaderBlock}
   <tr>
     <td align="center" style="padding:${EMAIL_FRAME_PAD}px;">
       <table role="presentation" width="${EMAIL_CARD_WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${EMAIL_CARD_WIDTH}px;background:#ffffff;border-radius:12px;overflow:hidden;">
+        ${coverRow}
         <tr>
-          <td style="padding:28px 32px 32px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC','PingFang TC',sans-serif;color:#1c1917;">
+          <td style="padding:${EMAIL_BODY_PAD_TOP}px ${EMAIL_BODY_PAD_X}px ${EMAIL_BODY_PAD_BOTTOM}px;font:400 16px/1.75 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC','PingFang TC',sans-serif;color:#1c1917;">
             ${contentHtml}
           </td>
         </tr>
-        <tr>
-          <td style="padding:20px 32px 28px;border-top:1px solid #e7e5e4;font:400 13px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans TC','PingFang TC',sans-serif;color:#6b7280;">
-            ${unsubscribeBlock}
-            ${noteBlock}
-          </td>
-        </tr>
       </table>
+      ${belowCard}
     </td>
   </tr>
 </table>

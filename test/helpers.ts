@@ -25,6 +25,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
       zeaburToken: undefined,
       insforgeUrl: undefined,
       insforgeApiKey: undefined,
+      apiKey: undefined,
+      apiExtra: undefined,
+      platformSecrets: {},
     },
     doubleOptIn: true,
     corsOrigins: ['*'],
@@ -36,6 +39,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     scheduler: { enabled: false, pollMs: 1000 },
     isProduction: false,
     warnings: [],
+    ai: { provider: 'none', apiKey: undefined, model: undefined, baseUrl: undefined },
     ...overrides,
   };
 }
@@ -74,7 +78,7 @@ export async function makeContext(
   const store = new MemoryStore();
   await store.init();
   const adapter = fakeAdapter();
-  return { ctx: { config: testConfig(overrides), store, adapter }, adapter, store };
+  return { ctx: { config: testConfig(overrides), store, adapter, ai: null }, adapter, store };
 }
 
 /** 從 fake adapter 寄出的確認信裡把 token 撈出來。 */

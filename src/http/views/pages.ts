@@ -321,7 +321,7 @@ const form = document.getElementById('campaign-form');
 const saveStatus = document.getElementById('save-status');
 const DELIVERY_LABEL = { pending: '待寄', sent: '已寄出', failed: '失敗', skipped: '略過' };
 let lastSaved = JSON.stringify(payload());
-let saveTimer, previewTimer, pollTimer;
+let saveTimer, previewTimer, pollTimer, hideStatusTimer;
 
 function notify(message, kind) {
   flash.innerHTML = '<div class="notice ' + (kind || 'ok') + '">' + message + '</div>';
@@ -330,6 +330,14 @@ function notify(message, kind) {
 
 function setSaveStatus(text) {
   if (saveStatus) saveStatus.textContent = text;
+  clearTimeout(hideStatusTimer);
+  if (text === '已自動儲存' || text === '已儲存') {
+    hideStatusTimer = setTimeout(() => {
+      if (saveStatus && (saveStatus.textContent === '已自動儲存' || saveStatus.textContent === '已儲存')) {
+        saveStatus.textContent = '';
+      }
+    }, 2000);
+  }
 }
 
 async function api(path, options) {

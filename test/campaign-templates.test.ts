@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_CAMPAIGN_STARTERS } from '../src/core/campaign-starters';
+import { EMAIL_COVER_STYLE, EMAIL_HERO_STYLE } from '../src/core/email-image.js';
 import { renderPreviewEmail } from '../src/core/preview-email.js';
 import { getBrand, updateBrand } from '../src/services/brand.js';
 import { createCampaign, previewCampaign } from '../src/services/campaigns.js';
+import { EMPTY_BRAND } from '../src/store/types.js';
 import { makeContext } from './helpers.js';
 
 function sameLetter(html: string): string {
@@ -28,12 +30,17 @@ describe('電子報建立模板', () => {
         expect(src).toMatch(/[?&]h=\d+/);
         expect(src).not.toContain('photo-1460661419201');
       }
-      if (item.id !== 'work') expect(item.bodyHtml).toContain('data-email-image-slot');
+      if (item.id !== 'work') {
+        expect(item.bodyHtml).toContain('data-email-image-slot');
+        expect(item.bodyHtml.trimStart().startsWith('<img data-email-hero')).toBe(true);
+      }
     }
     const work = BUILTIN_CAMPAIGN_STARTERS.find((item) => item.id === 'work');
     expect(work?.bodyHtml).toContain('photo-1578301978693-85fa9c0320b9');
+    expect(work?.bodyHtml).toContain('h=675');
     expect(work?.bodyHtml).toContain('作品名稱');
     expect(work?.bodyHtml).not.toContain('data-email-image-slot');
+    expect(work?.bodyHtml.indexOf('<h2>作品名稱</h2>')).toBeLessThan(work?.bodyHtml.indexOf('data-email-hero') ?? 0);
     expect(BUILTIN_CAMPAIGN_STARTERS.some((item) => item.name === '產品更新')).toBe(false);
   });
 
@@ -65,5 +72,27 @@ describe('電子報建立模板', () => {
     expect(thumb.html).not.toContain(ctx.config.siteName);
     expect(thumb.html).not.toContain('{{signature}}');
     expect(thumb.html).not.toContain('data-email-image-slot');
+  });
+
+  it('開頭封面滿版貼在白卡片上方；新作品圖留在內文並用固定圓角', () => {
+    const weekly = BUILTIN_CAMPAIGN_STARTERS.find((item) => item.id === 'weekly')!;
+    const work = BUILTIN_CAMPAIGN_STARTERS.find((item) => item.id === 'work')!;
+    const weeklyHtml = renderPreviewEmail({
+      bodyHtml: weekly.bodyHtml,
+      siteName: '測試電子報',
+      brand: EMPTY_BRAND,
+    }).html;
+    expect(weeklyHtml).toContain('padding:0;font-size:0;line-height:0;');
+    expect(weeklyHtml).toContain(EMAIL_COVER_STYLE);
+    expect(weeklyHtml.indexOf(EMAIL_COVER_STYLE)).toBeLessThan(weeklyHtml.indexOf('padding:28px 32px 32px'));
+
+    const workHtml = renderPreviewEmail({
+      bodyHtml: work.bodyHtml,
+      siteName: '測試電子報',
+      brand: EMPTY_BRAND,
+    }).html;
+    expect(workHtml).not.toContain('padding:0;font-size:0;line-height:0;');
+    expect(workHtml).toContain(EMAIL_HERO_STYLE);
+    expect(workHtml).toContain('h=675');
   });
 });

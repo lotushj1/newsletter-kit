@@ -1,5 +1,5 @@
 import type { BrandProfile } from '../store/types.js';
-import { buildBrandSignatureHtml, websiteFromBrand } from './brand-signature.js';
+import { attachBrandSignature, buildBrandSignatureHtml, websiteFromBrand } from './brand-signature.js';
 import { applyVariables, htmlToText, renderEmailLayout } from './render.js';
 
 export const PREVIEW_RECIPIENT = {
@@ -34,10 +34,15 @@ export function renderPreviewEmail(input: PreviewEmailInput): { subject: string;
   const html = renderEmailLayout({
     subject,
     preheader: input.preheader ? applyVariables(input.preheader, variables, 'text') : undefined,
-    contentHtml: applyVariables(input.bodyHtml, variables, 'html', { raw: ['signature'] }),
+    contentHtml: attachBrandSignature(
+      applyVariables(input.bodyHtml, variables, 'html', { raw: ['signature'] }),
+      variables.signature,
+    ),
     siteName: input.siteName,
     publicBaseUrl: input.publicBaseUrl,
     unsubscribeUrl: '#',
+    unsubscribePrompt: input.brand.unsubscribePrompt,
+    unsubscribeLabel: input.brand.unsubscribeLabel,
   });
   return { subject, html, text: htmlToText(html) };
 }

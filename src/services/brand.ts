@@ -1,4 +1,5 @@
 import {
+  attachBrandSignature,
   buildBrandSignatureHtml,
   isSignatureLayoutId,
   websiteFromBrand,
@@ -65,10 +66,15 @@ export function parseBrand(raw?: string): BrandProfile {
       organization: typeof parsed.organization === 'string' ? parsed.organization : '',
       title: typeof parsed.title === 'string' ? parsed.title : '',
       tagline: typeof parsed.tagline === 'string' ? parsed.tagline : '',
+      voice: typeof parsed.voice === 'string' ? parsed.voice : '',
       avatarUrl: parseAvatarUrl(parsed.avatarUrl),
       signatureLayout: parseLayout(parsed.signatureLayout),
       signatureLinks: parseLinks(parsed.signatureLinks),
       signatureHtml: typeof parsed.signatureHtml === 'string' ? parsed.signatureHtml : '',
+      unsubscribePrompt:
+        typeof parsed.unsubscribePrompt === 'string' ? parsed.unsubscribePrompt : EMPTY_BRAND.unsubscribePrompt,
+      unsubscribeLabel:
+        typeof parsed.unsubscribeLabel === 'string' ? parsed.unsubscribeLabel : EMPTY_BRAND.unsubscribeLabel,
     };
   } catch {
     return { ...EMPTY_BRAND };
@@ -85,10 +91,13 @@ export interface BrandUpdateInput {
   organization?: unknown;
   title?: unknown;
   tagline?: unknown;
+  voice?: unknown;
   avatarUrl?: unknown;
   signatureLayout?: unknown;
   signatureLinks?: unknown;
   signatureHtml?: unknown;
+  unsubscribePrompt?: unknown;
+  unsubscribeLabel?: unknown;
 }
 
 export async function updateBrand(ctx: ServiceContext, input: BrandUpdateInput): Promise<BrandProfile> {
@@ -113,10 +122,19 @@ export async function updateBrand(ctx: ServiceContext, input: BrandUpdateInput):
     organization: input.organization === undefined ? current.organization : textField(input.organization, '單位名稱', 80),
     title: input.title === undefined ? current.title : textField(input.title, '抬頭', 80),
     tagline: input.tagline === undefined ? current.tagline : textField(input.tagline, '一句話', 160),
+    voice: input.voice === undefined ? current.voice : textField(input.voice, '寫作語氣', 300),
     avatarUrl: input.avatarUrl === undefined ? current.avatarUrl : parseAvatarUrl(input.avatarUrl),
     signatureLayout: input.signatureLayout === undefined ? current.signatureLayout : parseLayout(input.signatureLayout),
     signatureLinks: links.map((item) => ({ ...item, url: item.url.slice(0, 500) })),
     signatureHtml: '',
+    unsubscribePrompt:
+      input.unsubscribePrompt === undefined
+        ? current.unsubscribePrompt
+        : textField(input.unsubscribePrompt, '退訂說明', 120),
+    unsubscribeLabel:
+      input.unsubscribeLabel === undefined
+        ? current.unsubscribeLabel
+        : textField(input.unsubscribeLabel, '退訂連結文字', 40) || EMPTY_BRAND.unsubscribeLabel,
   };
   const website = websiteFromBrand(next);
   if (input.websiteUrl === undefined) next.websiteUrl = website;
@@ -136,6 +154,13 @@ export function mergeBrandVariables(
   const source = buildBrandSignatureHtml(brand, { publicBaseUrl });
   const signature = applyVariables(source, { ...base, writer, website }, 'html');
   return { ...base, writer, website, signature };
+}
+
+export function brandedContentHtml(
+  template: string,
+  variables: Record<string, string>,
+): string {
+  return attachBrandSignature(applyCampaignVariables(template, variables, 'html'), variables.signature ?? '');
 }
 
 export function applyCampaignVariables(

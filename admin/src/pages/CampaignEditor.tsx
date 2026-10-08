@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useOutletContext, useParams } from 'react-router-dom';
 import { PreviewDialog } from '../components/PreviewDialog';
 import { TiptapEditor } from '../components/TiptapEditor';
-import { api, formatTime, STATUS_LABEL, type Campaign, type CampaignTemplate, type Folder } from '../api';
+import { AiWriteNotice } from '../components/AiWriteNotice';
+import { Modal } from '../components/Modal';
+import { api, formatTime, STATUS_LABEL, type Campaign, type Folder, type Session } from '../api';
 
 const LOCKED = ['sending', 'sent'];
 
 export function CampaignEditor() {
   const { id = '' } = useParams();
-  const navigate = useNavigate();
+  const session = useOutletContext<Session | null>();
+  const aiWrites = Boolean(session?.ai.writes);
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [title, setTitle] = useState('');
   const [preheader, setPreheader] = useState('');
@@ -23,11 +26,17 @@ export function CampaignEditor() {
   const [scheduleAt, setScheduleAt] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [savingTemplate, setSavingTemplate] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  const hideStatus = useRef<number | undefined>(undefined);
   const loaded = useRef(false);
   const inspectHostRef = useRef<HTMLDivElement>(null);
   const [inspectingButton, setInspectingButton] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMode, setAiMode] = useState<null | 'draft' | 'subjects'>(null);
+  const [aiError, setAiError] = useState('');
+  const [brief, setBrief] = useState('');
+  const [draftPreview, setDraftPreview] = useState<{ title: string; preheader: string; bodyHtml: string } | null>(null);
+  const [subjectOptions, setSubjectOptions] = useState<{ subject: string; preheader: string }[] | null>(null);
 
   const editable = campaign ? !LOCKED.includes(campaign.status) : false;
 
@@ -46,6 +55,7 @@ export function CampaignEditor() {
 
   const save = useCallback(async () => {
     if (!editable) return;
+    window.clearTimeout(hideStatus.current);
     setSaveStatus('儲存中…');
     const updated = await api.patch<Campaign>(`/campaigns/${id}`, {
       title,
@@ -57,6 +67,9 @@ export function CampaignEditor() {
     });
     setCampaign(updated);
     setSaveStatus('已自動儲存');
+    hideStatus.current = window.setTimeout(() => {
+      setSaveStatus((current) => (current === '已自動儲存' ? '' : current));
+    }, 2000);
   }, [editable, id, title, preheader, bodyHtml, folderId]);
 
   useEffect(() => {
@@ -67,6 +80,8 @@ export function CampaignEditor() {
     }, 1200);
     return () => window.clearTimeout(timer.current);
   }, [title, preheader, bodyHtml, folderId, editable, save]);
+
+  useEffect(() => () => window.clearTimeout(hideStatus.current), []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -81,6 +96,24 @@ export function CampaignEditor() {
 
   if (!campaign) return <p className="muted" style={{ padding: 24 }}>載入中…</p>;
 
+  const runAi = async (work: () => Promise<void>) => {
+    setAiError('');
+    setAiBusy(true);
+    try {
+      await work();
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'AI 失敗');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const closeAi = () => {
+    if (aiBusy) return;
+    setAiMode(null);
+    setAiError('');
+  };
+
   return (
     <div className="editor-shell">
       <div className="editor-main">
@@ -91,8 +124,19 @@ export function CampaignEditor() {
         <input className="editor-title" value={title} disabled={!editable} onChange={(e) => setTitle(e.target.value)} placeholder="標題" />
         <div className="editor-meta">
           <div>
-            <label>前導文字</label>
-            <input value={preheader} disabled={!editable} onChange={(e) => setPreheader(e.target.value)} placeholder="收件匣預覽那一行，可留空" />
+            <div className="editor-field-head">
+              <label htmlFor="editor-preheader">前導文字</label>
+              {editable && (
+                <button
+                  type="button"
+                  className="editor-ai-text"
+                  onClick={() => { setAiError(''); setSubjectOptions(null); setAiMode('subjects'); }}
+                >
+                  建議標題
+                </button>
+              )}
+            </div>
+            <input id="editor-preheader" value={preheader} disabled={!editable} onChange={(e) => setPreheader(e.target.value)} placeholder="收件匣預覽那一行，可留空" />
           </div>
         </div>
         <TiptapEditor
@@ -101,6 +145,8 @@ export function CampaignEditor() {
           editable={editable}
           inspectHost={inspectHostRef}
           onInspectingChange={setInspectingButton}
+          onAiDraft={editable ? () => { setAiError(''); setDraftPreview(null); setAiMode('draft'); } : undefined}
+          aiRewrite={editable && aiWrites}
         />
       </div>
       <aside className="editor-side">
@@ -152,32 +198,6 @@ export function CampaignEditor() {
           }}
         >
           {previewing ? '預覽中…' : '預覽'}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={savingTemplate}
-          onClick={() => {
-            setSavingTemplate(true);
-            setMessage('');
-            void (editable ? save() : Promise.resolve())
-              .then(() =>
-                api.post<CampaignTemplate>(`/campaigns/${id}/template`, {
-                  title,
-                  preheader,
-                  bodyHtml,
-                }),
-              )
-              .then((created) => {
-                navigate(`/brand/templates/${created.id}`);
-              })
-              .catch((err: Error) => {
-                setMessage(err.message);
-                setSavingTemplate(false);
-              });
-          }}
-        >
-          {savingTemplate ? '儲存中…' : '存成模板'}
         </button>
         <div>
           <label>測試信</label>
@@ -255,6 +275,71 @@ export function CampaignEditor() {
         loading={previewing}
         onClose={() => setPreviewOpen(false)}
       />
+      {aiMode === 'draft' && (
+        <Modal title="從題材起草" onClose={closeAi}>
+          {aiError && <div className="notice error">{aiError}</div>}
+          <AiWriteNotice ai={session?.ai} />
+          {!draftPreview ? (
+            <form onSubmit={(event) => {
+              event.preventDefault();
+              if (!aiWrites) return;
+              void runAi(async () => {
+                const result = await api.post<{ title: string; preheader: string; bodyHtml: string }>('/ai/draft', { brief });
+                setDraftPreview(result);
+              });
+            }}>
+              <label htmlFor="ai-brief">題材</label>
+              <textarea id="ai-brief" required disabled={!aiWrites} value={brief} onChange={(event) => setBrief(event.target.value)} placeholder="這封信要跟讀者說什麼" />
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn primary" type="submit" disabled={aiBusy || !aiWrites}>{aiBusy ? '產生中…' : '產生預覽'}</button>
+              </div>
+            </form>
+          ) : (
+            <div>
+              <p><strong>{draftPreview.title}</strong></p>
+              <p className="muted">{draftPreview.preheader || '（沒有前導文字）'}</p>
+              <div className="ai-html" dangerouslySetInnerHTML={{ __html: draftPreview.bodyHtml }} />
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <button type="button" className="btn" onClick={() => setDraftPreview(null)}>重寫</button>
+                <button type="button" className="btn primary" onClick={() => {
+                  setTitle(draftPreview.title);
+                  setPreheader(draftPreview.preheader);
+                  setBodyHtml(draftPreview.bodyHtml);
+                  setAiMode(null);
+                }}>取代本文</button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+      {aiMode === 'subjects' && (
+        <Modal title="標題與前導" onClose={closeAi}>
+          {aiError && <div className="notice error">{aiError}</div>}
+          <AiWriteNotice ai={session?.ai} />
+          {!subjectOptions ? (
+            <button type="button" className="btn primary" disabled={aiBusy || !aiWrites} onClick={() => {
+              if (!aiWrites) return;
+              void runAi(async () => {
+                const result = await api.post<{ options: { subject: string; preheader: string }[] }>('/ai/subjects', { title, bodyHtml });
+                setSubjectOptions(result.options);
+              });
+            }}>{aiBusy ? '產生中…' : '依正文產生 3 組'}</button>
+          ) : (
+            <div className="ai-options">
+              {subjectOptions.map((option) => (
+                <button key={option.subject} type="button" className="ai-option" onClick={() => {
+                  setTitle(option.subject);
+                  setPreheader(option.preheader);
+                  setAiMode(null);
+                }}>
+                  <strong>{option.subject}</strong>
+                  <span className="muted">{option.preheader || '（沒有前導文字）'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

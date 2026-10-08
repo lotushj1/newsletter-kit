@@ -19,7 +19,12 @@ import {
   SIGNATURE_LINK_META,
 } from '../../../src/core/brand-signature';
 import { api, EMPTY_BRAND, type BrandProfile } from '../api';
-import type { SignatureLink, SignatureLinkIcon } from '../../../src/store/types';
+import {
+  DEFAULT_UNSUBSCRIBE_LABEL,
+  DEFAULT_UNSUBSCRIBE_PROMPT,
+  type SignatureLink,
+  type SignatureLinkIcon,
+} from '../../../src/store/types';
 
 const PREVIEW_AVATAR =
   'data:image/svg+xml;utf8,' +
@@ -49,8 +54,15 @@ function newLink(): SignatureLink {
 }
 
 function hydrateBrand(data: BrandProfile): BrandProfile {
-  if (data.signatureLinks.length > 0 || !data.websiteUrl.trim()) return data;
-  return { ...data, signatureLinks: [{ id: 'slk_site', icon: 'website', url: data.websiteUrl }] };
+  const next: BrandProfile = {
+    ...EMPTY_BRAND,
+    ...data,
+    voice: data.voice ?? '',
+    unsubscribePrompt: data.unsubscribePrompt ?? EMPTY_BRAND.unsubscribePrompt,
+    unsubscribeLabel: data.unsubscribeLabel ?? EMPTY_BRAND.unsubscribeLabel,
+  };
+  if (next.signatureLinks.length > 0 || !next.websiteUrl.trim()) return next;
+  return { ...next, signatureLinks: [{ id: 'slk_site', icon: 'website', url: next.websiteUrl }] };
 }
 
 export function Brand() {
@@ -122,9 +134,12 @@ export function Brand() {
         organization: brand.organization,
         title: brand.title,
         tagline: brand.tagline,
+        voice: brand.voice,
         avatarUrl: brand.avatarUrl,
         signatureLayout: brand.signatureLayout,
         signatureLinks: brand.signatureLinks.filter((item) => item.url.trim()),
+        unsubscribePrompt: brand.unsubscribePrompt,
+        unsubscribeLabel: brand.unsubscribeLabel,
       });
       setBrand(hydrateBrand(saved));
       setStatus('已儲存');
@@ -146,8 +161,8 @@ export function Brand() {
       <section className="card setup-card">
         <div className="setup-head">
           <div>
-            <h2>簽名</h2>
-            <p className="muted">會出現在電子報最下方。選版型、填欄位，右邊立刻看到成品。</p>
+            <h2>簽名與退訂</h2>
+            <p className="muted">簽名接在正文後面。退訂文字在更下面，每封信都會帶上。</p>
           </div>
           <button type="button" className="btn primary" disabled={saving} onClick={() => void saveBrand()}>
             {saving ? '儲存中…' : status || '儲存'}
@@ -180,36 +195,36 @@ export function Brand() {
         </div>
 
         <div className="brand-signature">
-          <div className="brand-fields">
-            <div className="sig-avatar-row">
-              <div>
-                <p className="brand-signature-label">大頭貼</p>
-                <p className="muted" style={{ margin: '0 0 10px' }}>
-                  {brand.signatureLayout === 'text-only' ? '這個版型不會顯示照片，仍可先上傳備用。' : '選擇照片後會出現在簽名裡。'}
-                </p>
-                <div className="sig-avatar-actions">
-                  <button type="button" className="btn" disabled={uploading} onClick={() => fileRef.current?.click()}>
-                    {uploading ? '上傳中…' : brand.avatarUrl ? '更換照片' : '上傳大頭貼'}
+          <div className="sig-avatar-row">
+            <span className="sig-avatar-preview">
+              {brand.avatarUrl ? <img src={brand.avatarUrl} alt="" /> : <span className="sig-avatar-empty" />}
+            </span>
+            <div>
+              <p className="brand-signature-label">大頭貼</p>
+              <p className="muted" style={{ margin: '0 0 10px' }}>
+                {brand.signatureLayout === 'text-only' ? '這個版型不會顯示照片，仍可先上傳備用。' : '選擇照片後會出現在簽名裡。'}
+              </p>
+              <div className="sig-avatar-actions">
+                <button type="button" className="btn" disabled={uploading} onClick={() => fileRef.current?.click()}>
+                  {uploading ? '上傳中…' : brand.avatarUrl ? '更換照片' : '上傳大頭貼'}
+                </button>
+                {brand.avatarUrl ? (
+                  <button type="button" className="btn ghost" onClick={() => patch({ avatarUrl: '' })}>
+                    移除
                   </button>
-                  {brand.avatarUrl ? (
-                    <button type="button" className="btn ghost" onClick={() => patch({ avatarUrl: '' })}>
-                      移除
-                    </button>
-                  ) : null}
-                </div>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/gif,image/webp"
-                  hidden
-                  onChange={(event) => void onPickAvatar(event)}
-                />
+                ) : null}
               </div>
-              <span className="sig-avatar-preview">
-                {brand.avatarUrl ? <img src={brand.avatarUrl} alt="" /> : <span className="sig-avatar-empty" />}
-              </span>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                hidden
+                onChange={(event) => void onPickAvatar(event)}
+              />
             </div>
+          </div>
 
+          <div className="brand-fields">
             <div>
               <label htmlFor="brand-writer">顯示名稱</label>
               <input
@@ -246,8 +261,17 @@ export function Brand() {
                 placeholder="可留空"
               />
             </div>
-
             <div>
+              <label htmlFor="brand-voice">寫作語氣</label>
+              <textarea
+                id="brand-voice"
+                value={brand.voice}
+                onChange={(event) => patch({ voice: event.target.value })}
+                placeholder="寫信和起草自動化時會帶上。例如：短句、口語、不推銷。"
+              />
+            </div>
+
+            <div className="brand-links">
               <p className="brand-signature-label">連結</p>
               <p className="muted" style={{ margin: '0 0 10px' }}>以圖示出現在簽名下方。新增時可選對應的 icon。</p>
               <div className="sig-links">
@@ -330,16 +354,51 @@ export function Brand() {
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="brand-signature-preview-wrap">
-            <p className="brand-signature-label">預覽</p>
+        <div className="brand-unsub">
+          <p className="brand-signature-label">退訂文字</p>
+          <p className="muted" style={{ margin: '0 0 12px' }}>
+            出現在簽名檔下面、信件最底部。連結會自動指向該收件人的退訂頁。
+          </p>
+          <div className="brand-unsub-fields">
+            <div>
+              <label htmlFor="brand-unsub-prompt">說明</label>
+              <input
+                id="brand-unsub-prompt"
+                value={brand.unsubscribePrompt}
+                onChange={(event) => patch({ unsubscribePrompt: event.target.value })}
+                placeholder={DEFAULT_UNSUBSCRIBE_PROMPT}
+              />
+            </div>
+            <div>
+              <label htmlFor="brand-unsub-label">連結文字</label>
+              <input
+                id="brand-unsub-label"
+                value={brand.unsubscribeLabel}
+                onChange={(event) => patch({ unsubscribeLabel: event.target.value })}
+                placeholder={DEFAULT_UNSUBSCRIBE_LABEL}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="brand-signature-preview-wrap">
+          <p className="brand-signature-label">預覽</p>
+          <div className={`brand-signature-preview${preview ? '' : ' empty'}`}>
             {preview ? (
-              <div className="brand-signature-preview" dangerouslySetInnerHTML={{ __html: preview }} />
+              <div dangerouslySetInnerHTML={{ __html: preview }} />
             ) : (
-              <div className="brand-signature-preview empty">
-                <p className="muted">填寫左邊的資訊後，這裡會預覽完整簽名檔。</p>
-              </div>
+              <p className="muted">填寫上面的資訊後，這裡會預覽完整簽名檔。</p>
             )}
+            <p className="brand-unsub-preview">
+              {brand.unsubscribePrompt.trim()}
+              {brand.unsubscribePrompt.trim() &&
+              !/[\s？?！!：:、，,。]$/.test(brand.unsubscribePrompt.trim())
+                ? ' '
+                : ''}
+              <a href="#">{brand.unsubscribeLabel.trim() || DEFAULT_UNSUBSCRIBE_LABEL}</a>
+            </p>
           </div>
         </div>
       </section>

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   confirmSubscription,
   createSubscriber,
+  deleteSubscriber,
   exportSubscribersCsv,
   importSubscribersCsv,
   subscribe,
   unsubscribeByToken,
   unsubscribeUrl,
+  updateSubscriber,
 } from '../src/services/subscribers.js';
 import { makeContext, tokenFromEmail } from './helpers.js';
 
@@ -138,5 +140,39 @@ describe('名單匯入匯出', () => {
 
     expect(csv.split('\n')[0]).toContain('email,name,status,tags');
     expect(csv).toContain('a@example.com');
+  });
+});
+
+describe('後台編輯刪除', () => {
+  it('可以改 Email、名稱與狀態', async () => {
+    const { ctx } = await makeContext({ doubleOptIn: false });
+    const created = await createSubscriber(ctx, { email: 'old@example.com', name: '舊名' });
+    const updated = await updateSubscriber(ctx, created.id, {
+      email: 'new@example.com',
+      name: '新名',
+      status: 'unsubscribed',
+    });
+    expect(updated).toMatchObject({
+      email: 'new@example.com',
+      name: '新名',
+      status: 'unsubscribed',
+    });
+    expect(await ctx.store.getSubscriberByEmail('old@example.com')).toBeNull();
+  });
+
+  it('改成已存在的 Email 會衝突', async () => {
+    const { ctx } = await makeContext({ doubleOptIn: false });
+    await createSubscriber(ctx, { email: 'a@example.com' });
+    const other = await createSubscriber(ctx, { email: 'b@example.com' });
+    await expect(updateSubscriber(ctx, other.id, { email: 'a@example.com' })).rejects.toThrow(
+      '這個 Email 已在名單內',
+    );
+  });
+
+  it('刪除後找不到這筆資料', async () => {
+    const { ctx } = await makeContext({ doubleOptIn: false });
+    const created = await createSubscriber(ctx, { email: 'gone@example.com' });
+    await deleteSubscriber(ctx, created.id);
+    expect(await ctx.store.getSubscriber(created.id)).toBeNull();
   });
 });

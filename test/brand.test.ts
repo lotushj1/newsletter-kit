@@ -3,6 +3,7 @@ import { createCampaign, renderCampaign } from '../src/services/campaigns.js';
 import { EMPTY_BRAND } from '../src/store/types.js';
 import {
   buildBrandSignatureHtml,
+  ensureSignatureToken,
   guessSignatureLinkIcon,
 } from '../src/core/brand-signature.js';
 import { sigIconBuffer } from '../src/core/sig-icons.js';
@@ -115,6 +116,39 @@ describe('品牌與自訂模板', () => {
     expect(rendered.html).toContain('href="https://example.com"');
     expect(rendered.html).toContain('https://newsletter.test/sig-icons/website.png');
     expect(rendered.html).not.toContain('{{signature}}');
+  });
+
+  it('可以自訂退訂文案，且出現在簽名下面', async () => {
+    const { ctx } = await makeContext();
+    await updateBrand(ctx, {
+      writerName: '凱文',
+      signatureLayout: 'text-only',
+      unsubscribePrompt: '不想收到這類信件的話，',
+      unsubscribeLabel: '點這裡退訂',
+    });
+    const campaign = await createCampaign(ctx, {
+      title: 't',
+      bodyHtml: '<p>正文結束</p>{{signature}}',
+    });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
+    const signatureAt = rendered.html.indexOf('data-email-signature');
+    const unsubscribeAt = rendered.html.indexOf('點這裡退訂');
+    expect(signatureAt).toBeGreaterThan(0);
+    expect(unsubscribeAt).toBeGreaterThan(signatureAt);
+    expect(rendered.html).toContain('不想收到這類信件的話，');
+    expect(rendered.html).not.toContain('不想再收到這封信？');
+  });
+
+  it('正文沒寫簽名時，寄出仍會接上品牌簽名', async () => {
+    const { ctx } = await makeContext();
+    await updateBrand(ctx, { writerName: '凱文', signatureLayout: 'text-only' });
+    const campaign = await createCampaign(ctx, { title: 't', bodyHtml: '<p>只有正文</p>' });
+    const rendered = await renderCampaign(ctx, campaign, { email: 'a@example.com', name: '阿明' });
+    expect(rendered.html).toContain('只有正文');
+    expect(rendered.html).toContain('data-email-signature');
+    expect(rendered.html).toContain('凱文');
+    expect(ensureSignatureToken('<p>x</p>')).toBe('<p>x</p>{{signature}}');
+    expect(ensureSignatureToken('<p>x</p>{{signature}}')).toBe('<p>x</p>{{signature}}');
   });
 
   it('列出內建模板，並可新增、複製、刪除自訂模板', async () => {

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getAiService, isKnownAiProvider } from './ai/providers.js';
 
 /**
  * 極簡 .env 讀取：不覆蓋已存在的環境變數，避免蓋掉部署平台注入的值。
@@ -27,6 +28,7 @@ export function loadEnvFile(file = '.env'): void {
 }
 
 export type StoreDriver = 'sqlite' | 'json' | 'memory' | 'insforge';
+export type AiProvider = string;
 
 export interface Config {
   port: number;
@@ -47,6 +49,15 @@ export interface Config {
     zeaburToken: string | undefined;
     insforgeUrl: string | undefined;
     insforgeApiKey: string | undefined;
+    apiKey: string | undefined;
+    apiExtra: string | undefined;
+    platformSecrets: Record<string, { key?: string | undefined; extra?: string | undefined }>;
+  };
+  ai: {
+    provider: AiProvider;
+    apiKey: string | undefined;
+    model: string | undefined;
+    baseUrl: string | undefined;
   };
   doubleOptIn: boolean;
   corsOrigins: string[];
@@ -76,6 +87,16 @@ function optional(key: string): string | undefined {
 function num(key: string, fallback: number): number {
   const parsed = Number(process.env[key]);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function aiProvider(): AiProvider {
+  const raw = str('AI_PROVIDER', 'none');
+  if (!isKnownAiProvider(raw)) throw new Error(`AI_PROVIDER 不認識：${raw}`);
+  return raw;
+}
+
+function defaultAiModel(provider: AiProvider): string | undefined {
+  return getAiService(provider)?.defaultModel;
 }
 
 function bool(key: string, fallback: boolean): boolean {
@@ -123,6 +144,7 @@ export function loadConfig(): Config {
 
   const port = num('PORT', 4400);
   const corsRaw = str('CORS_ORIGINS', '*');
+  const provider = aiProvider();
 
   return {
     port,
@@ -143,6 +165,15 @@ export function loadConfig(): Config {
       zeaburToken: optional('ZEABUR_TOKEN'),
       insforgeUrl: optional('INSFORGE_URL'),
       insforgeApiKey: optional('INSFORGE_API_KEY'),
+      apiKey: optional('EMAIL_API_KEY'),
+      apiExtra: optional('EMAIL_API_EXTRA'),
+      platformSecrets: {},
+    },
+    ai: {
+      provider,
+      apiKey: optional('AI_API_KEY'),
+      model: optional('AI_MODEL') ?? defaultAiModel(provider),
+      baseUrl: optional('AI_BASE_URL'),
     },
     doubleOptIn: bool('DOUBLE_OPT_IN', true),
     corsOrigins: corsRaw === '*' ? ['*'] : corsRaw.split(',').map((o) => o.trim()).filter(Boolean),

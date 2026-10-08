@@ -26,7 +26,7 @@ const adapter = createEmailAdapter({
   zeaburEndpoint: config.email.zeaburEndpoint,
   zeaburToken: config.email.zeaburToken,
 });
-const ctx: ServiceContext = { config, store, adapter };
+const ctx: ServiceContext = { config, store, adapter, ai: null };
 
 const names = ['阿明', '小美', '志偉', '佳玲', '建宏', '雅婷', '家豪', '怡君'];
 const makeName = (i: number) => names[i % names.length] + (Math.floor(i / names.length) + 1);

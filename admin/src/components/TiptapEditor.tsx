@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type MutableRefObject, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -8,7 +8,9 @@ import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import TextAlign from '@tiptap/extension-text-align';
 import { NodeSelection } from '@tiptap/pm/state';
-import { DOMSerializer } from '@tiptap/pm/model';
+import { DOMParser, DOMSerializer } from '@tiptap/pm/model';
+import { planSelectionReplacement } from './editor/replace-selection';
+import { RewriteHold } from './editor/rewrite-hold';
 import {
   AlignCenter,
   AlignJustify,
@@ -33,12 +35,14 @@ import {
   Quote,
   RectangleHorizontal,
   Redo2,
+  Sparkles,
   Trash2,
   Type,
   Underline as UnderlineIcon,
   Undo2,
   User,
   Video,
+  ArrowUp,
 } from 'lucide-react';
 import {
   DEFAULT_EMAIL_BUTTON,
@@ -65,7 +69,7 @@ type MenuState =
   | { kind: 'url'; field: UrlField; top: number; left: number }
   | null;
 
-type BarMenu = 'style' | 'align' | 'templates' | null;
+type BarMenu = 'style' | 'align' | 'templates' | 'ai' | null;
 
 const ALIGNS = [
   { id: 'left', label: '靠左對齊', icon: AlignLeft },
@@ -114,6 +118,21 @@ function prepareBlockInsert(editor: Editor) {
   if (!isAtomSelection(editor)) return;
   const pos = editor.state.selection.to;
   editor.chain().insertContentAt(pos, { type: 'paragraph' }).setTextSelection(pos + 1).run();
+}
+
+const REWRITE_ACTIONS = [
+  { label: '擴寫', instruction: '寫長一點，補上具體說明' },
+  { label: '縮短', instruction: '留下重點，縮短' },
+  { label: '改得更清楚', instruction: '改得更清楚、更好讀' },
+  { label: '改得更口語', instruction: '改成口語，像在跟讀者說話' },
+  { label: '修正錯字', instruction: '只修正錯字和語病，不要改意思' },
+] as const;
+
+function htmlBetween(editor: Editor, from: number, to: number): string {
+  const slice = editor.state.doc.slice(from, to);
+  const holder = document.createElement('div');
+  holder.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(slice.content));
+  return holder.innerHTML;
 }
 
 function selectedHtml(editor: Editor): string {
@@ -233,18 +252,29 @@ function filterCommands(items: CommandItem[], query: string): CommandItem[] {
   );
 }
 
+export interface EmailEditorApi {
+  selectionHtml: () => string;
+  replaceSelection: (html: string) => void;
+}
+
 export function TiptapEditor({
   value,
   onChange,
   editable = true,
   inspectHost,
   onInspectingChange,
+  apiRef,
+  onAiDraft,
+  aiRewrite = false,
 }: {
   value: string;
   onChange: (html: string) => void;
   editable?: boolean;
   inspectHost?: RefObject<HTMLElement | null>;
   onInspectingChange?: (open: boolean) => void;
+  apiRef?: MutableRefObject<EmailEditorApi | null>;
+  onAiDraft?: () => void;
+  aiRewrite?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -256,6 +286,10 @@ export function TiptapEditor({
   const [menu, setMenu] = useState<MenuState>(null);
   const [bar, setBar] = useState<BarMenu>(null);
   const [plus, setPlus] = useState<{ top: number; left: number } | null>(null);
+  const [rewriteBox, setRewriteBox] = useState<{ top: number; left: number } | null>(null);
+  const [rewritePhase, setRewritePhase] = useState<'ask' | 'busy'>('ask');
+  const [rewriteCustom, setRewriteCustom] = useState('');
+  const [rewriteError, setRewriteError] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [urlValue, setUrlValue] = useState('');
   const [buttonLabel, setButtonLabel] = useState('了解更多');
@@ -280,7 +314,15 @@ export function TiptapEditor({
   const [imageError, setImageError] = useState('');
   const [imageBusy, setImageBusy] = useState(false);
   const onInspectingChangeRef = useRef(onInspectingChange);
+  const aiRewriteRef = useRef(aiRewrite);
+  const rewriteStickyRef = useRef(false);
+  const rewritePhaseRef = useRef<'ask' | 'busy'>('ask');
+  const rewriteRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const rewriteOpenRef = useRef(false);
+  const closeRewriteRef = useRef(() => undefined);
   onInspectingChangeRef.current = onInspectingChange;
+  aiRewriteRef.current = aiRewrite;
+  rewritePhaseRef.current = rewritePhase;
   editableRef.current = editable;
   buttonInspectRef.current = buttonInspect;
 
@@ -476,7 +518,18 @@ export function TiptapEditor({
   };
   replaceImageRef.current = (pos, hero) => openImagePicker({ replacePos: pos, hero });
 
-  const catalog = commandList(openUrl, () => openImagePicker());
+  const catalog = [
+    ...commandList(openUrl, () => openImagePicker()),
+    ...(onAiDraft
+      ? [{
+          id: 'ai-draft',
+          label: '用 AI 寫',
+          aliases: ['ai'],
+          icon: Sparkles,
+          run: () => onAiDraft(),
+        } satisfies CommandItem]
+      : []),
+  ];
 
   const applyCommand = (item: CommandItem) => {
     const current = editorRef.current;
@@ -566,6 +619,7 @@ export function TiptapEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [...HEADINGS] } }),
+      RewriteHold,
       Underline,
       Link.configure({ openOnClick: false, autolink: true }),
       EmailImage,
@@ -610,6 +664,13 @@ export function TiptapEditor({
       handleKeyDown: (_view, event) => {
         const current = editorRef.current;
         const menuState = menuRef.current;
+        if (event.key === 'Escape' && rewriteOpenRef.current) {
+          event.preventDefault();
+          const cursor = current?.state.selection.from;
+          closeRewriteRef.current();
+          if (current && cursor != null) current.commands.setTextSelection(cursor);
+          return true;
+        }
         if (menuState?.kind === 'slash') {
           const items = itemsRef.current;
           if (event.key === 'ArrowDown') {
@@ -670,29 +731,154 @@ export function TiptapEditor({
   editorRef.current = editor;
   menuRef.current = menu;
 
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = {
+      selectionHtml: () => {
+        const current = editorRef.current;
+        if (!current || current.state.selection.empty) return '';
+        const slice = current.state.selection.content();
+        const holder = document.createElement('div');
+        holder.appendChild(DOMSerializer.fromSchema(current.schema).serializeFragment(slice.content));
+        return holder.innerHTML;
+      },
+      replaceSelection: (html: string) => {
+        const current = editorRef.current;
+        if (!current || current.state.selection.empty) return;
+        current.chain().focus().command(({ state, tr }) => {
+          const host = document.createElement('div');
+          host.innerHTML = html.trim();
+          const fragment = DOMParser.fromSchema(state.schema).parse(host).content;
+          const plan = planSelectionReplacement(state.selection, fragment);
+          if (!plan) return false;
+          tr.replaceWith(plan.from, plan.to, plan.content);
+          return true;
+        }).run();
+      },
+    };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef, editor]);
+
+  const closeRewrite = () => {
+    editorRef.current?.commands.setRewriteHold(null);
+    rewriteStickyRef.current = false;
+    rewritePhaseRef.current = 'ask';
+    rewriteOpenRef.current = false;
+    rewriteRangeRef.current = null;
+    setRewriteBox(null);
+    setRewritePhase('ask');
+    setRewriteCustom('');
+    setRewriteError('');
+  };
+  closeRewriteRef.current = closeRewrite;
+
+  const runRewrite = (instruction: string) => {
+    const current = editorRef.current;
+    const range = rewriteRangeRef.current;
+    const note = instruction.trim();
+    if (!current || !range || !note || rewritePhaseRef.current === 'busy') return;
+    const source = htmlBetween(current, range.from, range.to);
+    if (!source.trim()) {
+      setRewriteError('請先選取要改寫的文字');
+      return;
+    }
+    rewriteStickyRef.current = true;
+    rewritePhaseRef.current = 'busy';
+    setRewritePhase('busy');
+    setRewriteError('');
+    void api.post<{ html: string }>('/ai/rewrite', { html: source, instruction: note }).then((result) => {
+      const editorNow = editorRef.current;
+      const saved = rewriteRangeRef.current;
+      if (!editorNow || !saved) return;
+      const docSize = editorNow.state.doc.content.size;
+      const from = Math.max(0, Math.min(saved.from, docSize));
+      const to = Math.max(from, Math.min(saved.to, docSize));
+      if (from === to) {
+        rewritePhaseRef.current = 'ask';
+        setRewritePhase('ask');
+        setRewriteError('這段沒有改進去');
+        return;
+      }
+      editorNow.commands.setTextSelection({ from, to });
+      const host = document.createElement('div');
+      host.innerHTML = result.html.trim();
+      const fragment = DOMParser.fromSchema(editorNow.schema).parse(host).content;
+      const applied = editorNow.chain().focus().command(({ state, tr }) => {
+        const plan = planSelectionReplacement(state.selection, fragment);
+        if (!plan) return false;
+        tr.replaceWith(plan.from, plan.to, plan.content);
+        return true;
+      }).run();
+      if (!applied) {
+        rewritePhaseRef.current = 'ask';
+        setRewritePhase('ask');
+        setRewriteError('這段沒有改進去');
+        return;
+      }
+      closeRewrite();
+    }).catch((err: unknown) => {
+      rewritePhaseRef.current = 'ask';
+      setRewritePhase('ask');
+      setRewriteError(err instanceof Error ? err.message : '改寫失敗');
+    });
+  };
+
   const syncChrome = () => {
     const current = editorRef.current;
+    const placeRewrite = () => {
+      if (!aiRewriteRef.current || !current) {
+        if (!rewriteStickyRef.current) closeRewriteRef.current();
+        return;
+      }
+      if (current.state.selection.empty || isAtomSelection(current)) {
+        if (rewritePhaseRef.current === 'busy') return;
+        if (rewriteStickyRef.current) return;
+        closeRewriteRef.current();
+        return;
+      }
+      if (!current.isFocused && rewriteStickyRef.current) return;
+      const { from, to } = current.state.selection;
+      rewriteRangeRef.current = { from, to };
+      if (rewritePhaseRef.current !== 'ask') return;
+      const wrap = wrapRef.current?.getBoundingClientRect();
+      if (!wrap) return;
+      const coords = current.view.coordsAtPos(from);
+      const left = Math.min(Math.max(36, coords.left - wrap.left), Math.max(36, wrap.width - 248));
+      const above = coords.top - wrap.top;
+      const top = above > 250 ? above - 244 : coords.bottom - wrap.top + 8;
+      rewriteOpenRef.current = true;
+      setRewriteBox({ top: Math.max(4, top), left });
+    };
     if (!current || !editable || !wrapRef.current) {
       setPlus(null);
+      if (!rewriteStickyRef.current) closeRewriteRef.current();
       if (menuRef.current?.kind === 'slash') setMenu(null);
       return;
     }
-    if (menuRef.current?.kind === 'url' || menuRef.current?.kind === 'plus') return;
+    if (menuRef.current?.kind === 'url' || menuRef.current?.kind === 'plus') {
+      if (!rewriteStickyRef.current) closeRewriteRef.current();
+      return;
+    }
     const { $from } = current.state.selection;
     const text = $from.parent.textBetween(0, $from.parent.content.size);
     if ($from.parent.isTextblock && text.startsWith('/')) {
       const coords = relativePos($from.start());
       setPlus(null);
+      if (!rewriteStickyRef.current) closeRewriteRef.current();
       setMenu({ kind: 'slash', query: text.slice(1), top: coords.top + 32, left: Math.max(36, coords.left) });
       return;
     }
     if (canOpenInsert(current)) {
       setPlus(plusAtSelection());
       if (menuRef.current?.kind === 'slash') setMenu(null);
+      placeRewrite();
       return;
     }
     setPlus(null);
     if (menuRef.current?.kind === 'slash') setMenu(null);
+    placeRewrite();
   };
 
   useEffect(() => {
@@ -710,12 +896,19 @@ export function TiptapEditor({
   useEffect(() => {
     if (!editor) return;
     const refresh = () => syncChrome();
+    const releaseHold = () => {
+      if (rewritePhaseRef.current === 'busy' || !rewriteStickyRef.current) return;
+      rewriteStickyRef.current = false;
+      editor.commands.setRewriteHold(null);
+    };
+    editor.on('focus', releaseHold);
     editor.on('selectionUpdate', refresh);
     editor.on('update', refresh);
     editor.on('focus', refresh);
     window.addEventListener('resize', refresh);
     window.addEventListener('scroll', refresh, true);
     return () => {
+      editor.off('focus', releaseHold);
       editor.off('selectionUpdate', refresh);
       editor.off('update', refresh);
       editor.off('focus', refresh);
@@ -747,6 +940,7 @@ export function TiptapEditor({
       if (inspectHost?.current?.contains(target) || wrapRef.current?.contains(target)) return;
       setMenu(null);
       setBar(null);
+      if (rewritePhaseRef.current !== 'busy') closeRewriteRef.current();
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -985,6 +1179,32 @@ export function TiptapEditor({
             )}
           </div>
           </div>
+          {onAiDraft && (
+            <>
+              <span className="tt-sep" />
+              <div className="tt-drop">
+                <button
+                  type="button"
+                  className={`has-label ${bar === 'ai' ? 'is-active' : ''}`}
+                  onMouseDown={keepFocus}
+                  onClick={() => toggleBar('ai')}
+                  aria-label="AI"
+                  aria-expanded={bar === 'ai'}
+                >
+                  <Sparkles size={16} />
+                  AI
+                </button>
+                {bar === 'ai' && (
+                  <div className="tt-menu tt-menu-anchored" role="menu">
+                    <button type="button" onMouseDown={keepFocus} onClick={() => { setBar(null); onAiDraft(); }}>
+                      <Sparkles size={16} />
+                      <span>從題材寫</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
       <input
@@ -999,6 +1219,66 @@ export function TiptapEditor({
         {imageError && <div className="notice error">{imageError}</div>}
         <EditorContent editor={editor} />
       </div>
+      {editable && aiRewrite && rewriteBox && (
+        <div
+          className="tt-rewrite"
+          style={{ top: rewriteBox.top, left: rewriteBox.left }}
+          onMouseDownCapture={(event) => {
+            rewriteStickyRef.current = true;
+            const selection = editor.state.selection;
+            const range = selection.empty ? rewriteRangeRef.current : { from: selection.from, to: selection.to };
+            if (range) {
+              rewriteRangeRef.current = range;
+              editor.commands.setRewriteHold(range);
+            }
+            const target = event.target as HTMLElement;
+            if (!target.closest('input')) event.preventDefault();
+          }}
+        >
+          {rewriteError && <div className="notice error">{rewriteError}</div>}
+          {rewritePhase === 'busy' ? (
+            <div className="tt-menu-empty">改寫中…</div>
+          ) : (
+            <>
+              {REWRITE_ACTIONS.map((action) => (
+                <button key={action.label} type="button" onClick={() => runRewrite(action.instruction)}>
+                  {action.label}
+                </button>
+              ))}
+              <form
+                className="tt-rewrite-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runRewrite(rewriteCustom);
+                }}
+              >
+                <input
+                  value={rewriteCustom}
+                  placeholder="想怎麼改"
+                  aria-label="想怎麼改"
+                  onChange={(event) => setRewriteCustom(event.target.value)}
+                  onFocus={() => {
+                    const range = rewriteRangeRef.current;
+                    if (range) editor.commands.setRewriteHold(range);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      const cursor = editor.state.selection.from;
+                      closeRewrite();
+                      editor.commands.setTextSelection(cursor);
+                      editor.commands.focus();
+                    }
+                  }}
+                />
+                <button type="submit" aria-label="送出" disabled={!rewriteCustom.trim()}>
+                  <ArrowUp size={16} />
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
       {editable && plus && menu?.kind !== 'plus' && (
         <button
           type="button"

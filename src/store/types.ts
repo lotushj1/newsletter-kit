@@ -159,16 +159,23 @@ export interface SignatureLink {
   url: string;
 }
 
+export const DEFAULT_UNSUBSCRIBE_PROMPT = '不想再收到這封信？';
+export const DEFAULT_UNSUBSCRIBE_LABEL = '取消訂閱';
+
 export interface BrandProfile {
   writerName: string;
   websiteUrl: string;
   organization: string;
   title: string;
   tagline: string;
+  /** 寫信與自動化起草時帶給模型的語氣說明 */
+  voice: string;
   avatarUrl: string;
   signatureLayout: SignatureLayoutId;
   signatureLinks: SignatureLink[];
   signatureHtml: string;
+  unsubscribePrompt: string;
+  unsubscribeLabel: string;
 }
 
 export const EMPTY_BRAND: BrandProfile = {
@@ -177,10 +184,13 @@ export const EMPTY_BRAND: BrandProfile = {
   organization: '',
   title: '',
   tagline: '',
+  voice: '',
   avatarUrl: '',
   signatureLayout: 'avatar-left',
   signatureLinks: [],
   signatureHtml: '',
+  unsubscribePrompt: DEFAULT_UNSUBSCRIBE_PROMPT,
+  unsubscribeLabel: DEFAULT_UNSUBSCRIBE_LABEL,
 };
 
 /** 使用者自訂的電子報建立模板（內建模板不進這張表）。 */

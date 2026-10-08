@@ -45,11 +45,13 @@ describe('email button style', () => {
     );
   });
 
-  it('封面圖會補上信箱吃得下的寬度', () => {
+  it('信中段封面圖會補上固定圓角', () => {
     const html = styleRichContent(
-      '<img data-email-hero="1" src="https://example.com/cover.jpg" alt="封面" width="1200" />',
+      '<p>正文</p><img data-email-hero="1" src="https://example.com/cover.jpg" alt="封面" width="1200" />',
     );
-    expect(html).toContain('style="width:100%;max-width:420px;height:auto;display:block;border:0;border-radius:10px;margin:0 auto 20px;"');
+    expect(html).toContain(
+      'style="width:100%;max-width:100%;height:auto;display:block;border:0;border-radius:10px;margin:16px auto;"',
+    );
     expect(html).toContain('https://example.com/cover.jpg');
   });
 

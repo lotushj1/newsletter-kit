@@ -84,7 +84,7 @@ function effectiveLinks(brand: BrandProfile): SignatureLink[] {
   return [];
 }
 
-function hasSignatureContent(brand: BrandProfile): boolean {
+export function hasSignatureContent(brand: BrandProfile): boolean {
   return Boolean(
     brand.writerName.trim() ||
       brand.title.trim() ||
@@ -185,6 +185,18 @@ export function buildBrandSignatureHtml(
     <td style="padding:20px 0 0;border-top:1px solid #e7e5e4;">${inner}</td>
   </tr>
 </table>`;
+}
+
+/** 正文裡還沒有簽名時補上 `{{signature}}`，讓模板與新草稿會帶進品牌簽名。 */
+export function ensureSignatureToken(html: string): string {
+  return /\{\{\s*signature\s*\}\}/i.test(html) ? html : `${html}{{signature}}`;
+}
+
+/** 變數替換後若還沒插入簽名表，就接在正文後面。 */
+export function attachBrandSignature(contentHtml: string, signatureHtml: string): string {
+  if (!signatureHtml.trim()) return contentHtml;
+  if (/data-email-signature/i.test(contentHtml)) return contentHtml;
+  return `${contentHtml}${signatureHtml}`;
 }
 
 /** @deprecated 舊的兩欄位呼叫仍可用，轉成完整簽名再渲染。 */

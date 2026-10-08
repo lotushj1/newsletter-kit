@@ -132,6 +132,24 @@ export async function updateSequence(
   return withSteps(ctx, updated);
 }
 
+function copyName(name: string): string {
+  const suffix = '（副本）';
+  if (`${name}${suffix}`.length <= 120) return `${name}${suffix}`;
+  return `${name.slice(0, Math.max(1, 120 - suffix.length))}${suffix}`;
+}
+
+/** 複製步驟與觸發條件。副本預設停用，不帶進行中的入隊。 */
+export async function copySequence(ctx: ServiceContext, id: string): Promise<SequenceWithSteps> {
+  const source = await getSequenceWithSteps(ctx, id);
+  return createSequence(ctx, {
+    name: copyName(source.name),
+    trigger: source.trigger,
+    triggerValue: source.triggerValue,
+    enabled: false,
+    steps: source.steps.map((step) => ({ delayDays: step.delayDays, campaignId: step.campaignId })),
+  });
+}
+
 export async function deleteSequence(ctx: ServiceContext, id: string): Promise<void> {
   const deleted = await ctx.store.deleteSequence(id);
   if (!deleted) throw notFound('找不到這條序列');

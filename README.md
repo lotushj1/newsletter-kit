@@ -6,7 +6,7 @@
 
 - 打開後台自己寫、排程、寄
 - 官網或表單用公開 API／webhook 丟名單進來
-- Agent 或 MCP 直接呼叫「寫稿／排程／寄信／查成效」
+- Agent 或 MCP 直接操作後台同一套功能：寫稿、名單、自動化、模板、排程、寄信、查成效
 
 > ## 這套系統不會幫你寄信
 >
@@ -32,7 +32,7 @@
 - **預覽**：後台即時預覽、寄測試信
 - **公開端點**：訂閱 API、確認頁、退訂頁、已寄出電子報的封存頁（`/archive`）
 - **後台**：React SPA，單一 token 登入
-- **Agent**：穩定的 Admin／Public API + MCP（訂閱、寫稿、排程、寄信、查成效）
+- **Agent**：Admin API 與 MCP 對齊，後台能做的操作都能呼叫
 
 ## 不做什麼
 
@@ -69,6 +69,8 @@ npm run dev
 | `resend` | 範例：直接打 Resend API | `RESEND_API_KEY` |
 | `zeabur` | 範例：打你自架的寄信端點 | `ZEABUR_ENDPOINT`、`ZEABUR_TOKEN`（選填） |
 | `insforge` | 可選：打你自己的 InsForge 專案 | `INSFORGE_URL`、`INSFORGE_API_KEY` |
+| `postmark`、`sendgrid`、`mailgun`、`brevo`、`mailchimp` | 常用平台 | `EMAIL_API_KEY`，Mailgun 再加 `EMAIL_API_EXTRA`（網域） |
+| `sparkpost`、`mailersend`、`plunk`、`smtp2go`、`elasticemail`、`postal`、`scaleway` | 較少用的平台 | `EMAIL_API_KEY`，Postal 的 `EMAIL_API_EXTRA` 是端點，Scaleway 是 Project ID |
 
 `webhook` 是最通用的一條路：不管你用 SES、Postmark、n8n、Make，還是公司內部的寄信服務，
 只要寫一個收 POST 的端點就能接上。收到的 JSON 長這樣：
@@ -229,6 +231,7 @@ GET /api/public/campaigns/:slug
 | `GET` | `/confirm?token=` · `/unsubscribe?token=` | 給訂閱者看的頁面 |
 | `GET` | `/t/open` · `/t/click` | 開信 pixel／點擊轉址 |
 | `GET` | `/health` | 健康檢查 |
+| `POST` | `/mcp` | Agent MCP（JSON-RPC，需 Bearer `ADMIN_TOKEN`） |
 
 後台與 Agent（需 `Authorization: Bearer <ADMIN_TOKEN>`，前綴 `/api/admin`）：
 
@@ -249,6 +252,7 @@ GET /api/public/campaigns/:slug
 | `POST` | `/campaigns/:id/cancel` | 中止 |
 | `GET` | `/campaigns/:id/deliveries` | 寄送紀錄 |
 | `GET` | `/campaigns/:id/stats` | 寄送 + 開信／點擊 |
+| `POST` | `/campaigns/:id/copy` | 複製成新草稿 |
 | `POST` | `/campaigns/:id/template` | 把這封電子報存成自訂模板 |
 | `GET` `POST` | `/sequences` | 序列列表 / 新增 |
 | `GET` `PATCH` `DELETE` | `/sequences/:id` | 讀取 / 更新 / 刪除 |
@@ -260,8 +264,24 @@ GET /api/public/campaigns/:slug
 | `POST` | `/campaign-templates/:id/copy` | 複製內建或自訂模板 |
 | `GET` | `/email/verify` | 檢查目前 adapter 設定 |
 
-Agent 請用 Bearer token，不要走後台 cookie。MCP：`npm run mcp`（stdio，同樣讀 `ADMIN_TOKEN`／資料庫設定）。
-後台「設定」有 Cursor、Claude 與 HTTP Agent 的接法，可直接複製設定。
+Agent 請用 Bearer token，不要走後台 cookie。
+
+這台服務同時提供兩種接法（後台「設定」可複製）：
+
+- **MCP**：`POST /mcp`（JSON-RPC）。工具與後台 API 對齊（電子報、名單、資料夾、自動化、模板、品牌、寄信與 AI 設定）。回傳不含金鑰。AI 只給建議；套用自動化時序列維持停用。Cursor、Claude Code 用 `url` + `Authorization`。Codex 寫在 `~/.codex/config.toml` 的 `mcp_servers`。
+- **Admin API**：`/api/admin/*`，任何會打 HTTP 的 Agent 都能用。
+
+本機 stdio（給只吃 command 的客戶端）：
+
+```bash
+npm run mcp
+```
+
+若要讓本機 MCP 打已架好的遠端實例，設 `NEWSLETTER_URL`（同樣用 `ADMIN_TOKEN`）：
+
+```bash
+NEWSLETTER_URL=https://your-newsletter.example npm run mcp
+```
 
 ## 設定
 
@@ -270,14 +290,19 @@ Agent 請用 Bearer token，不要走後台 cookie。MCP：`npm run mcp`（stdio
 | 變數 | 預設 | 說明 |
 | --- | --- | --- |
 | `APP_SECRET` | — | **正式環境必填**，簽確認／退訂／追蹤連結 |
-| `ADMIN_TOKEN` | — | **正式環境必填**，後台與 Agent 登入 |
+| `ADMIN_TOKEN` | — | **正式環境必填**，後台、Admin API、MCP 共用 |
 | `PUBLIC_BASE_URL` | `http://localhost:4400` | 組信裡連結用的對外網址 |
+| `NEWSLETTER_URL` | — | 選填。本機 `npm run mcp` 要打遠端實例時用 |
 | `SITE_NAME` | `Newsletter` | 顯示在後台與信件頁尾 |
 | `EMAIL_PROVIDER` | `dry_run` | 用哪個 adapter |
+| `AI_PROVIDER` | `none` | 服務 id，例如 `openai`、`anthropic`、`gemini`、`groq`、`jev`。`none` 時不顯示 AI 按鈕 |
+| `AI_API_KEY` | — | 模型金鑰。只放環境變數或後台，不會回傳 |
+| `AI_MODEL` | 依服務 | 沒填時用該服務的預設模型 |
+| `AI_BASE_URL` | 依服務 | 已知服務可留空。Ollama、LM Studio 才要改 |
 | `MAIL_FROM` | — | 寄件人，要是你在供應商驗證過的網域 |
 | `STORE_DRIVER` | `sqlite` | `sqlite` / `json` / `memory` / `insforge` |
 | `DOUBLE_OPT_IN` | `true` | 關掉就跳過確認信 |
-| `CORS_ORIGINS` | `*` | 允許打公開 API 的網域，正式環境請收斂 |
+| `CORS_ORIGINS` | `*` | 允許打公開 API 與 Agent 端點的網域，正式環境請收斂 |
 | `TRACKING_ENABLED` | `true` | 關掉則不注入 pixel／轉址 |
 | `INGEST_SECRET` | — | 匯入與事件 webhook 的 HMAC 金鑰 |
 | `JOIN_HEADLINE` | — | `/join` 頁標題，預設用站名 |
@@ -287,6 +312,8 @@ Agent 請用 Bearer token，不要走後台 cookie。MCP：`npm run mcp`（stdio
 | `SCHEDULER_ENABLED` | `true` | 多台機器時只開一台 |
 
 `NODE_ENV=production` 時若沒設 `APP_SECRET` 或 `ADMIN_TOKEN` 會直接啟動失敗。
+
+站內 AI 只產生建議：寫信、整理名單、把一句話變成篩選、起草自動化。套用才寫進現有的草稿或名單。它不會寄信、刪人、改訂閱狀態，也不會把自動化打開。後台選服務，或貼上認得出的金鑰。改完 `.env` 要重啟。
 
 ## 儲存
 
@@ -333,6 +360,7 @@ src/
 ├── core/              token、markdown、信件版型、CSV、驗證、追蹤注入
 ├── store/             Store 介面 + sqlite / json / memory
 ├── email/             adapter 介面、registry、內建 adapter
+├── ai/                站內 AI adapter 與任務（寫信、整理、篩選、自動化）
 ├── services/          訂閱者、電子報、寄送、排程、序列、匯入
 ├── mcp/               Agent MCP
 └── http/              express app、公開頁、後台 API

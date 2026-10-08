@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cancelSchedule,
+  copyCampaign,
   createCampaign,
   listCampaigns,
   previewCampaign,
@@ -108,6 +109,37 @@ describe('電子報內容', () => {
     const campaign = await createCampaign(ctx, { title: 't', audienceTags: 'vip' });
 
     expect((await previewCampaign(ctx, campaign.id)).audienceCount).toBe(1);
+  });
+
+  it('複製會開成新草稿，內文帶走、寄送狀態不帶走', async () => {
+    const { ctx } = await makeContext();
+    const source = await createCampaign(ctx, {
+      title: '九月號',
+      subject: '這週想告訴你',
+      preheader: '一件事',
+      bodyHtml: '<p>嗨 {{name}}，內文。</p>',
+      audienceTags: ['vip'],
+    });
+    await ctx.store.updateCampaign(source.id, {
+      status: 'sent',
+      sentAt: new Date().toISOString(),
+      stats: { total: 10, sent: 10, failed: 0 },
+    });
+
+    const copy = await copyCampaign(ctx, source.id);
+    const original = await ctx.store.getCampaign(source.id);
+
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.title).toBe('九月號（副本）');
+    expect(copy.subject).toBe('這週想告訴你');
+    expect(copy.preheader).toBe('一件事');
+    expect(copy.bodyHtml).toBe('<p>嗨 {{name}}，內文。</p>');
+    expect(copy.audienceTags).toEqual(['vip']);
+    expect(copy.status).toBe('draft');
+    expect(copy.sentAt).toBeNull();
+    expect(copy.stats).toEqual({ total: 0, sent: 0, failed: 0 });
+    expect(original?.status).toBe('sent');
+    expect(original?.title).toBe('九月號');
   });
 });
 

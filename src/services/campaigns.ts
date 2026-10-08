@@ -13,7 +13,7 @@ import { audienceFromCampaign, EMPTY_TRACKING } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { resolveFolderId } from './folders.js';
 import { PREVIEW_RECIPIENT } from '../core/preview-email.js';
-import { applyCampaignVariables, getBrand, mergeBrandVariables } from './brand.js';
+import { applyCampaignVariables, brandedContentHtml, getBrand, mergeBrandVariables } from './brand.js';
 import { subscriberVariables, unsubscribeUrl } from './subscribers.js';
 
 export interface CampaignInput {
@@ -85,6 +85,27 @@ export async function createCampaign(
     tracking: EMPTY_TRACKING,
     createdAt: timestamp,
     updatedAt: timestamp,
+  });
+}
+
+function copyTitle(title: string): string {
+  const suffix = '（副本）';
+  if (`${title}${suffix}`.length <= 200) return `${title}${suffix}`;
+  return `${title.slice(0, Math.max(1, 200 - suffix.length))}${suffix}`;
+}
+
+/** 複製成新草稿。狀態、排程、寄送與追蹤都不會帶過去。 */
+export async function copyCampaign(ctx: ServiceContext, id: string): Promise<Campaign> {
+  const source = await getCampaign(ctx, id);
+  return createCampaign(ctx, {
+    title: copyTitle(source.title),
+    subject: source.subject,
+    preheader: source.preheader,
+    bodyHtml: source.bodyHtml,
+    bodyMarkdown: source.bodyMarkdown,
+    audienceTags: source.audienceTags,
+    audienceFolderId: source.audienceFolderId,
+    folderId: source.folderId,
   });
 }
 
@@ -251,8 +272,13 @@ export interface RenderedEmail {
 async function campaignVariables(
   ctx: ServiceContext,
   recipient: Pick<Subscriber, 'email' | 'name'>,
+  brand?: Awaited<ReturnType<typeof getBrand>>,
 ): Promise<Record<string, string>> {
-  return mergeBrandVariables(subscriberVariables(ctx, recipient), await getBrand(ctx), ctx.config.publicBaseUrl);
+  return mergeBrandVariables(
+    subscriberVariables(ctx, recipient),
+    brand ?? (await getBrand(ctx)),
+    ctx.config.publicBaseUrl,
+  );
 }
 
 /** 寄送與預覽共用的渲染流程：HTML（或舊 Markdown）→ 變數替換 → 套版型。 */
@@ -261,8 +287,9 @@ export async function renderCampaign(
   campaign: Campaign,
   recipient: Pick<Subscriber, 'email' | 'name'>,
 ): Promise<RenderedEmail> {
-  const variables = await campaignVariables(ctx, recipient);
-  const contentHtml = applyCampaignVariables(campaignContentHtml(campaign), variables, 'html');
+  const brand = await getBrand(ctx);
+  const variables = await campaignVariables(ctx, recipient, brand);
+  const contentHtml = brandedContentHtml(campaignContentHtml(campaign), variables);
   const subject = applyCampaignVariables(campaign.subject, variables, 'text');
   const html = renderEmailLayout({
     subject,
@@ -273,6 +300,8 @@ export async function renderCampaign(
     siteName: ctx.config.siteName,
     publicBaseUrl: ctx.config.publicBaseUrl,
     unsubscribeUrl: unsubscribeUrl(ctx, recipient.email),
+    unsubscribePrompt: brand.unsubscribePrompt,
+    unsubscribeLabel: brand.unsubscribeLabel,
   });
   return { subject, html, text: htmlToText(html) };
 }
@@ -310,6 +339,6 @@ export async function renderPublicCampaign(
   return {
     campaign,
     subject: applyCampaignVariables(campaign.subject, variables, 'text'),
-    html: applyCampaignVariables(campaignContentHtml(campaign), variables, 'html'),
+    html: brandedContentHtml(campaignContentHtml(campaign), variables),
   };
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
+import { MoreHorizontal } from 'lucide-react';
 import {
   AUTOMATION_TEMPLATES,
   TRIGGER_META,
@@ -9,8 +10,10 @@ import {
   type AutomationTemplate,
   type FlowNode,
 } from '../automation';
-import { api, formatTime, type Campaign, type Folder, type Sequence } from '../api';
+import { api, formatTime, type Campaign, type Folder, type Sequence, type Session } from '../api';
 import { CampaignSelect } from '../components/CampaignSelect';
+import { AiWriteNotice } from '../components/AiWriteNotice';
+import { Modal } from '../components/Modal';
 import { ModalClose } from '../components/ModalClose';
 import { Switch } from '../components/Switch';
 
@@ -18,6 +21,8 @@ type Filter = 'all' | 'active' | 'inactive';
 
 export function Sequences() {
   const navigate = useNavigate();
+  const session = useOutletContext<Session | null>();
+  const ai = session?.ai;
   const [items, setItems] = useState<Sequence[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -25,6 +30,9 @@ export function Sequences() {
   const [filter, setFilter] = useState<Filter>('all');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
 
   const load = () => {
     void api
@@ -36,6 +44,24 @@ export function Sequences() {
   };
 
   useEffect(load, []);
+
+  useEffect(() => {
+    if (!menuId) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.closest('[data-sequence-menu]')) return;
+      setMenuId(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuId(null);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuId]);
 
   const counts = useMemo(
     () => ({
@@ -85,14 +111,31 @@ export function Sequences() {
     load();
   };
 
+  const duplicate = async (item: Sequence) => {
+    setCopyingId(item.id);
+    setError('');
+    try {
+      const created = await api.post<Sequence>(`/sequences/${item.id}/copy`);
+      navigate(`/sequences/${created.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '複製失敗');
+      setCopyingId(null);
+    }
+  };
+
   return (
     <div>
       {error && <div className="notice error">{error}</div>}
       <div className="page-head">
         <h1>自動化</h1>
-        <button type="button" className="btn primary" onClick={() => setCreating(true)}>
-          建立自動化
-        </button>
+        <div className="page-head-actions">
+          <button type="button" className="btn" onClick={() => setDrafting(true)}>
+            用 AI 建立
+          </button>
+          <button type="button" className="btn primary" onClick={() => setCreating(true)}>
+            建立自動化
+          </button>
+        </div>
       </div>
       <div className="toolbar">
         <div className="pills">
@@ -121,7 +164,7 @@ export function Sequences() {
         />
       </div>
       {visible.length === 0 ? (
-        <p className="muted">{items.length === 0 ? '還沒有自動化。從模板或空白時間軸開始。' : '沒有符合條件的自動化。'}</p>
+        <p className="muted">{items.length === 0 ? '還沒有自動化。用一句話建立，或從模板開始。' : '沒有符合條件的自動化。'}</p>
       ) : (
         <div className="auto-list">
           {visible.map((item) => (
@@ -150,16 +193,58 @@ export function Sequences() {
               </div>
               <div className="auto-card-actions">
                 <Switch checked={item.enabled} onChange={() => void toggle(item)} />
-                <Link className="btn" to={`/sequences/${item.id}`}>
-                  編輯
-                </Link>
-                <button type="button" className="btn danger" onClick={() => void remove(item)}>
-                  刪除
-                </button>
+                <div className="campaign-card-more" data-sequence-menu>
+                  <button
+                    type="button"
+                    className="icon"
+                    aria-label={`${item.name} 的更多動作`}
+                    aria-expanded={menuId === item.id}
+                    aria-haspopup="menu"
+                    onClick={() => setMenuId((current) => (current === item.id ? null : item.id))}
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                  {menuId === item.id && (
+                    <div className="flow-menu" role="menu">
+                      <Link to={`/sequences/${item.id}`} role="menuitem" onClick={() => setMenuId(null)}>
+                        編輯
+                      </Link>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={copyingId === item.id}
+                        onClick={() => {
+                          setMenuId(null);
+                          void duplicate(item);
+                        }}
+                      >
+                        {copyingId === item.id ? '複製中…' : '複製'}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => {
+                          setMenuId(null);
+                          void remove(item);
+                        }}
+                      >
+                        刪除
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </article>
           ))}
         </div>
+      )}
+      {drafting && (
+        <DraftAutomationDialog
+          ai={ai}
+          onClose={() => setDrafting(false)}
+          onCreated={(id) => navigate(`/sequences/${id}`)}
+        />
       )}
       {creating && (
         <CreateAutomationDialog
@@ -171,6 +256,93 @@ export function Sequences() {
         />
       )}
     </div>
+  );
+}
+
+function DraftAutomationDialog({
+  ai,
+  onClose,
+  onCreated,
+}: {
+  ai: Session['ai'] | undefined;
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const [goal, setGoal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [draft, setDraft] = useState<{
+    name: string;
+    trigger: Sequence['trigger'];
+    triggerValue: string;
+    missing: string;
+    steps: { delayDays: number; title: string; preheader: string; bodyHtml: string }[];
+  } | null>(null);
+  const canWrite = Boolean(ai?.writes);
+  const blocked = Boolean(draft?.missing) && ['tag', 'folder', 'event'].includes(draft?.trigger ?? '');
+
+  return (
+    <Modal title="用 AI 建立" wide onClose={() => { if (!busy) onClose(); }}>
+      {error && <div className="notice error">{error}</div>}
+      <AiWriteNotice ai={ai} />
+      {!draft ? (
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          if (!canWrite) return;
+          setBusy(true);
+          setError('');
+          void api.post<NonNullable<typeof draft>>('/ai/automation', { goal })
+            .then(setDraft)
+            .catch((err: Error) => setError(err.message))
+            .finally(() => setBusy(false));
+        }}>
+          <label htmlFor="ai-goal">想自動做的事</label>
+          <textarea
+            id="ai-goal"
+            required
+            autoFocus={canWrite}
+            disabled={!canWrite}
+            value={goal}
+            onChange={(event) => setGoal(event.target.value)}
+            placeholder="新訂閱後當天、第 3 天、第 7 天各寄一封歡迎信"
+          />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn primary" type="submit" disabled={busy || !canWrite}>{busy ? '建立中…' : '產生預覽'}</button>
+          </div>
+        </form>
+      ) : (
+        <div>
+          <p><strong>{draft.name}</strong></p>
+          <p className="muted">{TRIGGER_META[draft.trigger]?.label ?? draft.trigger}{draft.triggerValue ? ` · ${draft.triggerValue}` : ''}</p>
+          {draft.missing && <div className="notice">{draft.missing}</div>}
+          <ol className="ai-steps">
+            {draft.steps.map((step) => (
+              <li key={`${step.delayDays}-${step.title}`}>第 {step.delayDays} 天 · {step.title}</li>
+            ))}
+          </ol>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={() => setDraft(null)}>重寫</button>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy || blocked}
+              onClick={() => {
+                setBusy(true);
+                setError('');
+                void api.post<{ sequence: Sequence }>('/ai/automation/apply', draft)
+                  .then((result) => onCreated(result.sequence.id))
+                  .catch((err: Error) => {
+                    setError(err.message);
+                    setBusy(false);
+                  });
+              }}
+            >
+              {busy ? '建立中…' : '建立（先停用）'}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

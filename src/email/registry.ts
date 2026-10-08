@@ -1,8 +1,11 @@
 import { createDryRunAdapter } from './adapters/dry-run.js';
+import { createHttpPlatformAdapter } from './adapters/http-platform.js';
 import { createResendAdapter } from './adapters/resend.js';
+import { createSesAdapter } from './adapters/ses.js';
 import { createWebhookAdapter } from './adapters/webhook.js';
 import { createInsForgeAdapter } from './adapters/insforge.js';
 import { createZeaburAdapter } from './adapters/zeabur.js';
+import { EMAIL_PLATFORMS } from './providers.js';
 import type { AdapterContext, EmailAdapter, EmailAdapterFactory, EmailMessage, SendResult } from './types.js';
 
 const registry = new Map<string, EmailAdapterFactory>([
@@ -11,7 +14,14 @@ const registry = new Map<string, EmailAdapterFactory>([
   ['resend', createResendAdapter],
   ['zeabur', createZeaburAdapter],
   ['insforge', createInsForgeAdapter],
+  ['ses', createSesAdapter],
 ]);
+
+for (const platform of EMAIL_PLATFORMS) {
+  if (platform.kind === 'http' && !registry.has(platform.id)) {
+    registry.set(platform.id, createHttpPlatformAdapter(platform.id));
+  }
+}
 
 /** 接自家供應商：registerEmailAdapter('my-provider', (ctx) => ({ ... })) */
 export function registerEmailAdapter(name: string, factory: EmailAdapterFactory): void {

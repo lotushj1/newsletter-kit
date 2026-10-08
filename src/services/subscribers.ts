@@ -1,5 +1,5 @@
 import { parseCsv, toCsv } from '../core/csv.js';
-import { badRequest, notFound } from '../core/errors.js';
+import { badRequest, conflict, notFound } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
 import { applyVariables, htmlToText, markdownToHtml, renderEmailLayout } from '../core/render.js';
@@ -254,7 +254,14 @@ export async function updateSubscriber(
   if (!current) throw notFound('找不到這位訂閱者');
 
   const patch: Partial<Subscriber> = {};
-  if (input.email !== undefined) patch.email = normalizeEmail(input.email);
+  if (input.email !== undefined) {
+    const email = normalizeEmail(input.email);
+    if (email !== current.email) {
+      const taken = await ctx.store.getSubscriberByEmail(email);
+      if (taken && taken.id !== id) throw conflict('這個 Email 已在名單內');
+    }
+    patch.email = email;
+  }
   if (input.name !== undefined) patch.name = optionalString(input.name, '名稱', 120);
   if (input.tags !== undefined) patch.tags = normalizeTags(input.tags);
   if (input.folderId !== undefined) patch.folderId = await resolveFolderId(ctx, input.folderId);

@@ -70,11 +70,6 @@ export function Dashboard() {
 
   return (
     <div>
-      {data.provider === 'dry_run' && (
-        <div className="notice">
-          目前是試跑模式，信不會真的寄出。<Link to="/settings">接上 Email 工具與 Agent</Link>
-        </div>
-      )}
       <div className="dash-total">
         <div className="muted">訂閱數</div>
         <div className="dash-total-value">{data.counts.subscribed ?? 0}</div>
@@ -118,7 +113,12 @@ export function Dashboard() {
           <div className="dash-stat">{rates.unsubscribes}</div>
         </div>
       </div>
-      <h2 style={{ margin: '24px 0 12px' }}>最近電子報</h2>
+      <div className="dash-period-head">
+        <h2>最近電子報</h2>
+        <Link to="/campaigns" className="dash-more">
+          查看更多→
+        </Link>
+      </div>
       {data.campaigns.length === 0 ? (
         <p className="muted">
           還沒有電子報。<Link to="/campaigns">新增第一封</Link>

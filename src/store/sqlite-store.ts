@@ -472,23 +472,28 @@ export class SqliteStore implements Store {
     const current = await this.getSubscriber(id);
     if (!current) return null;
     const next: Subscriber = { ...current, ...patch, id };
-    this.db
-      .prepare(
-        `UPDATE subscribers SET email=@email, name=@name, status=@status, tags=@tags, folder_id=@folder_id, source=@source,
-         confirmed_at=@confirmed_at, unsubscribed_at=@unsubscribed_at, meta=@meta WHERE id=@id`,
-      )
-      .run({
-        id,
-        email: next.email.toLowerCase(),
-        name: next.name ?? null,
-        status: next.status,
-        tags: JSON.stringify(next.tags),
-        folder_id: next.folderId ?? null,
-        source: next.source ?? null,
-        confirmed_at: next.confirmedAt ?? null,
-        unsubscribed_at: next.unsubscribedAt ?? null,
-        meta: next.meta ? JSON.stringify(next.meta) : null,
-      });
+    try {
+      this.db
+        .prepare(
+          `UPDATE subscribers SET email=@email, name=@name, status=@status, tags=@tags, folder_id=@folder_id, source=@source,
+           confirmed_at=@confirmed_at, unsubscribed_at=@unsubscribed_at, meta=@meta WHERE id=@id`,
+        )
+        .run({
+          id,
+          email: next.email.toLowerCase(),
+          name: next.name ?? null,
+          status: next.status,
+          tags: JSON.stringify(next.tags),
+          folder_id: next.folderId ?? null,
+          source: next.source ?? null,
+          confirmed_at: next.confirmedAt ?? null,
+          unsubscribed_at: next.unsubscribedAt ?? null,
+          meta: next.meta ? JSON.stringify(next.meta) : null,
+        });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw conflict('這個 Email 已在名單內');
+      throw error;
+    }
     return next;
   }
 

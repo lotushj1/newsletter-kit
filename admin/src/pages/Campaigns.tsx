@@ -1,13 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { MoreHorizontal } from 'lucide-react';
-import { api, formatRate, formatTime, STATUS_LABEL, type Campaign, type CampaignTemplate, type Folder } from '../api';
+import { api, formatRate, formatTime, STATUS_LABEL, type Campaign, type CampaignTemplate, type Folder, type Session } from '../api';
 import { DateRangePicker } from '../components/DateRangePicker';
 import { CreateCampaignDialog } from '../components/CreateCampaignDialog';
 import { FolderBar, type FolderFilter } from '../components/FolderBar';
+import { AiWriteNotice } from '../components/AiWriteNotice';
+import { Modal } from '../components/Modal';
 
 const STATUSES = ['draft', 'scheduled', 'sending', 'sent', 'failed', 'canceled'];
-const PAGE = 25;
+const PAGE = 10;
+
+function CampaignPager({
+  offset,
+  total,
+  onOffset,
+}: {
+  offset: number;
+  total: number;
+  onOffset: (next: number) => void;
+}) {
+  if (total <= PAGE) return null;
+  const page = Math.floor(offset / PAGE) + 1;
+  const pages = Math.ceil(total / PAGE);
+  return (
+    <nav className="campaign-pager" aria-label="電子報分頁">
+      <button className="btn" type="button" disabled={offset === 0} onClick={() => onOffset(Math.max(0, offset - PAGE))}>
+        上一頁
+      </button>
+      <span className="muted campaign-page" aria-current="page">
+        第 {page}／{pages} 頁
+      </span>
+      <button className="btn" type="button" disabled={offset + PAGE >= total} onClick={() => onOffset(offset + PAGE)}>
+        下一頁
+      </button>
+    </nav>
+  );
+}
 
 function campaignWhen(campaign: Campaign): string {
   if (campaign.status === 'sent' && campaign.sentAt) return `寄出 ${formatTime(campaign.sentAt)}`;
@@ -22,11 +51,14 @@ function metric(sent: number, count: number): { value: string; rate: string } {
 
 export function Campaigns() {
   const navigate = useNavigate();
+  const session = useOutletContext<Session | null>();
+  const aiOn = Boolean(session?.ai.configured);
   const [items, setItems] = useState<Campaign[]>([]);
   const [total, setTotal] = useState(0);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>('all');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -36,12 +68,27 @@ export function Campaigns() {
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [writing, setWriting] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
-  const [savingTemplateId, setSavingTemplateId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [aiMode, setAiMode] = useState<null | 'filter' | 'organize'>(null);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [filterPreview, setFilterPreview] = useState<{
+    search: string;
+    status: string;
+    from: string;
+    to: string;
+    folderId: string;
+    explanation: string;
+    unsupported: string;
+  } | null>(null);
+  const [organizePreview, setOrganizePreview] = useState<{ id: string; folderId: string | null; note: string; keep: boolean }[] | null>(null);
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     if (status) params.set('status', status);
     if (from) params.set('from', new Date(from).toISOString());
     if (to) params.set('to', new Date(`${to}T23:59:59`).toISOString());
@@ -50,7 +97,7 @@ export function Campaigns() {
     params.set('limit', String(PAGE));
     params.set('offset', String(offset));
     return params.toString();
-  }, [search, status, from, to, folderFilter, offset]);
+  }, [debouncedSearch, status, from, to, folderFilter, offset]);
 
   const loadFolders = () =>
     api
@@ -64,6 +111,9 @@ export function Campaigns() {
       setItems(data.items);
       setTotal(data.total);
       setSelected((current) => current.filter((id) => data.items.some((item) => item.id === id)));
+      if (offset > 0 && data.items.length === 0) {
+        setOffset(data.total > 0 ? Math.floor((data.total - 1) / PAGE) * PAGE : 0);
+      }
     });
 
   useEffect(() => {
@@ -71,10 +121,12 @@ export function Campaigns() {
   }, []);
 
   useEffect(() => {
-    const handle = window.setTimeout(() => {
-      void loadCampaigns().catch((err: Error) => setError(err.message));
-    }, 200);
+    const handle = window.setTimeout(() => setDebouncedSearch(search), 200);
     return () => window.clearTimeout(handle);
+  }, [search]);
+
+  useEffect(() => {
+    void loadCampaigns().catch((err: Error) => setError(err.message));
   }, [query]);
 
   useEffect(() => {
@@ -108,7 +160,7 @@ export function Campaigns() {
     try {
       const created = await api.post<Campaign>('/campaigns', {
         title: `未命名電子報 ${new Date().toLocaleString('zh-TW', { hour12: false })}`,
-        bodyHtml: '<p>嗨 {{name}}，</p><p>這裡是這期的內容。</p>',
+        bodyHtml: '<p>嗨 {{name}}，</p><p>這裡是這期的內容。</p>{{signature}}',
         folderId,
       });
       navigate(`/campaigns/${created.id}`);
@@ -141,15 +193,15 @@ export function Campaigns() {
     }
   };
 
-  const saveAsTemplate = async (campaign: Campaign) => {
-    setSavingTemplateId(campaign.id);
+  const duplicate = async (campaign: Campaign) => {
+    setCopyingId(campaign.id);
     setError('');
     try {
-      const created = await api.post<CampaignTemplate>(`/campaigns/${campaign.id}/template`);
-      navigate(`/brand/templates/${created.id}`);
+      const created = await api.post<Campaign>(`/campaigns/${campaign.id}/copy`);
+      navigate(`/campaigns/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '存成模板失敗');
-      setSavingTemplateId(null);
+      setError(err instanceof Error ? err.message : '複製失敗');
+      setCopyingId(null);
     }
   };
 
@@ -240,6 +292,9 @@ export function Campaigns() {
         <div className="page-head">
           <h1>電子報</h1>
           <div className="page-head-actions">
+            <button type="button" className="btn" onClick={() => setWriting(true)} disabled={creating}>
+              用 AI 寫信
+            </button>
             <button type="button" className="btn" onClick={() => setTemplateOpen(true)} disabled={creating}>
               透過模板新增
             </button>
@@ -248,6 +303,14 @@ export function Campaigns() {
             </button>
           </div>
         </div>
+        {writing && (
+          <WriteCampaignDialog
+            ai={session?.ai}
+            folderId={folderId}
+            onClose={() => setWriting(false)}
+            onCreated={(id) => navigate(`/campaigns/${id}`)}
+          />
+        )}
         <CreateCampaignDialog
           open={templateOpen}
           saving={creating}
@@ -301,24 +364,13 @@ export function Campaigns() {
               setOffset(0);
             }}
           />
+          {aiOn && (
+            <button type="button" className="btn" onClick={() => { setAiError(''); setFilterPreview(null); setAiMode('filter'); }}>
+              用一句話篩選
+            </button>
+          )}
+          <span className="muted campaign-count">共 {total} 封</span>
         </div>
-        {total > 0 && (
-          <div className="campaign-pager">
-            <span className="muted">
-              {offset + 1}–{Math.min(offset + PAGE, total)}／{total}
-            </span>
-            {total > PAGE && (
-              <>
-                <button className="btn" type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
-                  上一頁
-                </button>
-                <button className="btn" type="button" disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)}>
-                  下一頁
-                </button>
-              </>
-            )}
-          </div>
-        )}
         {items.length === 0 ? (
           <p className="muted">沒有符合條件的電子報。</p>
         ) : (
@@ -391,13 +443,13 @@ export function Campaigns() {
                         <button
                           type="button"
                           role="menuitem"
-                          disabled={savingTemplateId === campaign.id}
+                          disabled={copyingId === campaign.id}
                           onClick={() => {
                             setMenuId(null);
-                            void saveAsTemplate(campaign);
+                            void duplicate(campaign);
                           }}
                         >
-                          {savingTemplateId === campaign.id ? '儲存中…' : '存成模板'}
+                          {copyingId === campaign.id ? '複製中…' : '複製'}
                         </button>
                         <button
                           type="button"
@@ -418,6 +470,7 @@ export function Campaigns() {
             })}
           </div>
         )}
+        <CampaignPager offset={offset} total={total} onOffset={setOffset} />
         {selected.length > 0 && (
           <div className="bulk-bar" role="toolbar" aria-label="選取動作">
             <span>
@@ -446,8 +499,191 @@ export function Campaigns() {
             <button type="button" className="btn ghost danger" onClick={() => void deleteSelected()}>
               刪除選取
             </button>
+            {aiOn && (
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={selected.length > 30}
+                onClick={() => { setAiError(''); setOrganizePreview(null); setAiMode('organize'); }}
+              >
+                建議歸檔
+              </button>
+            )}
           </div>
         )}
+        {aiMode === 'filter' && (
+          <Modal title="用一句話篩選" onClose={() => { if (!aiBusy) setAiMode(null); }}>
+            {aiError && <div className="notice error">{aiError}</div>}
+            {!filterPreview ? (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                setAiBusy(true);
+                setAiError('');
+                void api.post<NonNullable<typeof filterPreview>>('/ai/filter', { scope: 'campaigns', prompt: aiPrompt })
+                  .then(setFilterPreview)
+                  .catch((err: Error) => setAiError(err.message))
+                  .finally(() => setAiBusy(false));
+              }}>
+                <label htmlFor="campaign-ai-filter">想看哪些信</label>
+                <textarea id="campaign-ai-filter" required value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="例如：九月的草稿" />
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button className="btn primary" type="submit" disabled={aiBusy}>{aiBusy ? '理解中…' : '預覽篩選'}</button>
+                </div>
+              </form>
+            ) : (
+              <div>
+                <p>{filterPreview.explanation || '已理解這句話。'}</p>
+                {filterPreview.unsupported && <div className="notice">{filterPreview.unsupported}</div>}
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button type="button" className="btn primary" onClick={() => {
+                    setSearch(filterPreview.search);
+                    setStatus(filterPreview.status);
+                    setFrom(filterPreview.from);
+                    setTo(filterPreview.to);
+                    setFolderFilter(filterPreview.folderId || 'all');
+                    setOffset(0);
+                    setAiMode(null);
+                  }}>套用</button>
+                </div>
+              </div>
+            )}
+          </Modal>
+        )}
+        {aiMode === 'organize' && (
+          <Modal title="建議歸檔" wide onClose={() => { if (!aiBusy) setAiMode(null); }}>
+            {aiError && <div className="notice error">{aiError}</div>}
+            <p className="muted">只會移到已經存在的資料夾，不會新建資料夾。</p>
+            {!organizePreview ? (
+              <button type="button" className="btn primary" disabled={aiBusy} onClick={() => {
+                setAiBusy(true);
+                setAiError('');
+                void api.post<{ suggestions: { id: string; folderId: string | null; note: string }[] }>('/ai/organize-campaigns', { ids: selected.slice(0, 30) })
+                  .then((result) => setOrganizePreview(result.suggestions.map((item) => ({ ...item, keep: true }))))
+                  .catch((err: Error) => setAiError(err.message))
+                  .finally(() => setAiBusy(false));
+              }}>{aiBusy ? '整理中…' : '產生建議'}</button>
+            ) : (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                const picked = organizePreview.filter((item) => item.keep);
+                const groups = new Map<string, string[]>();
+                for (const item of picked) {
+                  const key = item.folderId ?? '';
+                  groups.set(key, [...(groups.get(key) ?? []), item.id]);
+                }
+                setAiBusy(true);
+                void Promise.all([...groups.entries()].map(([folderId, ids]) => api.post('/campaigns/bulk', { ids, action: 'folder', folderId })))
+                  .then(() => {
+                    setSelected([]);
+                    setAiMode(null);
+                    return Promise.all([loadCampaigns(), loadFolders()]);
+                  })
+                  .catch((err: Error) => setAiError(err.message))
+                  .finally(() => setAiBusy(false));
+              }}>
+                <table className="data">
+                  <thead><tr><th>套用</th><th>電子報</th><th>資料夾</th><th>說明</th></tr></thead>
+                  <tbody>
+                    {organizePreview.map((item) => (
+                      <tr key={item.id}>
+                        <td><input type="checkbox" checked={item.keep} aria-label="套用這列" onChange={() => setOrganizePreview((current) => current?.map((row) => row.id === item.id ? { ...row, keep: !row.keep } : row) ?? current)} /></td>
+                        <td>{items.find((campaign) => campaign.id === item.id)?.title ?? item.id}</td>
+                        <td>{item.folderId ? (folders.find((folder) => folder.id === item.folderId)?.name ?? '資料夾') : '未分類'}</td>
+                        <td className="muted">{item.note || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button className="btn primary" type="submit" disabled={aiBusy}>{aiBusy ? '套用中…' : '套用勾選'}</button>
+                </div>
+              </form>
+            )}
+          </Modal>
+        )}
     </div>
+  );
+}
+
+function WriteCampaignDialog({
+  ai,
+  folderId,
+  onClose,
+  onCreated,
+}: {
+  ai: Session['ai'] | undefined;
+  folderId?: string;
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const canWrite = Boolean(ai?.writes);
+  const [brief, setBrief] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [draft, setDraft] = useState<{ title: string; preheader: string; bodyHtml: string } | null>(null);
+
+  return (
+    <Modal title="用 AI 寫信" wide onClose={() => { if (!busy) onClose(); }}>
+      {error && <div className="notice error">{error}</div>}
+      <AiWriteNotice ai={ai} />
+      {!draft ? (
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          if (!canWrite) return;
+          setBusy(true);
+          setError('');
+          void api.post<NonNullable<typeof draft>>('/ai/draft', { brief })
+            .then(setDraft)
+            .catch((err: Error) => setError(err.message))
+            .finally(() => setBusy(false));
+        }}>
+          <label htmlFor="ai-brief">想寫的內容</label>
+          <textarea
+            id="ai-brief"
+            required
+            autoFocus={canWrite}
+            disabled={!canWrite}
+            value={brief}
+            onChange={(event) => setBrief(event.target.value)}
+            placeholder="這封信要跟讀者說什麼"
+          />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn primary" type="submit" disabled={busy || !canWrite}>{busy ? '產生中…' : '產生預覽'}</button>
+          </div>
+        </form>
+      ) : (
+        <div>
+          <p><strong>{draft.title}</strong></p>
+          <p className="muted">{draft.preheader || '（沒有前導文字）'}</p>
+          <div className="ai-html" dangerouslySetInnerHTML={{ __html: draft.bodyHtml }} />
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn" onClick={() => setDraft(null)}>重寫</button>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                setError('');
+                void api.post<Campaign>('/campaigns', {
+                  title: draft.title,
+                  subject: draft.title,
+                  preheader: draft.preheader,
+                  bodyHtml: draft.bodyHtml,
+                  folderId,
+                })
+                  .then((created) => onCreated(created.id))
+                  .catch((err: Error) => {
+                    setError(err.message);
+                    setBusy(false);
+                  });
+              }}
+            >
+              {busy ? '建立中…' : '建立草稿'}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

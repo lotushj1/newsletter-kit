@@ -33,7 +33,12 @@ export function Layout() {
   });
 
   useEffect(() => {
-    void api.get<Session>('/session').then(setSession);
+    const load = () => {
+      void api.get<Session>('/session').then(setSession);
+    };
+    load();
+    window.addEventListener('nk-session-refresh', load);
+    return () => window.removeEventListener('nk-session-refresh', load);
   }, []);
 
   useEffect(() => {

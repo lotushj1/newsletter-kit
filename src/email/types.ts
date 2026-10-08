@@ -41,6 +41,10 @@ export interface AdapterContext {
   zeaburToken?: string | undefined;
   insforgeUrl?: string | undefined;
   insforgeApiKey?: string | undefined;
+  /** HTTP 平台的金鑰，例如 Postmark、SendGrid。 */
+  apiKey?: string | undefined;
+  /** 網域、端點或 Project ID。 */
+  apiExtra?: string | undefined;
 }
 
 export type EmailAdapterFactory = (context: AdapterContext) => EmailAdapter;
