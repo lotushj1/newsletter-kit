@@ -15,11 +15,12 @@
 | SparkPost | `/api/webhooks/sparkpost` | `SPARKPOST_WEBHOOK_TOKEN`，設定 `X-MessageSystems-Webhook-Token`；只抑制 bounce class 10、30、90 與 spam_complaint |
 | SMTP2GO | `/api/webhooks/smtp2go` | `SMTP2GO_WEBHOOK_SECRET`，設定 Bearer 或 Basic 授權並選 JSON 輸出；只抑制 bounce=hard 與 spam |
 | Plunk | `/api/webhooks/plunk` | `PLUNK_WEBHOOK_SECRET`，在 `email.bounce` 與 `email.complaint` 各建立 Workflow Webhook step，保留預設 JSON body，設定 `Authorization: Bearer <secret>`；只抑制 Permanent bounce 與 complaint |
+| Elastic Email | `/api/webhooks/elasticemail?token=<ELASTICEMAIL_WEBHOOK_TOKEN>`（GET） | `ELASTICEMAIL_WEBHOOK_TOKEN`；官方通知不簽章，透過網址 token 驗證；Error+NoMailbox／BlackListed 視為永久退信，AbuseReport 視為檢舉；其他 Error 不抑制 |
 | 自訂 adapter／Zeabur relay | `/api/webhooks/generic` | `GENERIC_WEBHOOK_SECRET`，`X-Newsletter-Signature: sha256=<HMAC-SHA256(raw body)>`；JSON `{ "type": "hard_bounce"|"complaint", "email": "…", "providerMessageId": "…" }` |
 
 SNS `SubscriptionConfirmation` 只在驗簽後回 `confirmationRequired: true`，**不會自動開啟**訊息中的 SubscribeURL。管理員須在 AWS 控制台確認訂閱。SNS 憑證只從與 topic region 相同的 AWS SNS HTTPS 主機讀取，不跟隨轉址。`EMAIL_PROVIDER=ses` 本身仍是未實作的發送 adapter；若透過自架 SES relay 投遞，可使用 SNS 端點接回報。
 
-Zeabur 是自架寄信服務的範例，沒有統一的原生回報格式。InsForge SDK 沒有可用的回報 webhook。Postal、Elastic Email、Scaleway 等平台雖有事件功能，但目前沒有經此專案驗證的原生簽章整合；請以自己的驗證 relay 轉成 `/api/webhooks/generic` 的簽名格式。這些平台的原生事件不能直接 POST 到 generic 端點，因為簽章格式不同。
+Zeabur 是自架寄信服務的範例，沒有統一的原生回報格式。InsForge SDK 沒有可用的回報 webhook。Postal 沒有文件化的簽章驗證方式；Scaleway Topics and Events 的簽章驗證需檢查其 CA trust chain；目前請以自己的驗證 relay 轉成 `/api/webhooks/generic` 的簽名格式。這些平台的原生事件不能直接 POST 到 generic 端點，因為簽章格式不同。Elastic Email 的 URL token 應只放在 HTTPS 通知網址中，並避免記錄含 token 的完整 URL。
 
 ## RFC 8058 一鍵退訂
 
@@ -53,4 +54,4 @@ HTTP adapter 會把兩個標頭映射到各供應商 API 的 header 欄位。自
 
 `GET /api/admin/campaigns/:id/links` 或 MCP `get_campaign_links` 回每個標準化 URL 的 `clicks`、`uniqueClicks`，按總點擊排序；不重複數以訂閱者計。後台電子報已寄出報表有同樣表格。
 
-參考：[AWS SNS 驗簽](https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message-verify-message-signature.html)、[Resend webhook](https://resend.com/changelog/managing-webhooks-via-api)、[SendGrid signed webhook](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)、[Mailgun webhook](https://documentation.mailgun.com/docs/mailgun/user-manual/events/webhooks)、[Mailchimp Transactional webhook](https://mailchimp.com/developer/transactional/guides/track-respond-activity-webhooks/)、[Plunk webhook](https://docs.useplunk.com/guides/webhooks)、[Plunk send API](https://docs.useplunk.com/api-reference/public-api/sendEmail)。
+參考：[AWS SNS 驗簽](https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message-verify-message-signature.html)、[Resend webhook](https://resend.com/changelog/managing-webhooks-via-api)、[SendGrid signed webhook](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)、[Mailgun webhook](https://documentation.mailgun.com/docs/mailgun/user-manual/events/webhooks)、[Mailchimp Transactional webhook](https://mailchimp.com/developer/transactional/guides/track-respond-activity-webhooks/)、[Plunk webhook](https://docs.useplunk.com/guides/webhooks)、[Plunk send API](https://docs.useplunk.com/api-reference/public-api/sendEmail)、[Elastic Email 通知](https://help.elasticemail.com/en/articles/4804685-notification-settings)、[Elastic Email 官方範例](https://github.com/ElasticEmail/elasticemail-examples)、[Scaleway 驗簽](https://www.scaleway.com/en/docs/topics-and-events/reference-content/verifying-webhooks/)。

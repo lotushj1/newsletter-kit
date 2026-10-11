@@ -228,6 +228,7 @@ export function loadConfig(): Config {
       sparkpost: optional('SPARKPOST_WEBHOOK_TOKEN'),
       smtp2go: optional('SMTP2GO_WEBHOOK_SECRET'),
       plunk: optional('PLUNK_WEBHOOK_SECRET'),
+      elasticemail: optional('ELASTICEMAIL_WEBHOOK_TOKEN'),
     },
     physicalAddress: optional('PHYSICAL_ADDRESS'),
     privacyUrl: optional('PRIVACY_URL'),

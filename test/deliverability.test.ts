@@ -12,6 +12,7 @@ const secrets = {
   brevo: 'brevo-secret', mailchimp: 'mandrill-secret', generic: 'generic-secret',
   mailersend: 'mailer-secret', sparkpost: 'spark-secret', smtp2go: 'smtp-secret',
   plunk: 'plunk-secret',
+  elasticemail: 'elastic-secret',
 };
 const ec = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 secrets.sendgrid = ec.publicKey.export({ type: 'spki', format: 'pem' }).toString();
@@ -100,6 +101,19 @@ it('acknowledges a signed unknown event without changing the subscriber', async 
   const response = await originalFetch(base + '/api/webhooks/generic', { method: 'POST', headers: { 'content-type': 'application/json', ...signature('generic', body).headers }, body });
   expect(response.status).toBe(200);
   expect((await ctx.store.getSubscriberByEmail(email))?.status).toBe('subscribed');
+}));
+
+it('Elastic Email validates its URL token, suppresses permanent bounces and complaints, and ignores transient errors', async () => withServer(async (base, ctx) => {
+  const path = base + '/api/webhooks/elasticemail';
+  const query = (status: string, category: string, token = secrets.elasticemail) => new URLSearchParams({ token, status, category, to: email, messageid: 'msg_1' });
+  expect((await originalFetch(`${path}?${query('Error', 'NoMailbox', 'bad')}`)).status).toBe(401);
+  expect((await ctx.store.getSubscriberByEmail(email))?.status).toBe('subscribed');
+  expect((await originalFetch(`${path}?${query('Error', 'GreyListed')}`)).status).toBe(200);
+  expect((await ctx.store.getSubscriberByEmail(email))?.status).toBe('subscribed');
+  for (let i = 0; i < 2; i++) expect((await originalFetch(`${path}?${query('Error', 'NoMailbox')}`)).status).toBe(200);
+  expect((await ctx.store.getSubscriberByEmail(email))?.status).toBe('bounced');
+  expect((await originalFetch(`${path}?${query('AbuseReport', '')}`)).status).toBe(200);
+  expect((await ctx.store.getSubscriberByEmail(email))?.status).toBe('unsubscribed');
 }));
 
 it('SES verifies SNS RSA signature, ignores transient bounces, and never follows confirmation URLs', async () => withServer(async (base, ctx) => {

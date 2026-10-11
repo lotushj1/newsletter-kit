@@ -197,6 +197,20 @@ function parse(provider: string, payload: Row, body: string): Problem[] {
 
 export function providerWebhookRouter(ctx: ServiceContext): Router {
   const router = Router();
+  router.get('/elasticemail', asyncRoute(async (req, res) => {
+    const secret = ctx.config.webhookSecrets.elasticemail;
+    if (!secret) { res.status(503).json({ error: 'Webhook 尚未設定' }); return; }
+    const params = new URL(req.url, 'http://localhost').searchParams;
+    if (!equal(params.get('token') ?? '', secret)) { res.status(401).json({ error: '簽章無效' }); return; }
+    const status = (params.get('status') ?? '').toLowerCase();
+    const category = (params.get('category') ?? '').toLowerCase();
+    const reason: SuppressionReason | undefined = status === 'abusereport' ? 'complaint'
+      : status === 'error' && ['nomailbox', 'blacklisted'].includes(category) ? 'bounce' : undefined;
+    if (reason) await applyProviderProblem(ctx, {
+      provider: 'elasticemail', email: oneEmail(params.get('to')), providerMessageId: params.get('messageid') ?? undefined, reason,
+    });
+    res.json({ ok: true, processed: reason ? 1 : 0 });
+  }));
   for (const provider of ['resend', 'ses', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'mailersend', 'sparkpost', 'smtp2go', 'plunk', 'generic']) {
     router.post(`/${provider}`, asyncRoute(async (req, res) => {
       const body = raw(req);
