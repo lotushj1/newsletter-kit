@@ -27,7 +27,9 @@
 - **寫文**：Tiptap 所見即所得編輯器、主旨、前導文字、草稿、個人化變數、自動儲存、⌘S
 - **名單**：訂閱、雙重確認（double opt-in，可關）、退訂、標籤分組、CSV 匯入匯出、簽名匯入 webhook、對外訂閱頁 `/join`
 - **排程**：指定時間自動寄出，內建輪詢 worker，批次送 + 失敗退避重試
-- **追蹤**：寄送前注入 1×1 pixel 與簽名點擊轉址，不依賴寄信商 webhook；測試信、預覽、封存不注入。可用 `TRACKING_ENABLED=false` 關掉
+- **追蹤**：寄送前注入 1×1 pixel 與簽名點擊轉址，報表列出每個連結的總點擊與不重複點擊；測試信、預覽、封存不注入。可用 `TRACKING_ENABLED=false` 關掉
+- **投遞保護**：簽名 webhook 接收硬退信與垃圾信檢舉；抑制地址後續寄送會跳過
+- **受眾篩選**：AND／OR／NOT 條件、標籤、資料夾、加入日期與最近開信／點擊行為，可先預覽人數
 - **自動化**：新訂閱／匯入標籤／外部事件觸發簡單序列信（第 0／3／7 天）
 - **預覽**：後台即時預覽、寄測試信
 - **公開端點**：訂閱 API、確認頁、退訂頁、已寄出電子報的封存頁（`/archive`）
@@ -92,7 +94,8 @@ npm run dev
   "html": "<!doctype html>…",
   "text": "九月號…",
   "replyTo": null,
-  "unsubscribeUrl": "https://your-newsletter.example/unsubscribe?token=…"
+  "unsubscribeUrl": "https://your-newsletter.example/unsubscribe?token=…",
+  "headers": { "List-Unsubscribe": "<https://your-newsletter.example/unsubscribe?token=…>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
 }
 ```
 
@@ -216,6 +219,25 @@ X-Newsletter-Signature: sha256=<HMAC-SHA256 of raw body>
 
 確認信與退訂連結都由這個服務自己出頁面，官網不用實作。
 連結用 `APP_SECRET` 簽章（HMAC），不存 token；換掉 secret 會讓已寄出的連結全部失效。
+正式寄送的信件會帶 RFC 8058 的 `List-Unsubscribe` 與 `List-Unsubscribe-Post`。信箱用 `POST /unsubscribe?token=…` 並送 `List-Unsubscribe=One-Click` 表單內容即可直接退訂，不需 Cookie 或確認頁；重複 POST 安全。一般使用者 `GET /unsubscribe?token=…` 仍會看到確認頁。可用 `UNSUBSCRIBE_MAILTO` 加上 mailto 備援。
+
+硬退信與檢舉的 webhook、簽章設定、供應商限制及各路徑見 [投遞與法規設定](docs/deliverability.md)。
+
+| 供應商 | webhook 路徑 | 必填環境變數 |
+| --- | --- | --- |
+| Resend | `/api/webhooks/resend` | `RESEND_WEBHOOK_SECRET` |
+| Amazon SES（SNS） | `/api/webhooks/ses` | `SES_SNS_TOPIC_ARN` |
+| Postmark | `/api/webhooks/postmark` | `POSTMARK_WEBHOOK_SECRET` |
+| SendGrid | `/api/webhooks/sendgrid` | `SENDGRID_WEBHOOK_PUBLIC_KEY` |
+| Mailgun | `/api/webhooks/mailgun` | `MAILGUN_WEBHOOK_SIGNING_KEY` |
+| Brevo | `/api/webhooks/brevo` | `BREVO_WEBHOOK_SECRET` |
+| Mailchimp Transactional | `/api/webhooks/mailchimp` | `MAILCHIMP_WEBHOOK_KEY` |
+| MailerSend | `/api/webhooks/mailersend` | `MAILERSEND_WEBHOOK_SIGNING_SECRET` |
+| SparkPost | `/api/webhooks/sparkpost` | `SPARKPOST_WEBHOOK_TOKEN` |
+| SMTP2GO | `/api/webhooks/smtp2go` | `SMTP2GO_WEBHOOK_SECRET` |
+| 自訂 webhook／Zeabur relay | `/api/webhooks/generic` | `GENERIC_WEBHOOK_SECRET` |
+
+完整網址為 `PUBLIC_BASE_URL` 加上表中路徑。Portaly 沿用每 10 分鐘回查；其他未列供應商的驗證限制見上方文件。
 
 ### 4. 封存頁（選用）
 
@@ -241,9 +263,12 @@ GET /api/public/campaigns/:slug
 | `{{email}}` | 訂閱者 Email |
 | `{{site_name}}` | `SITE_NAME` |
 | `{{unsubscribe_url}}` | 該收件人的退訂連結 |
+| `{{physical_address}}` | 寄件者實體郵寄地址 |
+| `{{privacy_url}}` | 隱私權政策網址 |
 
 變數值會做 HTML escape。信件版型在 `src/core/render.ts` 的 `renderEmailLayout()`，
 想換設計改那一個函式就好。頁尾一定會有退訂連結。
+後台「設定 → 寄信」可儲存實體郵寄地址與隱私權政策網址（同品牌設定，Admin API `GET/PATCH /brand`、MCP `get_brand`／`update_brand` 也可操作）。空白地址會顯示 CAN-SPAM 提醒；未填時頁尾自然省略。環境變數 `PHYSICAL_ADDRESS`、`PRIVACY_URL` 是未儲存設定時的備援值。範例部署的隱私網址放在 `.env.example`，程式本身沒有固定網站網址。
 
 ## 開信與點擊追蹤
 
@@ -254,6 +279,10 @@ GET /api/public/campaigns/:slug
 
 所有 adapter（`dry_run`／`webhook`／`resend`／`zeabur`）吃同一份 HTML，換供應商追蹤不斷。
 測試信、預覽、封存不注入。設 `TRACKING_ENABLED=false` 可整段關掉。
+
+電子報編輯頁可以用條件樹組合標籤、資料夾、狀態、加入日期、指定電子報開信／點擊、最近 N 天開信／點擊，點擊條件也能指定 URL；NOT 可排除未互動者。舊的「任一標籤」與資料夾篩選仍有效，和進階條件一起套用。`POST /api/admin/campaigns/:id/audience-count` 可預覽人數；MCP 工具是 `count_campaign_audience`。序列信目前靠觸發條件與個別訂閱者寄送，沒有獨立受眾篩選。
+
+電子報報表的 `GET /api/admin/campaigns/:id/links`（MCP `get_campaign_links`）回傳按總點擊排序的 URL、總點擊與不重複訂閱者數。URL 使用追蹤轉址所記錄的標準化網址。
 
 ## API
 
@@ -293,6 +322,8 @@ GET /api/public/campaigns/:slug
 | `POST` | `/campaigns/:id/cancel` | 中止 |
 | `GET` | `/campaigns/:id/deliveries` | 寄送紀錄 |
 | `GET` | `/campaigns/:id/stats` | 寄送 + 開信／點擊 |
+| `GET` | `/campaigns/:id/links` | 各連結總點擊與不重複點擊 |
+| `POST` | `/campaigns/:id/audience-count` | 預覽條件樹受眾人數 |
 | `POST` | `/campaigns/:id/copy` | 複製成新草稿 |
 | `POST` | `/campaigns/:id/template` | 把這封電子報存成自訂模板 |
 | `GET` `POST` | `/sequences` | 序列列表 / 新增 |
@@ -350,6 +381,9 @@ NEWSLETTER_URL=https://your-newsletter.example npm run mcp
 | `CORS_ORIGINS` | `*` | 允許打公開 API 與 Agent 端點的網域，正式環境請收斂 |
 | `TRACKING_ENABLED` | `true` | 關掉則不注入 pixel／轉址 |
 | `INGEST_SECRET` | — | 匯入與事件 webhook 的 HMAC 金鑰 |
+| `PHYSICAL_ADDRESS` | 空白 | 寄件者實體郵寄地址，未在後台儲存時使用 |
+| `PRIVACY_URL` | 空白 | 隱私權政策網址，未在後台儲存時使用；範例 `.env.example` 是 `https://creatorhome.tw/privacy` |
+| `UNSUBSCRIBE_MAILTO` | — | `List-Unsubscribe` 中選填的 mailto 備援 |
 | `JOIN_HEADLINE` | — | `/join` 頁標題，預設用站名 |
 | `JOIN_TAGS` | — | `/join` 預設標籤，逗號分隔 |
 | `SEND_BATCH_SIZE` | `20` | 每批幾封 |

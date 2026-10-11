@@ -53,3 +53,7 @@ Mailchimp／ConvertKit 同等名單通常 $50–300／月，還綁他們的編�
 | 月費粗估 | 主機 $5–19 + 寄信 $19–20 ≈ **$25–40** |
 
 成長到 1.5 萬人或每月超過 5 萬封，先升寄信方案，不必重寫系統。名單用 CSV 或簽名匯入 webhook 灌進去。官網、Portaly、任何表單各自在自己那邊接 webhook，**不要把對方的 API key 寫進 kit**。
+
+## 投遞回報與法規資訊
+
+正式寄送前請填真實的 `PHYSICAL_ADDRESS`、自己的 `PRIVACY_URL`，並在供應商設定對應簽名 webhook。電子報與序列信的一鍵退訂及退信抑制細節見 [投遞與法規設定](deliverability.md)。
