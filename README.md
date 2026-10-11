@@ -235,6 +235,7 @@ X-Newsletter-Signature: sha256=<HMAC-SHA256 of raw body>
 | MailerSend | `/api/webhooks/mailersend` | `MAILERSEND_WEBHOOK_SIGNING_SECRET` |
 | SparkPost | `/api/webhooks/sparkpost` | `SPARKPOST_WEBHOOK_TOKEN` |
 | SMTP2GO | `/api/webhooks/smtp2go` | `SMTP2GO_WEBHOOK_SECRET` |
+| Plunk | `/api/webhooks/plunk` | `PLUNK_WEBHOOK_SECRET` |
 | 自訂 webhook／Zeabur relay | `/api/webhooks/generic` | `GENERIC_WEBHOOK_SECRET` |
 
 完整網址為 `PUBLIC_BASE_URL` 加上表中路徑。Portaly 沿用每 10 分鐘回查；其他未列供應商的驗證限制見上方文件。

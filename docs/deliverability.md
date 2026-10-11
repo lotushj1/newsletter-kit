@@ -14,11 +14,12 @@
 | MailerSend | `/api/webhooks/mailersend` | `MAILERSEND_WEBHOOK_SIGNING_SECRET`，驗證 `Signature` HMAC；hard_bounced、spam_complaint、相關 suppressed |
 | SparkPost | `/api/webhooks/sparkpost` | `SPARKPOST_WEBHOOK_TOKEN`，設定 `X-MessageSystems-Webhook-Token`；只抑制 bounce class 10、30、90 與 spam_complaint |
 | SMTP2GO | `/api/webhooks/smtp2go` | `SMTP2GO_WEBHOOK_SECRET`，設定 Bearer 或 Basic 授權並選 JSON 輸出；只抑制 bounce=hard 與 spam |
+| Plunk | `/api/webhooks/plunk` | `PLUNK_WEBHOOK_SECRET`，在 `email.bounce` 與 `email.complaint` 各建立 Workflow Webhook step，保留預設 JSON body，設定 `Authorization: Bearer <secret>`；只抑制 Permanent bounce 與 complaint |
 | 自訂 adapter／Zeabur relay | `/api/webhooks/generic` | `GENERIC_WEBHOOK_SECRET`，`X-Newsletter-Signature: sha256=<HMAC-SHA256(raw body)>`；JSON `{ "type": "hard_bounce"|"complaint", "email": "…", "providerMessageId": "…" }` |
 
 SNS `SubscriptionConfirmation` 只在驗簽後回 `confirmationRequired: true`，**不會自動開啟**訊息中的 SubscribeURL。管理員須在 AWS 控制台確認訂閱。SNS 憑證只從與 topic region 相同的 AWS SNS HTTPS 主機讀取，不跟隨轉址。`EMAIL_PROVIDER=ses` 本身仍是未實作的發送 adapter；若透過自架 SES relay 投遞，可使用 SNS 端點接回報。
 
-Zeabur 是自架寄信服務的範例，沒有統一的原生回報格式。InsForge SDK 沒有可用的回報 webhook。Postal、Elastic Email、Scaleway 等平台雖有事件功能，但目前沒有經此專案驗證的原生簽章整合；請以自己的驗證 relay 轉成 `/api/webhooks/generic` 的簽名格式。Plunk 的目前整合沒有已驗證的回報格式。這些平台的原生事件不能直接 POST 到 generic 端點，因為簽章格式不同。
+Zeabur 是自架寄信服務的範例，沒有統一的原生回報格式。InsForge SDK 沒有可用的回報 webhook。Postal、Elastic Email、Scaleway 等平台雖有事件功能，但目前沒有經此專案驗證的原生簽章整合；請以自己的驗證 relay 轉成 `/api/webhooks/generic` 的簽名格式。這些平台的原生事件不能直接 POST 到 generic 端點，因為簽章格式不同。
 
 ## RFC 8058 一鍵退訂
 
@@ -31,7 +32,7 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click
 
 `mailto:` 僅在 `UNSUBSCRIBE_MAILTO` 有值時加入。郵件用戶端可向這個 URL 發送 `POST`，`Content-Type: application/x-www-form-urlencoded`，內容為 `List-Unsubscribe=One-Click`。伺服器檢查 URL 裡的 `APP_SECRET` HMAC token，直接退訂，重複呼叫回 200，不用 Cookie、CSRF token 或確認頁。一般 GET 仍顯示確認頁，避免連結掃描器誤退訂。
 
-HTTP adapter 會把兩個標頭映射到各供應商 API 的 header 欄位。自訂 webhook 與 Zeabur JSON payload 會帶 `headers` 物件，接收端必須把它寫入實際郵件標頭。MailerSend 的自訂標頭需要 Professional／Enterprise 方案。Brevo API 不接受標準 email header，InsForge SDK 沒有自訂 header 欄位；這兩個 adapter 對需要一鍵退訂的信件會明確回傳失敗，避免無標頭地寄出。Plunk 的此 API 尚未確認支援標頭，同樣拒絕電子報寄送；可用 `EMAIL_PROVIDER=webhook` 接支援原始標頭的寄信服務。
+HTTP adapter 會把兩個標頭映射到各供應商 API 的 header 欄位。自訂 webhook 與 Zeabur JSON payload 會帶 `headers` 物件，接收端必須把它寫入實際郵件標頭。MailerSend 的自訂標頭需要 Professional／Enterprise 方案。Brevo API 不接受標準 email header，InsForge SDK 沒有自訂 header 欄位；這兩個 adapter 對需要一鍵退訂的信件會明確回傳失敗，避免無標頭地寄出。Plunk 的 `/v1/send` 支援 `headers` 物件。可用 `EMAIL_PROVIDER=webhook` 接支援原始標頭的寄信服務。
 
 ## 頁尾
 
@@ -52,4 +53,4 @@ HTTP adapter 會把兩個標頭映射到各供應商 API 的 header 欄位。自
 
 `GET /api/admin/campaigns/:id/links` 或 MCP `get_campaign_links` 回每個標準化 URL 的 `clicks`、`uniqueClicks`，按總點擊排序；不重複數以訂閱者計。後台電子報已寄出報表有同樣表格。
 
-參考：[AWS SNS 驗簽](https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message-verify-message-signature.html)、[Resend webhook](https://resend.com/changelog/managing-webhooks-via-api)、[SendGrid signed webhook](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)、[Mailgun webhook](https://documentation.mailgun.com/docs/mailgun/user-manual/events/webhooks)、[Mailchimp Transactional webhook](https://mailchimp.com/developer/transactional/guides/track-respond-activity-webhooks/)。
+參考：[AWS SNS 驗簽](https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message-verify-message-signature.html)、[Resend webhook](https://resend.com/changelog/managing-webhooks-via-api)、[SendGrid signed webhook](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/getting-started-event-webhook-security-features)、[Mailgun webhook](https://documentation.mailgun.com/docs/mailgun/user-manual/events/webhooks)、[Mailchimp Transactional webhook](https://mailchimp.com/developer/transactional/guides/track-respond-activity-webhooks/)、[Plunk webhook](https://docs.useplunk.com/guides/webhooks)、[Plunk send API](https://docs.useplunk.com/api-reference/public-api/sendEmail)。

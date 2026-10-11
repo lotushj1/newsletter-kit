@@ -227,6 +227,7 @@ export function loadConfig(): Config {
       mailersend: optional('MAILERSEND_WEBHOOK_SIGNING_SECRET'),
       sparkpost: optional('SPARKPOST_WEBHOOK_TOKEN'),
       smtp2go: optional('SMTP2GO_WEBHOOK_SECRET'),
+      plunk: optional('PLUNK_WEBHOOK_SECRET'),
     },
     physicalAddress: optional('PHYSICAL_ADDRESS'),
     privacyUrl: optional('PRIVACY_URL'),

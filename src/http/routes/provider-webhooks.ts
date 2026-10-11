@@ -183,12 +183,21 @@ function parse(provider: string, payload: Row, body: string): Problem[] {
     if (kind === 'bounce' && row.bounce === 'hard') return [{ email: oneEmail(row.rcpt), reason: 'bounce' }];
     return [];
   }
+  if (provider === 'plunk') {
+    const event = object(payload.event);
+    const contact = object(payload.contact);
+    const email = oneEmail(contact.email);
+    const providerMessageId = string(event.emailId);
+    if (event.bounceType === 'Permanent') return [{ email, providerMessageId, reason: 'bounce' }];
+    if (event.complainedAt) return [{ email, providerMessageId, reason: 'complaint' }];
+    return [];
+  }
   return [];
 }
 
 export function providerWebhookRouter(ctx: ServiceContext): Router {
   const router = Router();
-  for (const provider of ['resend', 'ses', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'mailersend', 'sparkpost', 'smtp2go', 'generic']) {
+  for (const provider of ['resend', 'ses', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'mailersend', 'sparkpost', 'smtp2go', 'plunk', 'generic']) {
     router.post(`/${provider}`, asyncRoute(async (req, res) => {
       const body = raw(req);
       const payload = provider === 'mailchimp' ? {} : json(body);
@@ -197,7 +206,7 @@ export function providerWebhookRouter(ctx: ServiceContext): Router {
       let verified = false;
       if (provider === 'resend') verified = svix(req, secret, body);
       else if (provider === 'ses') verified = await sns(req, payload, secret);
-      else if (provider === 'postmark' || provider === 'brevo') verified = authSecret(req, secret);
+      else if (provider === 'postmark' || provider === 'brevo' || provider === 'plunk') verified = authSecret(req, secret);
       else if (provider === 'sendgrid') verified = sendgrid(req, secret, body);
       else if (provider === 'mailgun') verified = mailgun(req, secret, payload);
       else if (provider === 'mailchimp') verified = mandrill(req, secret, body, `${ctx.config.publicBaseUrl}/api/webhooks/mailchimp`);

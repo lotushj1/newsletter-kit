@@ -11,6 +11,7 @@ const secrets = {
   sesTopicArn: topic, postmark: 'post-secret', sendgrid: '', mailgun: 'mailgun-secret',
   brevo: 'brevo-secret', mailchimp: 'mandrill-secret', generic: 'generic-secret',
   mailersend: 'mailer-secret', sparkpost: 'spark-secret', smtp2go: 'smtp-secret',
+  plunk: 'plunk-secret',
 };
 const ec = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 secrets.sendgrid = ec.publicKey.export({ type: 'spki', format: 'pem' }).toString();
@@ -25,7 +26,7 @@ function signature(provider: string, body: string): { headers: Record<string, st
     const timestamp = String(Math.floor(Date.now() / 1000)); const id = 'msg_123';
     return { headers: { 'svix-id': id, 'svix-timestamp': timestamp, 'svix-signature': 'v1,' + createHmac('sha256', Buffer.from(secrets.resend.slice(6), 'base64')).update(`${id}.${timestamp}.${body}`).digest('base64') } };
   }
-  if (provider === 'postmark' || provider === 'brevo' || provider === 'smtp2go') return { headers: { authorization: `Bearer ${secrets[provider]}` } };
+  if (provider === 'postmark' || provider === 'brevo' || provider === 'smtp2go' || provider === 'plunk') return { headers: { authorization: `Bearer ${secrets[provider]}` } };
   if (provider === 'sendgrid') {
     const timestamp = String(Math.floor(Date.now() / 1000));
     return { headers: { 'x-twilio-email-event-webhook-timestamp': timestamp, 'x-twilio-email-event-webhook-signature': sign('sha256', Buffer.from(timestamp + body), ec.privateKey).toString('base64') } };
@@ -56,6 +57,7 @@ function event(provider: string, kind: 'bounce' | 'complaint' | 'soft'): { body:
   if (provider === 'mailersend') return { body: JSON.stringify({ type: `activity.${kind === 'complaint' ? 'spam_complaint' : kind === 'soft' ? 'soft_bounced' : 'hard_bounced'}`, data: { recipient: email } }) };
   if (provider === 'sparkpost') return { body: JSON.stringify([{ msys: { message_event: { type: kind === 'complaint' ? 'spam_complaint' : 'bounce', bounce_class: kind === 'soft' ? 20 : 10, rcpt_to: email } } }]) };
   if (provider === 'smtp2go') return { body: JSON.stringify({ event: kind === 'complaint' ? 'spam' : 'bounce', bounce: kind === 'soft' ? 'soft' : 'hard', rcpt: email }) };
+  if (provider === 'plunk') return { body: JSON.stringify({ contact: { email }, event: kind === 'complaint' ? { complainedAt: new Date().toISOString(), emailId: 'email_1' } : { bounceType: kind === 'soft' ? 'Transient' : 'Permanent', emailId: 'email_1' } }) };
   return { body: JSON.stringify({ type: kind === 'complaint' ? 'complaint' : kind === 'soft' ? 'soft_bounce' : 'hard_bounce', email }) };
 }
 
@@ -68,7 +70,7 @@ async function withServer(run: (base: string, ctx: Awaited<ReturnType<typeof mak
   finally { await new Promise((resolve) => server.close(resolve)); }
 }
 
-for (const provider of ['resend', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'mailersend', 'sparkpost', 'smtp2go', 'generic']) {
+for (const provider of ['resend', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'mailersend', 'sparkpost', 'smtp2go', 'plunk', 'generic']) {
   describe(`${provider} webhook`, () => {
     it('rejects an invalid signature and suppresses a verified hard bounce idempotently', async () => withServer(async (base, ctx) => {
       const { body, type } = event(provider, 'bounce');
