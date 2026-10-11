@@ -289,6 +289,7 @@ function toSubscriber(row: SubscriberRow): Subscriber {
 }
 
 function toCampaign(row: CampaignRow, stats: CampaignStats, tracking: TrackingStats): Campaign {
+  const audience = parseJson<string[] | { tags?: string[]; condition?: Campaign['audienceCondition'] }>(row.audience_tags, []);
   return {
     id: row.id,
     title: row.title,
@@ -298,7 +299,8 @@ function toCampaign(row: CampaignRow, stats: CampaignStats, tracking: TrackingSt
     bodyMarkdown: row.body_markdown,
     bodyHtml: row.body_html ?? '',
     status: row.status as Campaign['status'],
-    audienceTags: parseJson<string[]>(row.audience_tags, []),
+    audienceTags: Array.isArray(audience) ? audience : audience.tags ?? [],
+    audienceCondition: Array.isArray(audience) ? undefined : audience.condition,
     audienceFolderId: row.audience_folder_id ?? undefined,
     folderId: row.folder_id ?? undefined,
     scheduledAt: row.scheduled_at,
@@ -677,7 +679,7 @@ export class SqliteStore implements Store {
           body_markdown: campaign.bodyMarkdown,
           body_html: campaign.bodyHtml ?? '',
           status: campaign.status,
-          audience_tags: JSON.stringify(campaign.audienceTags),
+          audience_tags: JSON.stringify({ tags: campaign.audienceTags, condition: campaign.audienceCondition }),
           audience_folder_id: campaign.audienceFolderId ?? null,
           folder_id: campaign.folderId ?? null,
           scheduled_at: campaign.scheduledAt ?? null,
@@ -712,7 +714,7 @@ export class SqliteStore implements Store {
           body_markdown: next.bodyMarkdown,
           body_html: next.bodyHtml ?? '',
           status: next.status,
-          audience_tags: JSON.stringify(next.audienceTags),
+          audience_tags: JSON.stringify({ tags: next.audienceTags, condition: next.audienceCondition }),
           audience_folder_id: next.audienceFolderId ?? null,
           folder_id: next.folderId ?? null,
           scheduled_at: next.scheduledAt ?? null,
@@ -900,6 +902,20 @@ export class SqliteStore implements Store {
         url: event.url ?? null,
         created_at: event.createdAt,
       });
+  }
+
+  async listTrackingEvents(query: { campaignId?: string; type?: 'open' | 'click'; since?: string } = {}): Promise<TrackingEvent[]> {
+    const clauses: string[] = [];
+    const args: unknown[] = [];
+    if (query.campaignId) { clauses.push('campaign_id = ?'); args.push(query.campaignId); }
+    if (query.type) { clauses.push('type = ?'); args.push(query.type); }
+    if (query.since) { clauses.push('created_at >= ?'); args.push(query.since); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    return (this.db.prepare(`SELECT * FROM events ${where}`).all(...args) as EventRow[]).map((row) => ({
+      id: row.id, campaignId: row.campaign_id, subscriberId: row.subscriber_id ?? undefined,
+      deliveryId: row.delivery_id ?? undefined, type: row.type as TrackingEvent['type'],
+      url: row.url ?? undefined, createdAt: row.created_at,
+    }));
   }
 
   async campaignTrackingStats(campaignId: string): Promise<TrackingStats> {

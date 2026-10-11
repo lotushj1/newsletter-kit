@@ -44,7 +44,8 @@ export function unsubscribeUrl(
 async function sendConfirmEmail(ctx: ServiceContext, subscriber: Subscriber): Promise<void> {
   const link = confirmUrl(ctx, subscriber.email);
   // 刊頭跟電子報用同一個品牌名稱；內文需要一個名字時，都沒設就退回 SITE_NAME。
-  const brandName = emailBrandName(await getBrand(ctx), ctx.config.siteName);
+  const brand = await getBrand(ctx);
+  const brandName = emailBrandName(brand, ctx.config.siteName);
   const name = brandName || ctx.config.siteName;
   const contentHtml = confirmEmailContentHtml(name, link);
   const html = renderEmailLayout({
@@ -53,6 +54,8 @@ async function sendConfirmEmail(ctx: ServiceContext, subscriber: Subscriber): Pr
     contentHtml,
     siteName: brandName,
     footerNote: '這封信是因為有人用這個地址申請訂閱才寄出的。',
+    physicalAddress: brand.physicalAddress,
+    privacyUrl: brand.privacyUrl,
   });
 
   const result = await ctx.adapter.send({

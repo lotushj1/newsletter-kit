@@ -8,6 +8,7 @@ import { createPortalyAdapter } from './adapters/portaly.js';
 import { createZeaburAdapter } from './adapters/zeabur.js';
 import { EMAIL_PLATFORMS } from './providers.js';
 import type { AdapterContext, EmailAdapter, EmailAdapterFactory, EmailMessage, SendResult } from './types.js';
+import { withEmailHeaders } from './headers.js';
 
 const registry = new Map<string, EmailAdapterFactory>([
   ['dry_run', createDryRunAdapter],
@@ -49,11 +50,11 @@ export async function sendMessages(
   adapter: EmailAdapter,
   messages: EmailMessage[],
 ): Promise<SendResult[]> {
-  if (adapter.sendBatch) return adapter.sendBatch(messages);
+  if (adapter.sendBatch) return adapter.sendBatch(messages.map(withEmailHeaders));
   const results: SendResult[] = [];
   for (const message of messages) {
     try {
-      results.push(await adapter.send(message));
+      results.push(await adapter.send(withEmailHeaders(message)));
     } catch (error) {
       results.push({ ok: false, error: (error as Error).message, retryable: true });
     }

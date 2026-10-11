@@ -1,5 +1,9 @@
 import { createTrackingToken } from './tokens.js';
 
+export function normalizeTrackedUrl(url: string): string {
+  try { return new URL(url).toString(); } catch { return url; }
+}
+
 export interface TrackingInjectInput {
   secret: string;
   publicBaseUrl: string;
@@ -38,7 +42,7 @@ export function injectTracking(html: string, input: TrackingInjectInput): string
       campaignId: input.campaignId,
       deliveryId: input.deliveryId,
       subscriberId: input.subscriberId,
-      url,
+      url: normalizeTrackedUrl(url),
     });
     return `href=${quote}${input.publicBaseUrl}/t/click?token=${encodeURIComponent(token)}${quote}`;
   });

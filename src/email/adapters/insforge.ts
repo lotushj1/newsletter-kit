@@ -16,6 +16,9 @@ export const createInsForgeAdapter: EmailAdapterFactory = (context): EmailAdapte
   },
 
   async send(message) {
+    if (message.unsubscribeUrl) {
+      return { ok: false, error: 'InsForge emails.send 不支援自訂 List-Unsubscribe 標頭；請改用 webhook adapter', retryable: false };
+    }
     if (!context.insforgeUrl || !context.insforgeApiKey) {
       return { ok: false, error: '缺少 INSFORGE_URL 或 INSFORGE_API_KEY', retryable: false };
     }

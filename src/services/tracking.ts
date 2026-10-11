@@ -1,5 +1,6 @@
 import { newId, nowIso } from '../core/ids.js';
 import { verifyToken } from '../core/tokens.js';
+import { normalizeTrackedUrl } from '../core/tracking.js';
 import type { ServiceContext } from './context.js';
 import { enrollSubscriber } from './enroll.js';
 
@@ -38,7 +39,7 @@ export async function recordClick(
     subscriberId: verified.subscriberId,
     deliveryId: verified.deliveryId,
     type: 'click',
-    url: verified.url,
+    url: normalizeTrackedUrl(verified.url),
     createdAt: nowIso(),
   });
   if (verified.subscriberId) {
@@ -47,5 +48,5 @@ export async function recordClick(
       await enrollSubscriber(ctx, subscriber, { type: 'click', campaignId: verified.campaignId });
     }
   }
-  return verified.url;
+  return normalizeTrackedUrl(verified.url);
 }

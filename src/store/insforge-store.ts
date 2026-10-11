@@ -45,6 +45,7 @@ const READ_METHODS = [
   'deliveryStats',
   'findDeliveryByProviderMessageId',
   'campaignTrackingStats',
+  'listTrackingEvents',
   'periodStats',
   'getSequence',
   'listSequences',

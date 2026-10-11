@@ -6,11 +6,14 @@ import { logger } from '../core/logger.js';
 import { injectTracking } from '../core/tracking.js';
 import { sendMessages } from '../email/registry.js';
 import type { EmailMessage } from '../email/types.js';
+import { withEmailHeaders } from '../email/headers.js';
 import type { Campaign, Delivery, Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getCampaign, renderCampaign } from './campaigns.js';
 import { clearSending, isSendingNow, markSending } from './send-state.js';
 import { unsubscribeUrl } from './subscribers.js';
+import { selectAudience } from './audience.js';
+import { isSuppressed } from './suppression.js';
 
 function trackedHtml(
   ctx: ServiceContext,
@@ -50,7 +53,7 @@ export async function sendTestEmail(
 ): Promise<{ ok: boolean; message: string }> {
   const campaign = await getCampaign(ctx, campaignId);
   const rendered = await renderCampaign(ctx, campaign, { email: to, name: '測試收件人' });
-  const result = await ctx.adapter.send({
+  const result = await ctx.adapter.send(withEmailHeaders({
     to,
     from: ctx.config.email.from,
     subject: `[測試] ${rendered.subject}`,
@@ -58,7 +61,8 @@ export async function sendTestEmail(
     text: rendered.text,
     replyTo: ctx.config.email.replyTo,
     unsubscribeUrl: unsubscribeUrl(ctx, to, { campaignId }),
-  });
+    unsubscribeMailto: ctx.config.email.unsubscribeMailto,
+  }));
   return result.ok
     ? { ok: true, message: `已透過 ${ctx.adapter.name} 送出測試信。` }
     : { ok: false, message: result.error };
@@ -79,10 +83,7 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
     }
     return (await ctx.store.deliveryStats(campaign.id)).total;
   }
-  const audience = await ctx.store.listAudience({
-    tags: campaign.audienceTags,
-    folderId: campaign.audienceFolderId,
-  });
+  const audience = await selectAudience(ctx, campaign);
   if (audience.length === 0) throw badRequest('目前沒有符合條件的收件人');
 
   const deliveries: Delivery[] = audience.map((subscriber) => ({
@@ -107,7 +108,7 @@ async function deliverBatch(
     const subscriber = await ctx.store.getSubscriber(delivery.subscriberId);
     const recipient = subscriber ?? { email: delivery.email, name: undefined };
     // 中途退訂的人直接跳過，不要寄出去。
-    if (subscriber && subscriber.status !== 'subscribed') {
+    if ((subscriber && (subscriber.status !== 'subscribed' || subscriber.meta?.suppressedReason)) || await isSuppressed(ctx, delivery.email)) {
       await ctx.store.updateDelivery(delivery.id, { status: 'skipped', error: '已非訂閱狀態' });
       continue;
     }
@@ -124,6 +125,7 @@ async function deliverBatch(
         deliveryId: delivery.id,
         subscriberId: delivery.subscriberId,
       }),
+      unsubscribeMailto: ctx.config.email.unsubscribeMailto,
       // 用 delivery id 當冪等鍵：重試同一筆不會被供應商寄第二次。
       idempotencyKey: delivery.id,
     });
@@ -290,7 +292,7 @@ export async function sendCampaignToSubscriber(
   subscriber: Subscriber,
   options: { allowUnsubscribed?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string }> {
-  if (subscriber.status !== 'subscribed' && !options.allowUnsubscribed) {
+  if (subscriber.meta?.suppressedReason || await isSuppressed(ctx, subscriber.email) || (subscriber.status !== 'subscribed' && !options.allowUnsubscribed)) {
     return { ok: false, error: '已非訂閱狀態' };
   }
   const delivery: Delivery = {
@@ -303,7 +305,7 @@ export async function sendCampaignToSubscriber(
   };
   await ctx.store.createDeliveries([delivery]);
   const rendered = await renderCampaign(ctx, campaign, subscriber);
-  const result = await ctx.adapter.send({
+  const result = await ctx.adapter.send(withEmailHeaders({
     to: subscriber.email,
     from: ctx.config.email.from,
     subject: rendered.subject,
@@ -315,8 +317,9 @@ export async function sendCampaignToSubscriber(
       deliveryId: delivery.id,
       subscriberId: subscriber.id,
     }),
+    unsubscribeMailto: ctx.config.email.unsubscribeMailto,
     idempotencyKey: delivery.id,
-  });
+  }));
   if (result.ok) {
     await ctx.store.updateDelivery(delivery.id, {
       status: 'sent',

@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import type { EmailAdapter, EmailAdapterFactory } from '../types.js';
+import { emailHeaders } from '../headers.js';
 
 /**
  * 把每封信 POST 給你自己的服務，由你決定怎麼寄（n8n、Make、自架 API…）。
@@ -32,7 +33,7 @@ export const createWebhookAdapter: EmailAdapterFactory = (context): EmailAdapter
       text: message.text,
       replyTo: message.replyTo,
       unsubscribeUrl: message.unsubscribeUrl,
-      headers: message.headers,
+      headers: emailHeaders(message),
     });
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (context.webhookSecret) {
