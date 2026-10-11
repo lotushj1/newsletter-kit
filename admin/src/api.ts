@@ -93,6 +93,7 @@ export interface Campaign {
   bodyHtml: string;
   status: string;
   audienceTags: string[];
+  audienceCondition?: import('../../src/store/types').AudienceCondition;
   audienceFolderId?: string;
   folderId?: string;
   scheduledAt?: string | null;

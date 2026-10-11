@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { api, type Session } from '../api';
+import { api, type Session, type BrandProfile } from '../api';
 
 type Page = 'email' | 'ai' | 'agent';
 type EmailKind = 'dry_run' | 'webhook' | 'resend' | 'portaly' | 'zeabur' | 'insforge' | 'http' | 'ses';
@@ -102,11 +102,28 @@ export function Settings() {
           </button>
         ))}
       </div>
-      {page === 'email' && <EmailSettings />}
+      {page === 'email' && <><EmailSettings /><FooterSettings /></>}
       {page === 'ai' && <AiSettings session={session} />}
       {page === 'agent' && <AgentSettings session={session} />}
     </div>
   );
+}
+
+function FooterSettings() {
+  const [brand, setBrand] = useState<BrandProfile | null>(null);
+  const [message, setMessage] = useState('');
+  useEffect(() => { void api.get<BrandProfile>('/brand').then(setBrand).catch((error: Error) => setMessage(error.message)); }, []);
+  if (!brand) return null;
+  return <section className="card setup-card">
+    <h2>郵件頁尾與法規資訊</h2>
+    {!brand.physicalAddress?.trim() && <div className="notice warn">尚未設定實體郵寄地址。CAN-SPAM 規定商業電子郵件須提供有效的實體郵寄地址。</div>}
+    <label htmlFor="physical-address">寄件者實體郵寄地址</label>
+    <textarea id="physical-address" value={brand.physicalAddress ?? ''} onChange={(event) => setBrand({ ...brand, physicalAddress: event.target.value })} placeholder="請填入真實地址" />
+    <label htmlFor="privacy-url">隱私權政策網址</label>
+    <input id="privacy-url" type="url" value={brand.privacyUrl ?? ''} onChange={(event) => setBrand({ ...brand, privacyUrl: event.target.value })} placeholder="https://example.com/privacy" />
+    <button type="button" className="btn primary" onClick={() => { void api.patch<BrandProfile>('/brand', { physicalAddress: brand.physicalAddress ?? '', privacyUrl: brand.privacyUrl ?? '' }).then((saved) => { setBrand(saved); setMessage('已儲存'); }).catch((error: Error) => setMessage(error.message)); }}>儲存頁尾設定</button>
+    {message && <p className="muted">{message}</p>}
+  </section>;
 }
 
 function EmailSettings() {
