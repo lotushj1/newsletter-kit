@@ -25,7 +25,6 @@ it('builds RFC 8058 headers and maps them through every HTTP platform payload', 
   expect(headers).toEqual({ 'List-Unsubscribe': '<https://newsletter.test/unsubscribe?token=abc>, <mailto:leave@example.com>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' });
   for (const platform of EMAIL_PLATFORMS.filter((item) => item.kind === 'http')) {
     const request = platformRequest(platform.id, { apiKey: 'key', apiExtra: platform.id === 'postal' ? 'https://postal.test' : 'example.com' }, message);
-    if (platform.id === 'brevo') { expect(request).toHaveProperty('error'); continue; }
     expect(request, platform.id).toHaveProperty('body');
     if ('body' in request) {
       expect(request.body, platform.id).toContain('List-Unsubscribe');

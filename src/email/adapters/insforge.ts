@@ -1,6 +1,8 @@
 import { createInsForgeBackend } from '../../core/insforge.js';
 import type { EmailAdapter, EmailAdapterFactory } from '../types.js';
 
+let warnedAboutUnsubscribeHeaders = false;
+
 /**
  * 可選 adapter：透過 InsForge 的 emails.send 投遞。
  * 需要付費方案；免費專案只能走 dry_run 或其他供應商。
@@ -16,11 +18,12 @@ export const createInsForgeAdapter: EmailAdapterFactory = (context): EmailAdapte
   },
 
   async send(message) {
-    if (message.unsubscribeUrl) {
-      return { ok: false, error: 'InsForge emails.send 不支援自訂 List-Unsubscribe 標頭；請改用 webhook adapter', retryable: false };
-    }
     if (!context.insforgeUrl || !context.insforgeApiKey) {
       return { ok: false, error: '缺少 INSFORGE_URL 或 INSFORGE_API_KEY', retryable: false };
+    }
+    if (message.unsubscribeUrl && !warnedAboutUnsubscribeHeaders) {
+      warnedAboutUnsubscribeHeaders = true;
+      console.warn('InsForge emails.send 無法加入 List-Unsubscribe / List-Unsubscribe-Post 標頭；一鍵退訂不可用，頁尾退訂連結仍可使用。');
     }
     try {
       const sent = await createInsForgeBackend().sendEmail({

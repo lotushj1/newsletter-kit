@@ -219,7 +219,7 @@ X-Newsletter-Signature: sha256=<HMAC-SHA256 of raw body>
 
 確認信與退訂連結都由這個服務自己出頁面，官網不用實作。
 連結用 `APP_SECRET` 簽章（HMAC），不存 token；換掉 secret 會讓已寄出的連結全部失效。
-正式寄送的信件會帶 RFC 8058 的 `List-Unsubscribe` 與 `List-Unsubscribe-Post`。信箱用 `POST /unsubscribe?token=…` 並送 `List-Unsubscribe=One-Click` 表單內容即可直接退訂，不需 Cookie 或確認頁；重複 POST 安全。一般使用者 `GET /unsubscribe?token=…` 仍會看到確認頁。可用 `UNSUBSCRIBE_MAILTO` 加上 mailto 備援。
+正式寄送時，支援標頭的 adapter 會帶 RFC 8058 的 `List-Unsubscribe` 與 `List-Unsubscribe-Post`。信箱用 `POST /unsubscribe?token=…` 並送 `List-Unsubscribe=One-Click` 表單內容即可直接退訂，不需 Cookie 或確認頁；重複 POST 安全。一般使用者 `GET /unsubscribe?token=…` 仍會看到確認頁。可用 `UNSUBSCRIBE_MAILTO` 加上 mailto 備援。Brevo 會把兩個標頭放進 API 的 `headers` 物件並照常寄送，但尚未確認實際送達的郵件會保留 `List-Unsubscribe-Post`。InsForge 也會照常寄送；其 SDK 無法加入這兩個標頭，因此沒有一鍵退訂，頁尾退訂連結仍可使用，adapter 會警告一次。詳見 [供應商限制](docs/deliverability.md#rfc-8058-一鍵退訂)。
 
 硬退信與檢舉的 webhook、簽章設定、供應商限制及各路徑見 [投遞與法規設定](docs/deliverability.md)。
 

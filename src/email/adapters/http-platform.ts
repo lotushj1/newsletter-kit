@@ -36,9 +36,6 @@ export function platformRequest(
   const reply = message.replyTo ? address(message.replyTo) : undefined;
   const mailHeaders = emailHeaders(message);
   if (!key) return { error: '缺少 API 金鑰' };
-  if (message.unsubscribeUrl && id === 'brevo') {
-    return { error: `${id} 的此寄信 API 無法保證 List-Unsubscribe-Post 標頭；請改用支援自訂標頭的 webhook adapter` };
-  }
 
   if (id === 'postmark') {
     return {

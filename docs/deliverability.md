@@ -33,7 +33,7 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click
 
 `mailto:` 僅在 `UNSUBSCRIBE_MAILTO` 有值時加入。郵件用戶端可向這個 URL 發送 `POST`，`Content-Type: application/x-www-form-urlencoded`，內容為 `List-Unsubscribe=One-Click`。伺服器檢查 URL 裡的 `APP_SECRET` HMAC token，直接退訂，重複呼叫回 200，不用 Cookie、CSRF token 或確認頁。一般 GET 仍顯示確認頁，避免連結掃描器誤退訂。
 
-HTTP adapter 會把兩個標頭映射到各供應商 API 的 header 欄位。自訂 webhook 與 Zeabur JSON payload 會帶 `headers` 物件，接收端必須把它寫入實際郵件標頭。MailerSend 的自訂標頭需要 Professional／Enterprise 方案。Brevo API 不接受標準 email header，InsForge SDK 沒有自訂 header 欄位；這兩個 adapter 對需要一鍵退訂的信件會明確回傳失敗，避免無標頭地寄出。Plunk 的 `/v1/send` 支援 `headers` 物件。可用 `EMAIL_PROVIDER=webhook` 接支援原始標頭的寄信服務。
+HTTP adapter 會把兩個標頭映射到各供應商 API 的 header 欄位。自訂 webhook 與 Zeabur JSON payload 會帶 `headers` 物件，接收端必須把它寫入實際郵件標頭。MailerSend 的自訂標頭需要 Professional／Enterprise 方案。Brevo 的 `/v3/smtp/email` 請求會在 `headers` 物件中帶上兩個退訂標頭並繼續寄送；Brevo 文件將此欄位描述為非標準自訂標頭，尚未確認它會保留 `List-Unsubscribe-Post` 於實際送達的郵件，因此不能保證一鍵退訂可用。InsForge SDK 沒有自訂 header 欄位；adapter 會照常寄送並僅警告一次，無法提供一鍵退訂，但頁尾的退訂連結仍可使用。Plunk 的 `/v1/send` 支援 `headers` 物件。需要保證標頭傳遞時，可用 `EMAIL_PROVIDER=webhook` 接支援原始標頭的寄信服務。
 
 ## 頁尾
 

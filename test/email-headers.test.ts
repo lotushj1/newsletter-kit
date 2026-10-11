@@ -3,7 +3,6 @@ import { createResendAdapter } from '../src/email/adapters/resend.js';
 import { createZeaburAdapter } from '../src/email/adapters/zeabur.js';
 import { createWebhookAdapter } from '../src/email/adapters/webhook.js';
 import { createDryRunAdapter } from '../src/email/adapters/dry-run.js';
-import { createInsForgeAdapter } from '../src/email/adapters/insforge.js';
 import { createSesAdapter } from '../src/email/adapters/ses.js';
 import { withEmailHeaders } from '../src/email/headers.js';
 
@@ -29,9 +28,7 @@ it('Resend, Zeabur, and webhook carry both one-click headers in outbound payload
   }
 });
 
-it('dry-run accepts prepared headers, while unsupported InsForge and SES transports fail closed', async () => {
+it('dry-run accepts prepared headers, while the SES stub still fails', async () => {
   expect((await createDryRunAdapter({ provider: 'dry_run' }).send(message)).ok).toBe(true);
-  const insforge = createInsForgeAdapter({ provider: 'insforge', insforgeUrl: 'https://insforge.test', insforgeApiKey: 'key' });
-  expect(await insforge.send(message)).toMatchObject({ ok: false, retryable: false });
   expect(await createSesAdapter({ provider: 'ses' }).send(message)).toMatchObject({ ok: false, retryable: false });
 });
