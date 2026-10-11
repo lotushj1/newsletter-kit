@@ -7,6 +7,7 @@ import { adminUiRouter } from './routes/admin-ui.js';
 import { mcpRouter } from './routes/mcp.js';
 import { publicRouter } from './routes/public.js';
 import { trackingRouter } from './routes/tracking.js';
+import { providerWebhookRouter } from './routes/provider-webhooks.js';
 
 export type RequestWithRawBody = Request & { rawBody?: string };
 
@@ -36,6 +37,8 @@ export function createApp(ctx: ServiceContext, options: { googleFetch?: typeof f
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
+
+  app.use('/api/webhooks', express.raw({ type: '*/*', limit: '2mb' }), providerWebhookRouter(ctx));
 
   app.use(
     express.json({
