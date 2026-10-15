@@ -77,6 +77,8 @@ export function parseBrand(raw?: string): BrandProfile {
         typeof parsed.unsubscribePrompt === 'string' ? parsed.unsubscribePrompt : EMPTY_BRAND.unsubscribePrompt,
       unsubscribeLabel:
         typeof parsed.unsubscribeLabel === 'string' ? parsed.unsubscribeLabel : EMPTY_BRAND.unsubscribeLabel,
+      physicalAddress: typeof parsed.physicalAddress === 'string' ? parsed.physicalAddress : undefined,
+      privacyUrl: typeof parsed.privacyUrl === 'string' ? parsed.privacyUrl : undefined,
     };
   } catch {
     return { ...EMPTY_BRAND };
@@ -84,7 +86,13 @@ export function parseBrand(raw?: string): BrandProfile {
 }
 
 export async function getBrand(ctx: ServiceContext): Promise<BrandProfile> {
-  return parseBrand(await ctx.store.getSetting(BRAND_KEY));
+  const raw = await ctx.store.getSetting(BRAND_KEY);
+  const brand = parseBrand(raw);
+  return {
+    ...brand,
+    physicalAddress: raw ? brand.physicalAddress ?? ctx.config.physicalAddress ?? '' : ctx.config.physicalAddress ?? '',
+    privacyUrl: raw ? brand.privacyUrl ?? ctx.config.privacyUrl ?? '' : ctx.config.privacyUrl ?? '',
+  };
 }
 
 export interface BrandUpdateInput {
@@ -100,6 +108,8 @@ export interface BrandUpdateInput {
   signatureHtml?: unknown;
   unsubscribePrompt?: unknown;
   unsubscribeLabel?: unknown;
+  physicalAddress?: unknown;
+  privacyUrl?: unknown;
 }
 
 export async function updateBrand(ctx: ServiceContext, input: BrandUpdateInput): Promise<BrandProfile> {
@@ -118,6 +128,10 @@ export async function updateBrand(ctx: ServiceContext, input: BrandUpdateInput):
   }
 
   const links = input.signatureLinks === undefined ? current.signatureLinks : parseLinks(input.signatureLinks);
+  if (input.privacyUrl !== undefined) {
+    const url = textField(input.privacyUrl, '隱私權政策網址', 500);
+    if (url && !/^https?:\/\//i.test(url)) throw badRequest('隱私權政策網址須為 http(s)');
+  }
   const next: BrandProfile = {
     writerName: input.writerName === undefined ? current.writerName : textField(input.writerName, '顯示名稱', 80),
     websiteUrl: input.websiteUrl === undefined ? current.websiteUrl : textField(input.websiteUrl, '網站', 500),
@@ -137,6 +151,8 @@ export async function updateBrand(ctx: ServiceContext, input: BrandUpdateInput):
       input.unsubscribeLabel === undefined
         ? current.unsubscribeLabel
         : textField(input.unsubscribeLabel, '退訂連結文字', 40) || EMPTY_BRAND.unsubscribeLabel,
+    physicalAddress: input.physicalAddress === undefined ? current.physicalAddress : textField(input.physicalAddress, '實體郵寄地址', 500),
+    privacyUrl: input.privacyUrl === undefined ? current.privacyUrl : textField(input.privacyUrl, '隱私權政策網址', 500),
   };
   const website = websiteFromBrand(next);
   if (input.websiteUrl === undefined) next.websiteUrl = website;
@@ -158,7 +174,7 @@ export function mergeBrandVariables(
   const named = { ...base, site_name: siteName };
   const source = buildBrandSignatureHtml(brand, { publicBaseUrl });
   const signature = applyVariables(source, { ...named, writer, website }, 'html');
-  return { ...named, writer, website, signature };
+  return { ...named, writer, website, signature, physical_address: brand.physicalAddress ?? '', privacy_url: brand.privacyUrl ?? '' };
 }
 
 export function brandedContentHtml(

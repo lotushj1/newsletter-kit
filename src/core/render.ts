@@ -155,6 +155,8 @@ export interface EmailLayoutInput {
   unsubscribePrompt?: string | undefined;
   unsubscribeLabel?: string | undefined;
   footerNote?: string | undefined;
+  physicalAddress?: string | undefined;
+  privacyUrl?: string | undefined;
   /** 線上閱讀網址（例如公開封存頁）。有給才在刊頭顯示連結。 */
   webViewUrl?: string | undefined;
   /**
@@ -293,6 +295,8 @@ function footerHtml(input: EmailLayoutInput): string {
   if (input.unsubscribeUrl) {
     lines.push(buildUnsubscribeHtml(input.unsubscribeUrl, input.unsubscribePrompt, input.unsubscribeLabel));
   }
+  if (input.physicalAddress) lines.push(`<p style="margin:4px 0 0;${FOOTER_TEXT}">${escapeHtml(input.physicalAddress)}</p>`);
+  if (input.privacyUrl && /^https?:\/\//i.test(input.privacyUrl)) lines.push(`<p style="margin:4px 0 0;${FOOTER_TEXT}"><a href="${escapeHtml(input.privacyUrl)}" style="color:${C.soft};">隱私權政策</a></p>`);
   if (lines.length === 0) return '';
   return `<tr>
           <td class="nk-edge nk-footer" style="padding:28px ${EMAIL_BODY_PAD_X}px 8px;text-align:left;${FOOTER_TEXT}">

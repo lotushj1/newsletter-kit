@@ -49,6 +49,7 @@ export interface Config {
     provider: string;
     from: string;
     replyTo: string | undefined;
+    unsubscribeMailto?: string | undefined;
     webhookUrl: string | undefined;
     webhookSecret: string | undefined;
     resendApiKey: string | undefined;
@@ -73,6 +74,9 @@ export interface Config {
   publicRateLimitPerMin: number;
   trackingEnabled: boolean;
   ingestSecret: string | undefined;
+  webhookSecrets: Record<string, string | undefined>;
+  physicalAddress?: string | undefined;
+  privacyUrl?: string | undefined;
   join: { headline: string | undefined; description: string | undefined; tags: string[] };
   send: { batchSize: number; batchDelayMs: number; maxAttempts: number };
   scheduler: { enabled: boolean; pollMs: number };
@@ -186,6 +190,7 @@ export function loadConfig(): Config {
       provider: str('EMAIL_PROVIDER', 'dry_run'),
       from: str('MAIL_FROM', 'Newsletter <newsletter@example.com>'),
       replyTo: optional('MAIL_REPLY_TO'),
+      unsubscribeMailto: optional('UNSUBSCRIBE_MAILTO'),
       webhookUrl: optional('WEBHOOK_URL'),
       webhookSecret: optional('WEBHOOK_SECRET'),
       resendApiKey: optional('RESEND_API_KEY'),
@@ -210,6 +215,23 @@ export function loadConfig(): Config {
     publicRateLimitPerMin: num('PUBLIC_RATE_LIMIT_PER_MIN', 20),
     trackingEnabled: bool('TRACKING_ENABLED', true),
     ingestSecret: optional('INGEST_SECRET'),
+    webhookSecrets: {
+      resend: optional('RESEND_WEBHOOK_SECRET'),
+      sesTopicArn: optional('SES_SNS_TOPIC_ARN'),
+      postmark: optional('POSTMARK_WEBHOOK_SECRET'),
+      sendgrid: optional('SENDGRID_WEBHOOK_PUBLIC_KEY'),
+      mailgun: optional('MAILGUN_WEBHOOK_SIGNING_KEY'),
+      brevo: optional('BREVO_WEBHOOK_SECRET'),
+      mailchimp: optional('MAILCHIMP_WEBHOOK_KEY'),
+      generic: optional('GENERIC_WEBHOOK_SECRET'),
+      mailersend: optional('MAILERSEND_WEBHOOK_SIGNING_SECRET'),
+      sparkpost: optional('SPARKPOST_WEBHOOK_TOKEN'),
+      smtp2go: optional('SMTP2GO_WEBHOOK_SECRET'),
+      plunk: optional('PLUNK_WEBHOOK_SECRET'),
+      elasticemail: optional('ELASTICEMAIL_WEBHOOK_TOKEN'),
+    },
+    physicalAddress: optional('PHYSICAL_ADDRESS'),
+    privacyUrl: optional('PRIVACY_URL'),
     join: {
       headline: optional('JOIN_HEADLINE'),
       description: optional('JOIN_DESCRIPTION'),

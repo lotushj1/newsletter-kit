@@ -5,8 +5,58 @@ import { TiptapEditor } from '../components/TiptapEditor';
 import { AiWriteNotice } from '../components/AiWriteNotice';
 import { Modal } from '../components/Modal';
 import { api, formatTime, STATUS_LABEL, type Campaign, type Folder, type Session } from '../api';
+import type { AudienceCondition } from '../../../src/store/types';
 
 const LOCKED = ['sending', 'sent'];
+
+const DEFAULT_CONDITION: AudienceCondition = { op: 'status', status: 'subscribed' };
+
+function AudienceBuilder({ value, onChange, disabled, folders }: {
+  value: AudienceCondition | undefined;
+  onChange: (value: AudienceCondition | undefined) => void;
+  disabled: boolean;
+  folders: Folder[];
+}) {
+  return <div style={{ marginTop: 12 }}>
+    <strong>進階受眾條件</strong>
+    {value ? <><AudienceNode value={value} onChange={onChange} disabled={disabled} folders={folders} /><button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange(undefined)}>清除進階條件</button></> :
+      <button type="button" className="btn" disabled={disabled} onClick={() => onChange({ op: 'and', children: [DEFAULT_CONDITION] })}>新增條件</button>}
+  </div>;
+}
+
+function AudienceNode({ value, onChange, disabled, folders }: {
+  value: AudienceCondition;
+  onChange: (value: AudienceCondition) => void;
+  disabled: boolean;
+  folders: Folder[];
+}) {
+  const changeOp = (op: string) => {
+    if (op === 'and' || op === 'or') onChange({ op, children: [DEFAULT_CONDITION] });
+    else if (op === 'not') onChange({ op, child: DEFAULT_CONDITION });
+    else if (op === 'tag') onChange({ op, tag: '' });
+    else if (op === 'folder') onChange({ op, folderId: '' });
+    else if (op === 'status') onChange({ op, status: 'subscribed' });
+    else if (op === 'created') onChange({ op, after: '' });
+    else onChange({ op: 'engagement', event: 'open', withinDays: 90 });
+  };
+  return <div style={{ margin: '8px 0 8px 10px', paddingLeft: 10, borderLeft: '2px solid #ddd' }}>
+    <select aria-label="條件類型" value={value.op} disabled={disabled} onChange={(event) => changeOp(event.target.value)}>
+      <option value="and">全部符合（AND）</option><option value="or">任一符合（OR）</option><option value="not">排除（NOT）</option>
+      <option value="tag">擁有標籤</option><option value="folder">位於資料夾</option><option value="status">訂閱狀態</option>
+      <option value="created">加入日期</option><option value="engagement">開信／點擊</option>
+    </select>
+    {(value.op === 'and' || value.op === 'or') && <>
+      {value.children.map((child, index) => <div key={index} className="row"><AudienceNode value={child} disabled={disabled} folders={folders} onChange={(next) => onChange({ ...value, children: value.children.map((item, i) => i === index ? next : item) })} /><button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange({ ...value, children: value.children.filter((_, i) => i !== index) })}>移除</button></div>)}
+      <button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange({ ...value, children: [...value.children, DEFAULT_CONDITION] })}>加入條件</button>
+    </>}
+    {value.op === 'not' && <AudienceNode value={value.child} disabled={disabled} folders={folders} onChange={(child) => onChange({ op: 'not', child })} />}
+    {value.op === 'tag' && <input aria-label="標籤" value={value.tag} disabled={disabled} onChange={(event) => onChange({ op: 'tag', tag: event.target.value })} placeholder="標籤名稱" />}
+    {value.op === 'folder' && <select aria-label="訂閱者資料夾" value={value.folderId} disabled={disabled} onChange={(event) => onChange({ op: 'folder', folderId: event.target.value })}><option value="">選擇資料夾</option><option value="unfiled">未分類</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>}
+    {value.op === 'status' && <select aria-label="訂閱狀態" value={value.status} disabled={disabled} onChange={(event) => onChange({ op: 'status', status: event.target.value as typeof value.status })}><option value="subscribed">已訂閱</option><option value="pending">待確認</option><option value="unsubscribed">已退訂</option><option value="bounced">退信</option></select>}
+    {value.op === 'created' && <><label>起始日<input type="date" value={value.after?.slice(0, 10) ?? ''} disabled={disabled} onChange={(event) => onChange({ ...value, after: event.target.value })} /></label><label>截止日<input type="date" value={value.before?.slice(0, 10) ?? ''} disabled={disabled} onChange={(event) => onChange({ ...value, before: event.target.value })} /></label></>}
+    {value.op === 'engagement' && <><select aria-label="互動類型" value={value.event} disabled={disabled} onChange={(event) => onChange({ ...value, event: event.target.value as 'open' | 'click' })}><option value="open">開信</option><option value="click">點擊</option></select><input aria-label="電子報 ID" value={value.campaignId ?? ''} disabled={disabled} onChange={(event) => onChange({ ...value, campaignId: event.target.value || undefined })} placeholder="指定電子報 ID（可留空）" /><input type="number" min="1" max="3650" aria-label="最近幾天" value={value.withinDays ?? ''} disabled={disabled} onChange={(event) => onChange({ ...value, withinDays: Number(event.target.value) || undefined })} placeholder="最近天數" />{value.event === 'click' && <input type="url" aria-label="指定連結" value={value.url ?? ''} disabled={disabled} onChange={(event) => onChange({ ...value, url: event.target.value || undefined })} placeholder="指定 URL（可留空）" />}</>}
+  </div>;
+}
 
 export function CampaignEditor() {
   const { id = '' } = useParams();
@@ -17,6 +67,10 @@ export function CampaignEditor() {
   const [preheader, setPreheader] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
   const [folderId, setFolderId] = useState('');
+  const [audienceTags, setAudienceTags] = useState<string[]>([]);
+  const [audienceCondition, setAudienceCondition] = useState<AudienceCondition | undefined>();
+  const [audienceCount, setAudienceCount] = useState<number | null>(null);
+  const [links, setLinks] = useState<{ url: string; clicks: number; uniqueClicks: number }[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [saveStatus, setSaveStatus] = useState('尚未儲存');
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -47,10 +101,13 @@ export function CampaignEditor() {
       setPreheader(c.preheader ?? '');
       setBodyHtml(c.bodyHtml || c.bodyMarkdown || '');
       setFolderId(c.audienceFolderId ?? '');
+      setAudienceTags(c.audienceTags ?? []);
+      setAudienceCondition(c.audienceCondition);
       if (c.scheduledAt) setScheduleAt(c.scheduledAt.slice(0, 16));
       loaded.current = true;
     });
     void api.get<{ items: Folder[] }>('/folders').then((data) => setFolders(data.items));
+    void api.get<{ items: { url: string; clicks: number; uniqueClicks: number }[] }>(`/campaigns/${id}/links`).then((data) => setLinks(data.items));
   }, [id]);
 
   const save = useCallback(async () => {
@@ -62,15 +119,16 @@ export function CampaignEditor() {
       subject: title,
       preheader,
       bodyHtml,
-      audienceTags: [],
+      audienceTags,
       audienceFolderId: folderId,
+      audienceCondition: audienceCondition ?? null,
     });
     setCampaign(updated);
     setSaveStatus('已自動儲存');
     hideStatus.current = window.setTimeout(() => {
       setSaveStatus((current) => (current === '已自動儲存' ? '' : current));
     }, 2000);
-  }, [editable, id, title, preheader, bodyHtml, folderId]);
+  }, [editable, id, title, preheader, bodyHtml, folderId, audienceTags, audienceCondition]);
 
   useEffect(() => {
     if (!loaded.current || !editable) return;
@@ -79,7 +137,7 @@ export function CampaignEditor() {
       void save().catch((err: Error) => setSaveStatus(err.message));
     }, 1200);
     return () => window.clearTimeout(timer.current);
-  }, [title, preheader, bodyHtml, folderId, editable, save]);
+  }, [title, preheader, bodyHtml, folderId, audienceTags, audienceCondition, editable, save]);
 
   useEffect(() => () => window.clearTimeout(hideStatus.current), []);
 
@@ -176,6 +234,11 @@ export function CampaignEditor() {
               <option key={folder.id} value={folder.id}>{folder.name}</option>
             ))}
           </select>
+          <label htmlFor="audience-tags">舊版標籤篩選（任一標籤）</label>
+          <input id="audience-tags" value={audienceTags.join(', ')} disabled={!editable} onChange={(event) => setAudienceTags(event.target.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))} placeholder="標籤，以逗號分隔" />
+          <AudienceBuilder value={audienceCondition} onChange={setAudienceCondition} disabled={!editable} folders={folders} />
+          <button type="button" className="btn" onClick={() => { void api.post<{ count: number }>(`/campaigns/${id}/audience-count`, { audienceTags, audienceFolderId: folderId, audienceCondition: audienceCondition ?? null }).then((result) => setAudienceCount(result.count)).catch((error: Error) => setMessage(error.message)); }}>預覽收件人數</button>
+          {audienceCount !== null && <p className="muted">符合條件：{audienceCount} 位</p>}
         </div>
         {campaign.status === 'sent' && (
           <div className="card">
@@ -183,6 +246,8 @@ export function CampaignEditor() {
             <div>點擊 {campaign.tracking.uniqueClicks}／{campaign.tracking.clicks}</div>
             <div>退訂 {campaign.tracking.unsubscribes ?? 0}</div>
             <div className="muted">寄出 {campaign.stats.sent}／{campaign.stats.total}</div>
+            <h3>連結點擊</h3>
+            <table><thead><tr><th>連結</th><th>點擊</th><th>不重複</th></tr></thead><tbody>{links.map((link) => <tr key={link.url}><td style={{ overflowWrap: 'anywhere' }}><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a></td><td>{link.clicks}</td><td>{link.uniqueClicks}</td></tr>)}</tbody></table>
           </div>
         )}
         <button
@@ -198,8 +263,9 @@ export function CampaignEditor() {
                 subject: title,
                 preheader,
                 bodyHtml,
-                audienceTags: [],
+                audienceTags,
                 audienceFolderId: folderId,
+                audienceCondition: audienceCondition ?? null,
               })
               .then((r) => {
                 setPreviewHtml(r.html);

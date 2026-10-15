@@ -412,6 +412,14 @@ export class MemoryStore implements Store {
     await this.persist();
   }
 
+  async listTrackingEvents(query: { campaignId?: string; type?: 'open' | 'click'; since?: string } = {}): Promise<TrackingEvent[]> {
+    return [...this.events.values()].filter((event) =>
+      (!query.campaignId || event.campaignId === query.campaignId) &&
+      (!query.type || event.type === query.type) &&
+      (!query.since || event.createdAt >= query.since!),
+    ).map(clone);
+  }
+
   async campaignTrackingStats(campaignId: string): Promise<TrackingStats> {
     const opens = new Set<string>();
     const clicks = new Set<string>();

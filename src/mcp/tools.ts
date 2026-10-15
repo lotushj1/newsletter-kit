@@ -15,6 +15,8 @@ import { saveCampaignImage } from '../core/uploads.js';
 import { normalizeEmail, normalizeTags } from '../core/validate.js';
 import { listEmailAdapters } from '../email/registry.js';
 import { getBrand, updateBrand } from '../services/brand.js';
+import { campaignLinkStats } from '../services/link-stats.js';
+import { parseAudienceCondition, selectAudience } from '../services/audience.js';
 import {
   bulkDeleteCampaigns,
   bulkSetCampaignFolder,
@@ -120,6 +122,8 @@ export const TOOLS: ToolDefinition[] = [
         signatureLinks: { type: 'array' },
         unsubscribePrompt: { type: 'string' },
         unsubscribeLabel: { type: 'string' },
+        physicalAddress: { type: 'string' },
+        privacyUrl: { type: 'string' },
       },
     },
   },
@@ -161,6 +165,7 @@ export const TOOLS: ToolDefinition[] = [
         bodyMarkdown: { type: 'string' },
         audienceTags: { type: 'array', items: { type: 'string' } },
         audienceFolderId: { type: 'string' },
+        audienceCondition: { type: 'object' },
         folderId: { type: 'string' },
         slug: { type: 'string' },
       },
@@ -181,6 +186,7 @@ export const TOOLS: ToolDefinition[] = [
         bodyMarkdown: { type: 'string' },
         audienceTags: { type: 'array', items: { type: 'string' } },
         audienceFolderId: { type: 'string' },
+        audienceCondition: { type: 'object' },
         folderId: { type: 'string' },
         slug: { type: 'string' },
       },
@@ -533,6 +539,7 @@ export const TOOLS: ToolDefinition[] = [
         bodyMarkdown: { type: 'string' },
         audienceTags: { type: 'array', items: { type: 'string' } },
         audienceFolderId: { type: 'string' },
+        audienceCondition: { type: 'object' },
       },
       required: ['id'],
     },
@@ -575,6 +582,16 @@ export const TOOLS: ToolDefinition[] = [
       properties: { id: { type: 'string' } },
       required: ['id'],
     },
+  },
+  {
+    name: 'get_campaign_links',
+    description: '讀取電子報每個連結的總點擊與不重複點擊',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+  {
+    name: 'count_campaign_audience',
+    description: '預覽電子報受眾條件的人數',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, audienceCondition: { type: 'object' }, audienceTags: { type: 'array', items: { type: 'string' } }, audienceFolderId: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'list_deliveries',
@@ -806,6 +823,7 @@ async function previewDraft(ctx: ServiceContext, id: string, body: Record<string
     bodyMarkdown: typeof body.bodyMarkdown === 'string' ? body.bodyMarkdown : saved.bodyMarkdown,
     bodyHtml: typeof body.bodyHtml === 'string' ? body.bodyHtml : saved.bodyHtml,
     audienceTags: body.audienceTags === undefined ? saved.audienceTags : normalizeTags(body.audienceTags),
+    audienceCondition: body.audienceCondition === undefined ? saved.audienceCondition : parseAudienceCondition(body.audienceCondition),
     audienceFolderId:
       body.audienceFolderId === undefined
         ? saved.audienceFolderId
@@ -814,7 +832,7 @@ async function previewDraft(ctx: ServiceContext, id: string, body: Record<string
           : undefined,
   };
   const rendered = await renderCampaign(ctx, draft, PREVIEW_RECIPIENT);
-  const audience = await ctx.store.listAudience(audienceFromCampaign(draft));
+  const audience = await selectAudience(ctx, draft);
   return { ...rendered, audienceCount: audience.length };
 }
 
@@ -998,6 +1016,20 @@ export async function callTool(
     case 'get_campaign_stats': {
       const campaign = await getCampaign(ctx, String(args.id ?? ''));
       return { stats: campaign.stats, tracking: campaign.tracking };
+    }
+    case 'get_campaign_links': {
+      const id = String(args.id ?? '');
+      await getCampaign(ctx, id);
+      return { items: await campaignLinkStats(ctx, id) };
+    }
+    case 'count_campaign_audience': {
+      const campaign = await getCampaign(ctx, String(args.id ?? ''));
+      const draft = { ...campaign,
+        audienceTags: args.audienceTags === undefined ? campaign.audienceTags : normalizeTags(args.audienceTags),
+        audienceFolderId: args.audienceFolderId === undefined ? campaign.audienceFolderId : String(args.audienceFolderId || '') || undefined,
+        audienceCondition: args.audienceCondition === undefined ? campaign.audienceCondition : parseAudienceCondition(args.audienceCondition),
+      };
+      return { count: (await selectAudience(ctx, draft)).length };
     }
     case 'list_deliveries': {
       const id = String(args.id ?? '');

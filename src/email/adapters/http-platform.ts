@@ -1,5 +1,6 @@
 import type { EmailAdapter, EmailAdapterFactory, EmailMessage, SendResult } from '../types.js';
 import { getEmailPlatform } from '../providers.js';
+import { emailHeaders } from '../headers.js';
 
 interface Address {
   email: string;
@@ -33,6 +34,7 @@ export function platformRequest(
   const extra = input.apiExtra?.trim() ?? '';
   const from = address(message.from);
   const reply = message.replyTo ? address(message.replyTo) : undefined;
+  const mailHeaders = emailHeaders(message);
   if (!key) return { error: '缺少 API 金鑰' };
 
   if (id === 'postmark') {
@@ -51,9 +53,7 @@ export function platformRequest(
         TextBody: message.text,
         ReplyTo: message.replyTo,
         MessageStream: 'outbound',
-        Headers: message.unsubscribeUrl
-          ? [{ Name: 'List-Unsubscribe', Value: `<${message.unsubscribeUrl}>` }]
-          : undefined,
+        Headers: Object.entries(mailHeaders).map(([Name, Value]) => ({ Name, Value })),
       }),
     };
   }
@@ -71,7 +71,7 @@ export function platformRequest(
           message.text ? { type: 'text/plain', value: message.text } : undefined,
           { type: 'text/html', value: message.html },
         ].filter(Boolean),
-        headers: message.unsubscribeUrl ? { 'List-Unsubscribe': `<${message.unsubscribeUrl}>` } : undefined,
+        headers: mailHeaders,
       }),
     };
   }
@@ -85,7 +85,7 @@ export function platformRequest(
     form.set('html', message.html);
     if (message.text) form.set('text', message.text);
     if (message.replyTo) form.set('h:Reply-To', message.replyTo);
-    if (message.unsubscribeUrl) form.set('h:List-Unsubscribe', `<${message.unsubscribeUrl}>`);
+    for (const [name, value] of Object.entries(mailHeaders)) form.set(`h:${name}`, value);
     return {
       url: `https://api.mailgun.net/v3/${encodeURIComponent(extra)}/messages`,
       headers: {
@@ -107,6 +107,7 @@ export function platformRequest(
         subject: message.subject,
         htmlContent: message.html,
         textContent: message.text,
+        headers: mailHeaders,
       }),
     };
   }
@@ -124,7 +125,7 @@ export function platformRequest(
           subject: message.subject,
           html: message.html,
           text: message.text,
-          headers: message.unsubscribeUrl ? { 'List-Unsubscribe': `<${message.unsubscribeUrl}>` } : undefined,
+          headers: mailHeaders,
         },
       }),
     };
@@ -142,6 +143,7 @@ export function platformRequest(
           html: message.html,
           text: message.text,
           reply_to: message.replyTo,
+          headers: mailHeaders,
         },
       }),
     };
@@ -158,6 +160,8 @@ export function platformRequest(
         subject: message.subject,
         html: message.html,
         text: message.text,
+        headers: Object.entries(mailHeaders).map(([name, value]) => ({ name, value })),
+        list_unsubscribe: mailHeaders['List-Unsubscribe'],
       }),
     };
   }
@@ -171,6 +175,7 @@ export function platformRequest(
         subject: message.subject,
         body: message.html,
         from: from.email,
+        headers: mailHeaders,
       }),
     };
   }
@@ -186,6 +191,7 @@ export function platformRequest(
         subject: message.subject,
         html_body: message.html,
         text_body: message.text,
+        custom_headers: Object.entries(mailHeaders).map(([header, value]) => ({ header, value })),
       }),
     };
   }
@@ -200,6 +206,7 @@ export function platformRequest(
           From: message.from,
           Subject: message.subject,
           Body: [{ ContentType: 'HTML', Content: message.html, Charset: 'utf-8' }],
+          Headers: mailHeaders,
         },
       }),
     };
@@ -217,6 +224,7 @@ export function platformRequest(
         html_body: message.html,
         plain_body: message.text,
         reply_to: message.replyTo,
+        headers: mailHeaders,
       }),
     };
   }
@@ -233,6 +241,7 @@ export function platformRequest(
         html: message.html,
         text: message.text,
         project_id: extra,
+        additional_headers: Object.entries(mailHeaders).map(([key, value]) => ({ key, value })),
       }),
     };
   }

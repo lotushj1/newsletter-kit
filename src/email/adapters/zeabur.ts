@@ -1,4 +1,5 @@
 import type { EmailAdapter, EmailAdapterFactory } from '../types.js';
+import { emailHeaders } from '../headers.js';
 
 /**
  * 範例 adapter：把信交給你自己架在 Zeabur（或任何地方）的寄信服務。
@@ -42,6 +43,7 @@ export const createZeaburAdapter: EmailAdapterFactory = (context): EmailAdapter 
           text: message.text,
           replyTo: message.replyTo,
           unsubscribeUrl: message.unsubscribeUrl,
+          headers: emailHeaders(message),
         }),
       });
       if (!response.ok) {

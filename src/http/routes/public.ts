@@ -259,7 +259,12 @@ export function publicRouter(ctx: ServiceContext): Router {
   router.post(
     '/unsubscribe',
     asyncRoute(async (req, res) => {
-      const result = await unsubscribeByToken(ctx, String(req.body?.token ?? ''));
+      const oneClick = req.body?.['List-Unsubscribe'] === 'One-Click';
+      const result = await unsubscribeByToken(ctx, String(req.body?.token ?? req.query.token ?? ''));
+      if (oneClick) {
+        res.status(result.ok ? 200 : 400).type('text').send(result.message);
+        return;
+      }
       res
         .status(result.ok ? 200 : 400)
         .type('html')

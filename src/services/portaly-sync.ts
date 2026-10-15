@@ -2,6 +2,7 @@ import { DEFAULT_PORTALY_HOST } from '../email/adapters/portaly.js';
 import { logger } from '../core/logger.js';
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
+import { applyProviderProblem } from './suppression.js';
 
 /**
  * Portaly 目前沒有 webhook，投遞結果（退信、被檢舉、被抑制…）要用
@@ -84,18 +85,13 @@ async function applyProblem(
   }
 
   const subscriber = await ctx.store.getSubscriber(delivery.subscriberId);
-  if (subscriber && (subscriber.status === 'subscribed' || subscriber.status === 'pending')) {
-    if (status === 'complained') {
-      // 被檢舉的人視同退訂，之後任何寄送都會跳過。
-      await ctx.store.updateSubscriber(subscriber.id, {
-        status: 'unsubscribed',
-        unsubscribedAt: nowIso(),
-      });
-      changed = true;
-    } else if (status === 'bounced' || status === 'suppressed') {
-      await ctx.store.updateSubscriber(subscriber.id, { status: 'bounced' });
-      changed = true;
-    }
+  if (status === 'complained' || status === 'bounced' || status === 'suppressed') {
+    changed = await applyProviderProblem(ctx, {
+      email: subscriber?.email ?? delivery.email,
+      providerMessageId,
+      reason: status === 'complained' ? 'complaint' : 'bounce',
+      provider: 'portaly',
+    }) || changed;
   }
   return changed;
 }

@@ -1,13 +1,10 @@
 import type { EmailAdapter, EmailAdapterFactory, EmailMessage } from '../types.js';
+import { emailHeaders } from '../headers.js';
 
 const API = 'https://api.resend.com/emails';
 
 function toPayload(message: EmailMessage): Record<string, unknown> {
-  const headers: Record<string, string> = { ...(message.headers ?? {}) };
-  if (message.unsubscribeUrl) {
-    headers['List-Unsubscribe'] = `<${message.unsubscribeUrl}>`;
-    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
-  }
+  const headers = emailHeaders(message);
   return {
     from: message.from,
     to: [message.to],

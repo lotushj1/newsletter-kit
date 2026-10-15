@@ -7,6 +7,7 @@ export interface EmailMessage {
   replyTo?: string | undefined;
   /** adapter 可以把它轉成 List-Unsubscribe header */
   unsubscribeUrl?: string | undefined;
+  unsubscribeMailto?: string | undefined;
   headers?: Record<string, string> | undefined;
   /**
    * 安全重試用的冪等鍵（例如 delivery id）。支援的供應商（如 Portaly）

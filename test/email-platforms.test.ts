@@ -37,6 +37,21 @@ describe('寄信平台清單', () => {
     expect(request).toMatchObject({ url: 'https://api.mailgun.net/v3/mg.example.com/messages' });
   });
 
+  it('Brevo sends with both unsubscribe headers in the API payload', () => {
+    const request = platformRequest('brevo', { apiKey: 'key' }, {
+      ...message,
+      unsubscribeUrl: 'https://newsletter.test/unsubscribe?token=abc',
+    });
+    if (!('body' in request)) throw new Error('expected body');
+    expect(request.url).toBe('https://api.brevo.com/v3/smtp/email');
+    expect(JSON.parse(request.body)).toMatchObject({
+      headers: {
+        'List-Unsubscribe': '<https://newsletter.test/unsubscribe?token=abc>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    });
+  });
+
   it('Postal 端點必須是網址', () => {
     expect(platformRequest('postal', { apiKey: 'key', apiExtra: 'postal.example.com' }, message)).toEqual({
       error: '端點要以 http:// 或 https:// 開頭',

@@ -53,6 +53,7 @@ export interface Campaign {
   status: CampaignStatus;
   /** 空陣列 = 不依標籤篩選；有值 = 只寄給帶到任一標籤的人 */
   audienceTags: string[];
+  audienceCondition?: AudienceCondition | undefined;
   /** 空值 = 全部訂閱者；有值 = 只寄該資料夾 */
   audienceFolderId?: string | undefined;
   /** 電子報分類資料夾；空值＝未分類。跟寄送對象的 audienceFolderId 無關。 */
@@ -64,6 +65,15 @@ export interface Campaign {
   createdAt: string;
   updatedAt: string;
 }
+
+export type AudienceCondition =
+  | { op: 'and' | 'or'; children: AudienceCondition[] }
+  | { op: 'not'; child: AudienceCondition }
+  | { op: 'tag'; tag: string }
+  | { op: 'folder'; folderId: string }
+  | { op: 'status'; status: SubscriberStatus }
+  | { op: 'created'; after?: string; before?: string }
+  | { op: 'engagement'; event: 'open' | 'click'; campaignId?: string; withinDays?: number; url?: string };
 
 export type DeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
 
@@ -166,6 +176,8 @@ export const DEFAULT_UNSUBSCRIBE_PROMPT = '不想再收到這封信？';
 export const DEFAULT_UNSUBSCRIBE_LABEL = '取消訂閱';
 
 export interface BrandProfile {
+  physicalAddress?: string;
+  privacyUrl?: string;
   writerName: string;
   websiteUrl: string;
   organization: string;
@@ -182,6 +194,8 @@ export interface BrandProfile {
 }
 
 export const EMPTY_BRAND: BrandProfile = {
+  physicalAddress: '',
+  privacyUrl: '',
   writerName: '',
   websiteUrl: '',
   organization: '',
@@ -302,6 +316,7 @@ export interface Store {
   deleteDeliveries(campaignId: string): Promise<void>;
 
   createEvent(event: TrackingEvent): Promise<void>;
+  listTrackingEvents(query?: { campaignId?: string; type?: 'open' | 'click'; since?: string }): Promise<TrackingEvent[]>;
   campaignTrackingStats(campaignId: string): Promise<TrackingStats>;
   periodStats(query?: PeriodQuery): Promise<PeriodStats>;
 

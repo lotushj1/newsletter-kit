@@ -18,6 +18,7 @@ import { PREVIEW_RECIPIENT } from '../core/preview-email.js';
 import { emailBrandName } from '../core/brand-signature.js';
 import { applyCampaignVariables, brandedContentHtml, getBrand, mergeBrandVariables } from './brand.js';
 import { subscriberVariables, unsubscribeUrl } from './subscribers.js';
+import { parseAudienceCondition, selectAudience } from './audience.js';
 
 export interface CampaignInput {
   title?: unknown;
@@ -28,6 +29,7 @@ export interface CampaignInput {
   bodyHtml?: unknown;
   audienceTags?: unknown;
   audienceFolderId?: unknown;
+  audienceCondition?: unknown;
   folderId?: unknown;
 }
 
@@ -80,6 +82,7 @@ export async function createCampaign(
     bodyHtml: bodies.bodyHtml,
     status: 'draft',
     audienceTags: normalizeTags(input.audienceTags),
+    audienceCondition: parseAudienceCondition(input.audienceCondition),
     audienceFolderId: await resolveFolderId(ctx, input.audienceFolderId),
     folderId: await resolveFolderId(ctx, input.folderId, 'campaigns'),
     scheduledAt: null,
@@ -107,6 +110,7 @@ export async function copyCampaign(ctx: ServiceContext, id: string): Promise<Cam
     bodyHtml: source.bodyHtml,
     bodyMarkdown: source.bodyMarkdown,
     audienceTags: source.audienceTags,
+    audienceCondition: source.audienceCondition,
     audienceFolderId: source.audienceFolderId,
     folderId: source.folderId,
   });
@@ -203,6 +207,7 @@ export async function updateCampaign(
     patch.bodyMarkdown = bodies.bodyMarkdown;
   }
   if (input.audienceTags !== undefined) patch.audienceTags = normalizeTags(input.audienceTags);
+  if (input.audienceCondition !== undefined) patch.audienceCondition = parseAudienceCondition(input.audienceCondition);
   if (input.audienceFolderId !== undefined) {
     patch.audienceFolderId = await resolveFolderId(ctx, input.audienceFolderId);
   }
@@ -333,6 +338,8 @@ export async function renderCampaign(
     unsubscribeUrl: unsubscribeUrl(ctx, recipient.email),
     unsubscribePrompt: brand.unsubscribePrompt,
     unsubscribeLabel: brand.unsubscribeLabel,
+    physicalAddress: brand.physicalAddress,
+    privacyUrl: brand.privacyUrl,
   });
   return { subject, html, text: htmlToText(html) };
 }
@@ -345,7 +352,7 @@ export async function previewCampaign(
   recipient: Pick<Subscriber, 'email' | 'name'> = PREVIEW_RECIPIENT,
 ): Promise<RenderedEmail & { audienceCount: number }> {
   const campaign = await getCampaign(ctx, id);
-  const audience = await ctx.store.listAudience(audienceFromCampaign(campaign));
+  const audience = await selectAudience(ctx, campaign);
   return { ...(await renderCampaign(ctx, campaign, recipient)), audienceCount: audience.length };
 }
 

@@ -47,6 +47,8 @@ import {
   updateFolder,
 } from '../../services/folders.js';
 import { getBrand, updateBrand } from '../../services/brand.js';
+import { campaignLinkStats } from '../../services/link-stats.js';
+import { parseAudienceCondition, selectAudience } from '../../services/audience.js';
 import {
   integrationView,
   updateAiIntegration,
@@ -449,6 +451,7 @@ export function adminApiRouter(ctx: ServiceContext): Router {
         bodyHtml: typeof body.bodyHtml === 'string' ? body.bodyHtml : saved.bodyHtml,
         audienceTags:
           body.audienceTags === undefined ? saved.audienceTags : normalizeTags(body.audienceTags),
+        audienceCondition: body.audienceCondition === undefined ? saved.audienceCondition : parseAudienceCondition(body.audienceCondition),
         audienceFolderId:
           body.audienceFolderId === undefined
             ? saved.audienceFolderId
@@ -457,10 +460,20 @@ export function adminApiRouter(ctx: ServiceContext): Router {
               : undefined,
       };
       const rendered = await renderCampaign(ctx, draft, PREVIEW_RECIPIENT);
-      const audience = await ctx.store.listAudience(audienceFromCampaign(draft));
+      const audience = await selectAudience(ctx, draft);
       res.json({ ...rendered, audienceCount: audience.length });
     }),
   );
+  router.post('/campaigns/:id/audience-count', asyncRoute(async (req, res) => {
+    const campaign = await getCampaign(ctx, pathParam(req, 'id'));
+    const body = req.body ?? {};
+    const draft = { ...campaign,
+      audienceTags: body.audienceTags === undefined ? campaign.audienceTags : normalizeTags(body.audienceTags),
+      audienceFolderId: body.audienceFolderId === undefined ? campaign.audienceFolderId : String(body.audienceFolderId || '') || undefined,
+      audienceCondition: body.audienceCondition === undefined ? campaign.audienceCondition : parseAudienceCondition(body.audienceCondition),
+    };
+    res.json({ count: (await selectAudience(ctx, draft)).length });
+  }));
 
   router.post(
     '/campaigns/:id/test',
@@ -508,6 +521,11 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       res.json({ stats: campaign.stats, tracking: campaign.tracking });
     }),
   );
+  router.get('/campaigns/:id/links', asyncRoute(async (req, res) => {
+    const id = pathParam(req, 'id');
+    await getCampaign(ctx, id);
+    res.json({ items: await campaignLinkStats(ctx, id) });
+  }));
 
   router.post(
     '/campaigns/:id/copy',

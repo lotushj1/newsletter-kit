@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { EmailAdapter, EmailAdapterFactory, EmailMessage, SendResult } from '../types.js';
+import { emailHeaders } from '../headers.js';
 
 export const DEFAULT_PORTALY_HOST = 'https://portaly.ai';
 
@@ -46,11 +47,7 @@ export function portalyEmailPayload(
   message: EmailMessage,
   idempotencyKey: string,
 ): Record<string, unknown> {
-  const headers: Record<string, string> = { ...(message.headers ?? {}) };
-  if (message.unsubscribeUrl) {
-    headers['List-Unsubscribe'] = `<${message.unsubscribeUrl}>`;
-    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
-  }
+  const headers = emailHeaders(message);
   return {
     sender: parseSender(message.from),
     recipients: [{ email: message.to }],

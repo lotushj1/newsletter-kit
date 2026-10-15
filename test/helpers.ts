@@ -42,6 +42,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     publicRateLimitPerMin: 100,
     trackingEnabled: true,
     ingestSecret: 'ingest-secret',
+    webhookSecrets: {},
     join: { headline: undefined, description: undefined, tags: [] },
     send: { batchSize: 2, batchDelayMs: 0, maxAttempts: 2 },
     scheduler: { enabled: false, pollMs: 1000 },
