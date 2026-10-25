@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { api, type Session, type BrandProfile } from '../api';
 
-type Page = 'email' | 'ai' | 'agent';
+type Page = 'general' | 'email' | 'ai' | 'agent';
 type EmailKind = 'dry_run' | 'webhook' | 'resend' | 'portaly' | 'zeabur' | 'insforge' | 'http' | 'ses';
 type AgentPath = 'cursor' | 'claude' | 'codex' | 'http';
 
@@ -49,9 +49,15 @@ interface Integrations {
 }
 
 const PAGES: { id: Page; label: string }[] = [
+  { id: 'general', label: '一般' },
   { id: 'email', label: '寄信' },
   { id: 'ai', label: 'AI' },
   { id: 'agent', label: 'Agent' },
+];
+
+const EMAIL_GROUPS = [
+  { id: 'common', label: '常用' },
+  { id: 'more', label: '其他' },
 ];
 
 const AGENT_PATHS: { id: AgentPath; label: string }[] = [
@@ -77,7 +83,7 @@ function refreshSession() {
 
 export function Settings() {
   const session = useOutletContext<Session | null>();
-  const [page, setPage] = useState<Page>('email');
+  const [page, setPage] = useState<Page>('general');
 
   if (!session) return <p className="muted">載入中…</p>;
 
@@ -102,6 +108,7 @@ export function Settings() {
           </button>
         ))}
       </div>
+      {page === 'general' && <GeneralSettings session={session} onEditEmail={() => setPage('email')} />}
       {page === 'email' && <><EmailSettings /><FooterSettings /></>}
       {page === 'ai' && <AiSettings session={session} />}
       {page === 'agent' && <AgentSettings session={session} />}
@@ -114,15 +121,23 @@ function FooterSettings() {
   const [message, setMessage] = useState('');
   useEffect(() => { void api.get<BrandProfile>('/brand').then(setBrand).catch((error: Error) => setMessage(error.message)); }, []);
   if (!brand) return null;
-  return <section className="card setup-card">
-    <h2>郵件頁尾與法規資訊</h2>
+  return <section className="card settings-panel">
+    <div className="setup-head">
+      <h2>郵件頁尾與法規資訊</h2>
+    </div>
     {!brand.physicalAddress?.trim() && <div className="notice warn">尚未設定實體郵寄地址。CAN-SPAM 規定商業電子郵件須提供有效的實體郵寄地址。</div>}
-    <label htmlFor="physical-address">寄件者實體郵寄地址</label>
-    <textarea id="physical-address" value={brand.physicalAddress ?? ''} onChange={(event) => setBrand({ ...brand, physicalAddress: event.target.value })} placeholder="請填入真實地址" />
-    <label htmlFor="privacy-url">隱私權政策網址</label>
-    <input id="privacy-url" type="url" value={brand.privacyUrl ?? ''} onChange={(event) => setBrand({ ...brand, privacyUrl: event.target.value })} placeholder="https://example.com/privacy" />
-    <button type="button" className="btn primary" onClick={() => { void api.patch<BrandProfile>('/brand', { physicalAddress: brand.physicalAddress ?? '', privacyUrl: brand.privacyUrl ?? '' }).then((saved) => { setBrand(saved); setMessage('已儲存'); }).catch((error: Error) => setMessage(error.message)); }}>儲存頁尾設定</button>
-    {message && <p className="muted">{message}</p>}
+    <div className="settings-fields">
+      <Field label="寄件者實體郵寄地址">
+        <textarea id="physical-address" value={brand.physicalAddress ?? ''} onChange={(event) => setBrand({ ...brand, physicalAddress: event.target.value })} placeholder="請填入真實地址" />
+      </Field>
+      <Field label="隱私權政策網址">
+        <input id="privacy-url" type="url" value={brand.privacyUrl ?? ''} onChange={(event) => setBrand({ ...brand, privacyUrl: event.target.value })} placeholder="https://example.com/privacy" />
+      </Field>
+      <div className="settings-actions">
+        {message && <span className="muted settings-status">{message}</span>}
+        <button type="button" className="btn primary" onClick={() => { void api.patch<BrandProfile>('/brand', { physicalAddress: brand.physicalAddress ?? '', privacyUrl: brand.privacyUrl ?? '' }).then((saved) => { setBrand(saved); setMessage('已儲存'); }).catch((error: Error) => setMessage(error.message)); }}>儲存頁尾設定</button>
+      </div>
+    </div>
   </section>;
 }
 
@@ -199,99 +214,190 @@ function EmailSettings() {
       .finally(() => setSaving(false));
   };
 
-  const groups = [
-    { id: 'common', label: '常用' },
-    { id: 'more', label: '其他' },
-  ];
-
   return (
-    <div className="settings-split">
-      <div className="settings-subnav" role="tablist" aria-label="寄信管道">
-        {choices.filter((item) => !item.group).map((item) => (
-          <EmailPathButton key={item.id} item={item} selected={selected === item.id} active={integrations?.email.provider === item.id} onPick={pick} />
-        ))}
-        {groups.map((group) => (
-          <div key={group.id}>
-            <div className="settings-subnav-label">{group.label}</div>
-            {choices.filter((item) => item.group === group.id).map((item) => (
-              <EmailPathButton key={item.id} item={item} selected={selected === item.id} active={integrations?.email.provider === item.id} onPick={pick} />
-            ))}
-          </div>
-        ))}
+    <section className="card settings-panel">
+      <div className="setup-head">
+        <div>
+          <h2>{choice?.label ?? '寄信'}</h2>
+          <p className="muted">{choice?.note ?? '載入中…'}</p>
+        </div>
+        <button
+          type="button"
+          className="btn"
+          disabled={verifying || !active}
+          onClick={() => {
+            setVerifying(true);
+            void api.get<{ ok: boolean; message: string }>('/email/verify')
+              .then(setVerify)
+              .catch((err: Error) => setVerify({ ok: false, message: err.message }))
+              .finally(() => setVerifying(false));
+          }}
+        >
+          {verifying ? '檢查中…' : '檢查設定'}
+        </button>
       </div>
-      <section className="card settings-panel">
-        <div className="setup-head">
-          <div>
-            <h2>{choice?.label ?? '寄信'}</h2>
-            <p className="muted">{choice?.note ?? '載入中…'}</p>
-          </div>
-          <button
-            type="button"
-            className="btn"
-            disabled={verifying || !active}
-            onClick={() => {
-              setVerifying(true);
-              void api.get<{ ok: boolean; message: string }>('/email/verify')
-                .then(setVerify)
-                .catch((err: Error) => setVerify({ ok: false, message: err.message }))
-                .finally(() => setVerifying(false));
+      {error && <div className="notice error">{error}</div>}
+      {message && <div className="notice">{message}</div>}
+      {verify && active && <div className={`notice ${verify.ok ? '' : 'error'}`}>{verify.message}</div>}
+      <div className="settings-fields">
+        <Field label="寄信管道" hint={active ? '目前使用中。' : '儲存後改用這個管道。'}>
+          <EmailProviderSelect
+            choices={choices}
+            value={selected ?? ''}
+            activeId={integrations?.email.provider}
+            onChange={(id) => {
+              const item = choices.find((entry) => entry.id === id);
+              if (item) pick(item);
             }}
-          >
-            {verifying ? '檢查中…' : '檢查設定'}
+          />
+        </Field>
+        {choice?.extraLabel && (
+          <Field label={choice.extraLabel}>
+            <input value={extraInput} onChange={(event) => setExtraInput(event.target.value)} placeholder={choice.extraPlaceholder} />
+          </Field>
+        )}
+        {choice?.keyLabel && (
+          <Field label={choice.keyLabel} hint={choice.keySet ? '留空表示不改。' : choice.kind === 'webhook' || choice.kind === 'zeabur' ? '可留空。' : '只存在這台服務上。'}>
+            <input type="password" autoComplete="off" value={secretInput} onChange={(event) => setSecretInput(event.target.value)} placeholder={choice.keySet ? '已設定' : ''} />
+          </Field>
+        )}
+        <Field label="寄件人">
+          <input value={from} onChange={(event) => setFrom(event.target.value)} placeholder="Newsletter <hello@yourdomain.com>" />
+        </Field>
+        <Field label="回信地址" hint="可留空。">
+          <input value={replyTo} onChange={(event) => setReplyTo(event.target.value)} placeholder="hello@yourdomain.com" />
+        </Field>
+        <div className="settings-actions">
+          <button type="button" className="btn primary" disabled={saving || !from.trim() || !choice} onClick={save}>
+            {saving ? '儲存中…' : '儲存'}
           </button>
         </div>
-        {error && <div className="notice error">{error}</div>}
-        {message && <div className="notice">{message}</div>}
-        {verify && active && <div className={`notice ${verify.ok ? '' : 'error'}`}>{verify.message}</div>}
-        <div className="settings-fields">
-          {choice?.extraLabel && (
-            <Field label={choice.extraLabel}>
-              <input value={extraInput} onChange={(event) => setExtraInput(event.target.value)} placeholder={choice.extraPlaceholder} />
-            </Field>
-          )}
-          {choice?.keyLabel && (
-            <Field label={choice.keyLabel} hint={choice.keySet ? '留空表示不改。' : choice.kind === 'webhook' || choice.kind === 'zeabur' ? '可留空。' : '只存在這台服務上。'}>
-              <input type="password" autoComplete="off" value={secretInput} onChange={(event) => setSecretInput(event.target.value)} placeholder={choice.keySet ? '已設定' : ''} />
-            </Field>
-          )}
-          <Field label="寄件人">
-            <input value={from} onChange={(event) => setFrom(event.target.value)} placeholder="Newsletter <hello@yourdomain.com>" />
-          </Field>
-          <Field label="回信地址" hint="可留空。">
-            <input value={replyTo} onChange={(event) => setReplyTo(event.target.value)} placeholder="hello@yourdomain.com" />
-          </Field>
-          <div className="settings-actions">
-            <button type="button" className="btn primary" disabled={saving || !from.trim() || !choice} onClick={save}>
-              {saving ? '儲存中…' : '儲存'}
-            </button>
-          </div>
-        </div>
-        <p className="muted settings-footnote">儲存後立即套用。金鑰不會顯示。</p>
-        <details className="settings-env">
-          <summary>改用環境變數</summary>
-          <CopyBlock text={emailEnvSample(choice)} />
-        </details>
-      </section>
-    </div>
+      </div>
+      <p className="muted settings-footnote">儲存後立即套用。金鑰不會顯示。</p>
+      <details className="settings-env">
+        <summary>改用環境變數</summary>
+        <CopyBlock text={emailEnvSample(choice)} />
+      </details>
+    </section>
   );
 }
 
-function EmailPathButton({
-  item,
-  selected,
-  active,
-  onPick,
+function EmailProviderSelect({
+  id,
+  choices,
+  value,
+  activeId,
+  onChange,
 }: {
-  item: EmailChoice;
-  selected: boolean;
-  active: boolean;
-  onPick: (item: EmailChoice) => void;
+  id?: string;
+  choices: EmailChoice[];
+  value: string;
+  activeId: string | undefined;
+  onChange: (id: string) => void;
 }) {
+  const option = (item: EmailChoice) => (
+    <option key={item.id} value={item.id}>
+      {item.label}{item.id === activeId ? '（使用中）' : ''}
+    </option>
+  );
   return (
-    <button type="button" role="tab" aria-selected={selected} onClick={() => onPick(item)}>
-      {item.label}
-      {active && <span className="using">使用中</span>}
-    </button>
+    <select id={id} value={value} onChange={(event) => onChange(event.target.value)}>
+      {choices.filter((item) => !item.group).map(option)}
+      {EMAIL_GROUPS.map((group) => {
+        const items = choices.filter((item) => item.group === group.id);
+        return items.length ? <optgroup key={group.id} label={group.label}>{items.map(option)}</optgroup> : null;
+      })}
+    </select>
+  );
+}
+
+/** 金鑰必填的管道還沒存金鑰時，切過去會寄不出去。 */
+function needsSetup(choice: EmailChoice): boolean {
+  if (choice.kind === 'dry_run' || choice.kind === 'webhook' || choice.kind === 'zeabur') return false;
+  return Boolean(choice.keyLabel) && !choice.keySet;
+}
+
+function GeneralSettings({ session, onEditEmail }: { session: Session; onEditEmail: () => void }) {
+  const [integrations, setIntegrations] = useState<Integrations | null>(null);
+  const [provider, setProvider] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    void api.get<Integrations>('/integrations').then((data) => {
+      setIntegrations(data);
+      setProvider(data.email.provider);
+    }).catch((err: Error) => setError(err.message));
+  }, []);
+
+  const choices = integrations?.email.choices ?? [];
+  const current = choices.find((item) => item.id === integrations?.email.provider);
+  const picked = choices.find((item) => item.id === provider);
+  const changed = Boolean(integrations && provider !== integrations.email.provider);
+  const from = integrations?.email.from ?? '';
+
+  const save = () => {
+    if (!integrations || !picked) return;
+    setSaving(true);
+    setError('');
+    setMessage('');
+    // 只換管道：金鑰與端點欄位不送，後端會沿用已存的值。
+    void api.patch<Integrations>('/integrations/email', {
+      provider: picked.id,
+      from: integrations.email.from,
+      replyTo: integrations.email.replyTo,
+    })
+      .then((data) => {
+        setIntegrations(data);
+        setProvider(data.email.provider);
+        setMessage(`已改用 ${picked.label}。`);
+        refreshSession();
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setSaving(false));
+  };
+
+  return (
+    <section className="card settings-panel">
+      <div className="setup-head">
+        <div>
+          <h2>寄信管道</h2>
+          <p className="muted">{current ? `目前使用：${current.label}` : '載入中…'}</p>
+        </div>
+      </div>
+      {error && <div className="notice error">{error}</div>}
+      {message && <div className="notice">{message}</div>}
+      <div className="settings-fields">
+        <Field label="使用中的寄信管道" hint="各管道的金鑰與端點在「寄信」分頁設定。">
+          <EmailProviderSelect
+            choices={choices}
+            value={provider}
+            activeId={integrations?.email.provider}
+            onChange={(id) => { setProvider(id); setMessage(''); setError(''); }}
+          />
+        </Field>
+        {picked && changed && needsSetup(picked) && (
+          <div className="notice warn settings-inline-notice">
+            {picked.label} 還沒填 {picked.keyLabel}，切換後會寄不出去。
+            <button type="button" className="btn ghost" onClick={onEditEmail}>去填金鑰</button>
+          </div>
+        )}
+        {integrations && !from.trim() && (
+          <div className="notice warn settings-inline-notice">
+            還沒設定寄件人，請先到「寄信」分頁填好。
+            <button type="button" className="btn ghost" onClick={onEditEmail}>前往寄信</button>
+          </div>
+        )}
+        <div className="settings-actions">
+          <button type="button" className="btn" onClick={onEditEmail}>寄信詳細設定</button>
+          <button type="button" className="btn primary" disabled={saving || !changed || !from.trim()} onClick={save}>
+            {saving ? '切換中…' : '切換管道'}
+          </button>
+        </div>
+      </div>
+      <p className="muted settings-footnote">切換後立即套用到之後寄出的信。{session.ai.configured ? '' : 'AI 尚未接上，可在「AI」分頁設定。'}</p>
+    </section>
   );
 }
 
