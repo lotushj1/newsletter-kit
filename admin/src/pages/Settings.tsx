@@ -183,6 +183,15 @@ function EmailSettings({ initialPath }: { initialPath: string | null }) {
   const choices = integrations?.email.choices ?? [];
   const selected = path ?? (choices.some((choice) => choice.id === integrations?.email.provider) ? integrations?.email.provider : 'dry_run');
   const choice = choices.find((item) => item.id === selected);
+
+  // 從「一般」按去填寫過來時，游標直接放在第一個還沒填的必填欄位。
+  useEffect(() => {
+    if (!initialPath || !integrations) return;
+    const target = integrations.email.choices.find((item) => item.id === initialPath);
+    const first = target ? missingEmailFields(target)[0] : undefined;
+    if (!target || !first) return;
+    document.getElementById(first === target.extraLabel ? 'email-extra' : 'email-key')?.focus();
+  }, [initialPath, integrations]);
   const active = integrations?.email.provider === selected;
 
   const pick = (item: EmailChoice) => {
@@ -269,12 +278,12 @@ function EmailSettings({ initialPath }: { initialPath: string | null }) {
         </Field>
         {choice?.extraLabel && (
           <Field label={choice.extraLabel}>
-            <input value={extraInput} onChange={(event) => setExtraInput(event.target.value)} placeholder={choice.extraPlaceholder} />
+            <input id="email-extra" value={extraInput} onChange={(event) => setExtraInput(event.target.value)} placeholder={choice.extraPlaceholder} />
           </Field>
         )}
         {choice?.keyLabel && (
           <Field label={choice.keyLabel} hint={choice.keySet ? '留空表示不改。' : choice.kind === 'webhook' || choice.kind === 'zeabur' ? '可留空。' : '只存在這台服務上。'}>
-            <input type="password" autoComplete="off" value={secretInput} onChange={(event) => setSecretInput(event.target.value)} placeholder={choice.keySet ? '已設定' : ''} />
+            <input id="email-key" type="password" autoComplete="off" value={secretInput} onChange={(event) => setSecretInput(event.target.value)} placeholder={choice.keySet ? '已設定' : ''} />
           </Field>
         )}
         <Field label="寄件人">
@@ -405,6 +414,11 @@ function GeneralSettings({ onEditEmail }: { onEditEmail: (provider: string | nul
           <div className="notice warn settings-inline-notice">
             {zhJoin(picked.label, '還沒填', missing.join('、'), '，', changed ? '切換後會寄不出去' : '目前寄不出去', '。')}
             <button type="button" className="btn ghost" onClick={edit}>{keyOnly ? '去填金鑰' : '去填寫'}</button>
+          </div>
+        )}
+        {picked?.kind === 'ses' && (
+          <div className="notice warn">
+            {zhJoin(picked.label, '這版不會直接寄出。要寄出請改用 Webhook，把信交給你的 SES 端點。')}
           </div>
         )}
         {integrations && !from.trim() && (

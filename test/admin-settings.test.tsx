@@ -303,4 +303,40 @@ describe('後台設定頁', () => {
     expect(container.querySelector<HTMLSelectElement>('select')!.value).toBe('postal');
     expect(field('端點').value).toBe('https://postal.example.com');
   });
+
+  it('使用中的管道缺必填欄位時，警告寫「目前寄不出去」', async () => {
+    choices = [
+      choice('dry_run', '測試用', 'dry_run'),
+      choice('postal', 'Postal', 'http', { keyLabel: 'Server API Key', extraLabel: '端點', keySet: true }),
+    ];
+    provider = 'postal';
+    await renderSettings();
+    expect(container.querySelector('.notice.warn')?.textContent).toContain('Postal 還沒填端點，目前寄不出去。');
+    expect(button('切換管道').disabled).toBe(true);
+  });
+
+  it('選 Amazon SES 會提醒這版不會直接寄出', async () => {
+    choices = [choice('dry_run', '測試用', 'dry_run'), choice('ses', 'Amazon SES', 'ses')];
+    await renderSettings();
+    expect(container.textContent).not.toContain('不會直接寄出');
+    await choose(container.querySelector('select')!, 'ses');
+    expect(container.querySelector('.notice.warn')?.textContent).toContain('Amazon SES 這版不會直接寄出。');
+  });
+
+  it('去填寫後游標落在第一個還沒填的必填欄位', async () => {
+    choices = [
+      choice('dry_run', '測試用', 'dry_run'),
+      choice('postal', 'Postal', 'http', { keyLabel: 'Server API Key', extraLabel: '端點' }),
+      choice('mailgun', 'Mailgun', 'http', { keyLabel: 'API 金鑰', extraLabel: '寄信網域', extra: 'mg.example.com' }),
+    ];
+    await renderSettings();
+    await choose(container.querySelector('select')!, 'postal');
+    await click(button('去填寫'));
+    expect(document.activeElement).toBe(field('端點'));
+
+    await click(tab('一般'));
+    await choose(container.querySelector('select')!, 'mailgun');
+    await click(button('去填金鑰'));
+    expect(document.activeElement).toBe(field('API 金鑰'));
+  });
 });
