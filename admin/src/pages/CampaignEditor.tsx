@@ -17,7 +17,7 @@ function AudienceBuilder({ value, onChange, disabled, folders }: {
   disabled: boolean;
   folders: Folder[];
 }) {
-  return <div style={{ marginTop: 12 }}>
+  return <div className="audience-builder">
     <strong>進階受眾條件</strong>
     {value ? <><AudienceNode value={value} onChange={onChange} disabled={disabled} folders={folders} /><button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange(undefined)}>清除進階條件</button></> :
       <button type="button" className="btn" disabled={disabled} onClick={() => onChange({ op: 'and', children: [DEFAULT_CONDITION] })}>新增條件</button>}
@@ -39,7 +39,7 @@ function AudienceNode({ value, onChange, disabled, folders }: {
     else if (op === 'created') onChange({ op, after: '' });
     else onChange({ op: 'engagement', event: 'open', withinDays: 90 });
   };
-  return <div style={{ margin: '8px 0 8px 10px', paddingLeft: 10, borderLeft: '2px solid #ddd' }}>
+  return <div className="audience-node">
     <select aria-label="條件類型" value={value.op} disabled={disabled} onChange={(event) => changeOp(event.target.value)}>
       <option value="and">全部符合（AND）</option><option value="or">任一符合（OR）</option><option value="not">排除（NOT）</option>
       <option value="tag">擁有標籤</option><option value="folder">位於資料夾</option><option value="status">訂閱狀態</option>
@@ -226,7 +226,7 @@ export function CampaignEditor() {
             寄送中。若超過 5 分鐘沒有進度，重新整理後會顯示為「失敗」，即可重新寄送。
           </div>
         )}
-        <div>
+        <div className="audience-panel">
           <label>寄給誰</label>
           <select value={folderId} disabled={!editable} onChange={(e) => setFolderId(e.target.value)}>
             <option value="">全部訂閱者</option>
@@ -367,7 +367,7 @@ export function CampaignEditor() {
             }}>
               <label htmlFor="ai-brief">題材</label>
               <textarea id="ai-brief" required disabled={!aiWrites} value={brief} onChange={(event) => setBrief(event.target.value)} placeholder="這封信要跟讀者說什麼" />
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <div className="row dialog-actions">
                 <button className="btn primary" type="submit" disabled={aiBusy || !aiWrites}>{aiBusy ? '產生中…' : '產生預覽'}</button>
               </div>
             </form>
@@ -376,7 +376,7 @@ export function CampaignEditor() {
               <p><strong>{draftPreview.title}</strong></p>
               <p className="muted">{draftPreview.preheader || '（沒有前導文字）'}</p>
               <div className="ai-html" dangerouslySetInnerHTML={{ __html: draftPreview.bodyHtml }} />
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <div className="row dialog-actions">
                 <button type="button" className="btn" onClick={() => setDraftPreview(null)}>重寫</button>
                 <button type="button" className="btn primary" onClick={() => {
                   setTitle(draftPreview.title);

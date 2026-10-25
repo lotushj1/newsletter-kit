@@ -306,7 +306,7 @@ function DraftAutomationDialog({
             onChange={(event) => setGoal(event.target.value)}
             placeholder="新訂閱後當天、第 3 天、第 7 天各寄一封歡迎信"
           />
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <div className="row dialog-actions">
             <button className="btn primary" type="submit" disabled={busy || !canWrite}>{busy ? '建立中…' : '產生預覽'}</button>
           </div>
         </form>
@@ -320,7 +320,7 @@ function DraftAutomationDialog({
               <li key={`${step.delayDays}-${step.title}`}>第 {step.delayDays} 天 · {step.title}</li>
             ))}
           </ol>
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <div className="row dialog-actions">
             <button type="button" className="btn" onClick={() => setDraft(null)}>重寫</button>
             <button
               type="button"

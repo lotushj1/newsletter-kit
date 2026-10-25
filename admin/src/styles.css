@@ -449,6 +449,20 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
   width: 20rem; flex-shrink: 0; border-left: 1px solid var(--border); padding: 16px;
   display: flex; flex-direction: column; gap: 14px;
 }
+.audience-panel { display: grid; gap: 6px; }
+.audience-panel > label { margin: 0; }
+.audience-panel > label:not(:first-child) { margin-top: 8px; }
+.audience-panel > .muted { margin: 0; font-size: var(--text-sm); }
+.audience-builder { display: grid; justify-items: start; gap: 8px; margin: 10px 0 4px; }
+.audience-builder > div { justify-self: stretch; }
+.audience-node {
+  display: grid; justify-items: start; gap: 6px; margin: 2px 0 2px 10px; padding-left: 10px; border-left: 2px solid var(--border);
+}
+.audience-node > select, .audience-node > input, .audience-node > label, .audience-node > .row { justify-self: stretch; }
+.audience-node > label { display: grid; gap: 4px; margin: 0; }
+.audience-node > .row { align-items: flex-start; }
+.audience-node .audience-node { margin: 0; }
+.audience-node > .row > .audience-node { flex: 1; min-width: 0; }
 .editor-side-inspect { display: flex; flex-direction: column; min-height: 0; }
 .editor-side-inspect[hidden] { display: none !important; }
 .editor-side-inspect-form { display: grid; gap: 12px; }
@@ -706,8 +720,18 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .modal-header p { margin: 4px 0 0; }
 .modal-body { overflow: auto; background: #f3f1ec; }
 .modal-body.form { padding: 20px; background: var(--background); }
-.modal-body.form form { display: grid; gap: 10px; }
+.modal-body.form form { --form-gap: 6px; display: grid; gap: var(--form-gap); }
 .modal-body.form label { margin: 0; }
+/* 欄位標籤貼近自己的輸入框，與上一組欄位拉開。 */
+.modal-body.form form > label:not(:first-child),
+.modal-body.form form > .tag-options + label { margin-top: 10px; }
+.modal-body.form form > .notice { margin: 0 0 4px; }
+.modal-body.form > .notice { margin: 0 0 16px; }
+.modal-body.form > .btn { margin-top: 4px; }
+.modal-body.form .ai-options { margin-top: 4px; }
+/* 按鈕列與上方內容：表單內 20px（扣掉 form 的 gap），表單外 16px。 */
+.dialog-actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+.modal-body.form form > .dialog-actions { margin-top: calc(20px - var(--form-gap)); }
 .file-drop {
   position: relative;
   display: grid;
@@ -964,6 +988,8 @@ button.folder-chip { padding-right: 14px; }
 .sig-icon-menu button.active,
 .sig-icon-menu button:hover { background: var(--muted); text-decoration: none; }
 .from-campaign-panel { width: min(480px, 100%); }
+.from-campaign-panel .modal-body { padding: 16px 20px 20px; background: var(--background); }
+.from-campaign-panel .modal-body > .notice { margin: 0 0 12px; }
 .from-campaign-list {
   display: grid;
   gap: 8px;
@@ -1460,12 +1486,12 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 }
 .setup-page { max-width: 920px; display: grid; gap: 16px; }
 .settings-tabs {
-  display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 16px;
+  display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 16px; overflow-x: auto;
 }
 .settings-tabs button {
   appearance: none; background: transparent; border: 0; border-bottom: 2px solid transparent;
   border-radius: 0; margin: 0 0 -1px; padding: 12px 14px; min-height: var(--control-h); color: var(--muted-foreground);
-  font-size: var(--text-md);
+  font-size: var(--text-md); white-space: nowrap; flex-shrink: 0;
 }
 .settings-tabs button[aria-selected="true"] {
   color: var(--foreground); border-bottom-color: var(--foreground); font-weight: 600;
@@ -1486,12 +1512,17 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 .settings-subnav button[aria-selected="true"] {
   background: var(--muted); color: var(--foreground); font-weight: 600;
 }
-.settings-subnav .using { font-size: var(--text-sm); font-weight: 500; color: var(--muted-foreground); }
 .settings-panel h2 { margin: 0 0 4px; font-size: var(--text-xl); }
-.settings-fields { display: grid; gap: 12px; }
+.settings-fields { display: grid; gap: 18px; }
 .settings-fields label { display: grid; gap: 6px; margin: 0; }
 .settings-fields .hint { font-size: var(--text-sm); color: var(--muted-foreground); }
-.settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.settings-fields textarea { min-height: 5.5rem; }
+.settings-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.settings-status { margin-right: auto; font-size: var(--text-sm); }
+.settings-panel > .notice { margin: 0 0 16px; }
+.settings-fields > .notice { margin: 0; }
+.settings-inline-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.settings-inline-notice .btn { height: 2rem; }
 .settings-footnote { margin: 12px 0 0; }
 .settings-env { margin-top: 12px; }
 .settings-env summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); }
@@ -1500,6 +1531,8 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 .setup-card > .muted, .setup-card > p { margin: 0; }
 .setup-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .setup-head p { margin: 4px 0 0; }
+.settings-panel .setup-head { margin-bottom: 16px; }
+.settings-panel .setup-head h2 { margin: 0; }
 .setup-guide { display: grid; gap: 12px; }
 .setup-steps { margin: 0; padding: 0 0 0 18px; display: grid; gap: 6px; }
 .setup-steps li { padding-left: 2px; }

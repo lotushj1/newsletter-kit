@@ -481,7 +481,7 @@ export function Subscribers() {
                   <option key={folder.id} value={folder.id}>{folder.name}</option>
                 ))}
               </select>
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <div className="row dialog-actions">
                 <button className="btn primary" type="submit" disabled={saving}>
                   {saving ? '加入中…' : '加入'}
                 </button>
@@ -545,7 +545,7 @@ export function Subscribers() {
                   <option key={folder.id} value={folder.id}>{folder.name}</option>
                 ))}
               </select>
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <div className="row dialog-actions">
                 <button className="btn primary" type="submit" disabled={saving}>
                   {saving ? '儲存中…' : '儲存'}
                 </button>
@@ -585,7 +585,7 @@ export function Subscribers() {
                   <option key={folder.id} value={folder.id}>{folder.name}</option>
                 ))}
               </select>
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <div className="row dialog-actions">
                 <button className="btn primary" type="submit" disabled={saving || !importFile}>
                   {saving ? '匯入中…' : '匯入'}
                 </button>
@@ -765,7 +765,7 @@ export function Subscribers() {
                     })}
                   </tbody>
                 </table>
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <div className="row dialog-actions">
                   <button className="btn primary" type="submit" disabled={aiBusy}>{aiBusy ? '套用中…' : '套用勾選'}</button>
                 </div>
               </form>
@@ -887,7 +887,7 @@ function TagEditorDialog({
             加入
           </button>
         </div>
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
+        <div className="row dialog-actions">
           <button className="btn primary" type="submit">
             儲存
           </button>

@@ -161,6 +161,23 @@ export function emailAdapterContext(config: Config): AdapterContext {
   };
 }
 
+/**
+ * 舊設定只把 http 平台的金鑰放在 apiKey／apiExtra，換到別的管道再換回來就找不到。
+ * 讀進來或要切換前，先把它們搬進 platformSecrets[目前的管道]；已經有的值不覆蓋。
+ */
+export function migrateLegacyEmailSecrets(email: Config['email']): Config['email'] {
+  const platform = getEmailPlatform(email.provider);
+  if (platform?.kind !== 'http') return email;
+  const current = email.platformSecrets?.[email.provider] ?? {};
+  const key = current.key ?? email.apiKey;
+  const extra = current.extra ?? email.apiExtra;
+  if (key === current.key && extra === current.extra) return email;
+  return {
+    ...email,
+    platformSecrets: { ...(email.platformSecrets ?? {}), [email.provider]: { key, extra } },
+  };
+}
+
 /** 後台存過的寄信／AI 設定蓋過環境變數。壞掉的 JSON 直接略過。 */
 export async function applyStoredIntegrations(config: Config, store: Store): Promise<void> {
   const saved = await readSaved(store);
@@ -168,6 +185,7 @@ export async function applyStoredIntegrations(config: Config, store: Store): Pro
     const merged = { ...serializeEmail(config.email), ...saved.email };
     if (listEmailAdapters().includes(merged.provider)) config.email = emailFromSaved(merged);
   }
+  config.email = migrateLegacyEmailSecrets(config.email);
   if (saved.ai && typeof saved.ai.provider === 'string' && isKnownAiProvider(saved.ai.provider)) {
     config.ai = aiFromSaved({ ...serializeAi(config.ai), ...saved.ai });
   }
@@ -263,7 +281,7 @@ export async function updateEmailIntegration(ctx: ServiceContext, input: unknown
   const replyTo = optionalString(body.replyTo, '回信地址', 200);
 
   const email: Config['email'] = {
-    ...ctx.config.email,
+    ...migrateLegacyEmailSecrets(ctx.config.email),
     provider,
     from,
     replyTo,
