@@ -77,6 +77,15 @@ function isDefaultModel(model: string, choices: AiChoice[]): boolean {
   return choices.some((choice) => choice.defaultModel && choice.defaultModel === model);
 }
 
+/** 串接中文與管道名稱：只在英數字和中文相鄰處補空格，「已改用測試用」「已改用 Resend」。 */
+function zhJoin(...parts: string[]): string {
+  return parts.reduce((text, part) => {
+    if (!text || !part) return text + part;
+    const edge = text.slice(-1) + part.charAt(0);
+    return /[A-Za-z0-9][\u3400-\u9fff]|[\u3400-\u9fff][A-Za-z0-9]/.test(edge) ? `${text} ${part}` : text + part;
+  }, '');
+}
+
 function refreshSession() {
   window.dispatchEvent(new Event('nk-session-refresh'));
 }
@@ -104,14 +113,18 @@ export function Settings() {
             type="button"
             role="tab"
             aria-selected={page === item.id}
-            onClick={() => { setEmailPath(null); setPage(item.id); }}
+            onClick={() => {
+              if (item.id === page) return;
+              setEmailPath(null);
+              setPage(item.id);
+            }}
           >
             {item.label}
           </button>
         ))}
       </div>
       {page === 'general' && <GeneralSettings onEditEmail={(provider) => { setEmailPath(provider); setPage('email'); }} />}
-      {page === 'email' && <><EmailSettings initialPath={emailPath} /><FooterSettings /></>}
+      {page === 'email' && <><EmailSettings key={emailPath ?? 'active'} initialPath={emailPath} /><FooterSettings /></>}
       {page === 'ai' && <AiSettings session={session} />}
       {page === 'agent' && <AgentSettings session={session} />}
     </div>
@@ -156,6 +169,7 @@ function EmailSettings({ initialPath }: { initialPath: string | null }) {
   const [verify, setVerify] = useState<{ ok: boolean; message: string } | null>(null);
   const [verifying, setVerifying] = useState(false);
 
+  // 只在掛載時載入一次；要換帶進來的管道時由外層用 key 重新掛載，避免載入結果蓋掉正在填的欄位。
   useEffect(() => {
     void api.get<Integrations>('/integrations').then((data) => {
       setIntegrations(data);
@@ -164,7 +178,7 @@ function EmailSettings({ initialPath }: { initialPath: string | null }) {
       const shown = data.email.choices.find((choice) => choice.id === (initialPath ?? data.email.provider));
       setExtraInput(shown?.extra ?? '');
     }).catch((err: Error) => setError(err.message));
-  }, [initialPath]);
+  }, []);
 
   const choices = integrations?.email.choices ?? [];
   const selected = path ?? (choices.some((choice) => choice.id === integrations?.email.provider) ? integrations?.email.provider : 'dry_run');
@@ -361,7 +375,7 @@ function GeneralSettings({ onEditEmail }: { onEditEmail: (provider: string | nul
       .then((data) => {
         setIntegrations(data);
         setProvider(data.email.provider);
-        setMessage(`已改用 ${picked.label}。`);
+        setMessage(zhJoin('已改用', picked.label, '。'));
         refreshSession();
       })
       .catch((err: Error) => setError(err.message))
@@ -389,7 +403,7 @@ function GeneralSettings({ onEditEmail }: { onEditEmail: (provider: string | nul
         </Field>
         {picked && missing.length > 0 && (
           <div className="notice warn settings-inline-notice">
-            {picked.label} 還沒填 {missing.join('、')}，{changed ? '切換後會寄不出去' : '目前寄不出去'}。
+            {zhJoin(picked.label, '還沒填', missing.join('、'), '，', changed ? '切換後會寄不出去' : '目前寄不出去', '。')}
             <button type="button" className="btn ghost" onClick={edit}>{keyOnly ? '去填金鑰' : '去填寫'}</button>
           </div>
         )}

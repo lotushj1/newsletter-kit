@@ -125,6 +125,21 @@ async function click(el: HTMLElement) {
   await flush();
 }
 
+async function type(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
+function field(label: string): HTMLInputElement {
+  const found = [...container.querySelectorAll('label')].find((el) => el.firstChild?.textContent === label);
+  const input = found?.querySelector('input');
+  if (!input) throw new Error(`沒有欄位 ${label}`);
+  return input;
+}
+
 async function choose(select: HTMLSelectElement, value: string) {
   await act(async () => {
     select.value = value;
@@ -152,7 +167,7 @@ describe('後台設定頁', () => {
     await renderSettings();
     expect(button('切換管道').disabled).toBe(true);
     await choose(container.querySelector('select')!, 'resend');
-    expect(container.textContent).toContain('Resend 還沒填 API 金鑰');
+    expect(container.textContent).toContain('Resend 還沒填 API 金鑰，切換後會寄不出去。');
     await click(button('切換管道'));
     const patch = calls.find((call) => call.method === 'PATCH');
     expect(patch?.path).toBe('/api/admin/integrations/email');
@@ -223,7 +238,7 @@ describe('後台設定頁', () => {
     choices = [choice('dry_run', '測試用', 'dry_run'), choice(id, label, kind, { ...extra })];
     await renderSettings();
     await choose(container.querySelector('select')!, id);
-    expect(container.querySelector('.notice.warn')?.textContent).toContain(`${label} 還沒填 ${missing}，切換後會寄不出去。`);
+    expect(container.querySelector('.notice.warn')?.textContent).toContain(`${label} 還沒填${missing}，切換後會寄不出去。`);
     expect(button('去填寫')).toBeTruthy();
   });
 
@@ -236,5 +251,56 @@ describe('後台設定頁', () => {
     await renderSettings();
     await choose(container.querySelector('select')!, id);
     expect(container.querySelector('.notice.warn')).toBeNull();
+  });
+
+  it('切換成功訊息：中文名稱不加空格，英文名稱前後才加', async () => {
+    provider = 'resend';
+    await renderSettings();
+    await choose(container.querySelector('select')!, 'dry_run');
+    await click(button('切換管道'));
+    expect(container.textContent).toContain('已改用測試用。');
+    expect(container.textContent).not.toContain('已改用 測試用');
+  });
+
+  it('去填寫後再點一次寄信分頁，剛填的網址不會被使用中管道的端點蓋掉', async () => {
+    choices = [
+      choice('dry_run', '測試用', 'dry_run'),
+      choice('postal', 'Postal', 'http', { keyLabel: 'Server API Key', extraLabel: '端點', keySet: true, extra: 'https://postal.example.com' }),
+      choice('webhook', 'Webhook', 'webhook', { keyLabel: '簽章金鑰', extraLabel: 'Webhook 網址' }),
+    ];
+    provider = 'postal';
+    await renderSettings();
+    await choose(container.querySelector('select')!, 'webhook');
+    await click(button('去填寫'));
+    expect(field('Webhook 網址').value).toBe('');
+
+    await type(field('Webhook 網址'), 'https://hooks.example.com/send');
+    await click(tab('寄信'));
+    expect(container.querySelector<HTMLSelectElement>('select')!.value).toBe('webhook');
+    expect(field('Webhook 網址').value).toBe('https://hooks.example.com/send');
+
+    await click(button('儲存'));
+    const patch = calls.find((call) => call.method === 'PATCH');
+    expect(patch?.body).toMatchObject({ provider: 'webhook', webhookUrl: 'https://hooks.example.com/send' });
+
+    await click(tab('一般'));
+    await click(tab('寄信'));
+    expect(container.querySelector<HTMLSelectElement>('select')!.value).toBe('webhook');
+  });
+
+  it('從一般跳過去後換回使用中的管道，欄位是那個管道自己的值', async () => {
+    choices = [
+      choice('dry_run', '測試用', 'dry_run'),
+      choice('postal', 'Postal', 'http', { keyLabel: 'Server API Key', extraLabel: '端點', keySet: true, extra: 'https://postal.example.com' }),
+      choice('webhook', 'Webhook', 'webhook', { keyLabel: '簽章金鑰', extraLabel: 'Webhook 網址' }),
+    ];
+    provider = 'postal';
+    await renderSettings();
+    await choose(container.querySelector('select')!, 'webhook');
+    await click(button('去填寫'));
+    await click(tab('一般'));
+    await click(tab('寄信'));
+    expect(container.querySelector<HTMLSelectElement>('select')!.value).toBe('postal');
+    expect(field('端點').value).toBe('https://postal.example.com');
   });
 });
