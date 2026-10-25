@@ -2,7 +2,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/http/app.js';
-import { applyStoredIntegrations } from '../src/services/integrations.js';
+import { applyStoredIntegrations, integrationView, updateEmailIntegration } from '../src/services/integrations.js';
 import type { ServiceContext } from '../src/services/context.js';
 import { makeContext, testConfig } from './helpers.js';
 
@@ -183,5 +183,53 @@ describe('後台整合設定', () => {
       method: 'PATCH',
       body: JSON.stringify({ provider: 'dry_run', from: 'News <news@example.com>' }),
     });
+  });
+});
+
+describe('舊設定的 http 平台金鑰', () => {
+  const FROM = 'News <news@example.com>';
+  const legacy = (ctx: ServiceContext, provider: string, apiKey: string, apiExtra?: string) => {
+    ctx.config.email = { ...ctx.config.email, provider, from: FROM, apiKey, apiExtra, platformSecrets: {} };
+  };
+  const choice = (ctx: ServiceContext, id: string) =>
+    integrationView(ctx).email.choices.find((item) => item.id === id);
+
+  it('只切管道（一般分頁）換走再換回，金鑰還在', async () => {
+    const { ctx } = await makeContext();
+    legacy(ctx, 'postmark', 'pm_legacy');
+
+    await updateEmailIntegration(ctx, { provider: 'resend', from: FROM, replyTo: '' });
+    expect(choice(ctx, 'postmark')).toMatchObject({ keySet: true });
+
+    await updateEmailIntegration(ctx, { provider: 'postmark', from: FROM, replyTo: '' });
+    expect(ctx.config.email.provider).toBe('postmark');
+    expect(ctx.config.email.apiKey).toBe('pm_legacy');
+    expect(choice(ctx, 'postmark')).toMatchObject({ keySet: true });
+
+    const fresh = testConfig();
+    await applyStoredIntegrations(fresh, ctx.store);
+    expect(fresh.email.provider).toBe('postmark');
+    expect(fresh.email.apiKey).toBe('pm_legacy');
+  });
+
+  it('換到另一個 http 平台再換回，金鑰與額外欄位都還在', async () => {
+    const { ctx } = await makeContext();
+    legacy(ctx, 'mailgun', 'mg_legacy', 'mg.example.com');
+
+    await updateEmailIntegration(ctx, { provider: 'postmark', from: FROM, apiKey: 'pm_new' });
+    await updateEmailIntegration(ctx, { provider: 'mailgun', from: FROM, replyTo: '' });
+    expect(ctx.config.email.apiKey).toBe('mg_legacy');
+    expect(ctx.config.email.apiExtra).toBe('mg.example.com');
+    expect(choice(ctx, 'postmark')).toMatchObject({ keySet: true });
+  });
+
+  it('讀進只有 apiKey 的舊存檔時，搬進 platformSecrets', async () => {
+    const { store } = await makeContext();
+    await store.setSetting('integrations', JSON.stringify({
+      email: { provider: 'postmark', from: FROM, apiKey: 'pm_stored', apiExtra: null },
+    }));
+    const config = testConfig();
+    await applyStoredIntegrations(config, store);
+    expect(config.email.platformSecrets?.postmark?.key).toBe('pm_stored');
   });
 });

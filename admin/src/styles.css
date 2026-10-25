@@ -720,7 +720,7 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .modal-header p { margin: 4px 0 0; }
 .modal-body { overflow: auto; background: #f3f1ec; }
 .modal-body.form { padding: 20px; background: var(--background); }
-.modal-body.form form { display: grid; gap: 6px; }
+.modal-body.form form { --form-gap: 6px; display: grid; gap: var(--form-gap); }
 .modal-body.form label { margin: 0; }
 /* 欄位標籤貼近自己的輸入框，與上一組欄位拉開。 */
 .modal-body.form form > label:not(:first-child),
@@ -729,8 +729,9 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .modal-body.form > .notice { margin: 0 0 16px; }
 .modal-body.form > .btn { margin-top: 4px; }
 .modal-body.form .ai-options { margin-top: 4px; }
+/* 按鈕列與上方內容：表單內 20px（扣掉 form 的 gap），表單外 16px。 */
 .dialog-actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
-.modal-body.form form > .dialog-actions { margin-top: 14px; }
+.modal-body.form form > .dialog-actions { margin-top: calc(20px - var(--form-gap)); }
 .file-drop {
   position: relative;
   display: grid;
@@ -1511,7 +1512,6 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 .settings-subnav button[aria-selected="true"] {
   background: var(--muted); color: var(--foreground); font-weight: 600;
 }
-.settings-subnav .using { font-size: var(--text-sm); font-weight: 500; color: var(--muted-foreground); }
 .settings-panel h2 { margin: 0 0 4px; font-size: var(--text-xl); }
 .settings-fields { display: grid; gap: 18px; }
 .settings-fields label { display: grid; gap: 6px; margin: 0; }
@@ -1529,9 +1529,10 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 .settings-env .setup-code-wrap { margin-top: 10px; }
 .setup-card h2 { margin: 0 0 4px; font-size: var(--text-xl); font-weight: 600; }
 .setup-card > .muted, .setup-card > p { margin: 0; }
-.setup-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.setup-head h2 { margin: 0; }
+.setup-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .setup-head p { margin: 4px 0 0; }
+.settings-panel .setup-head { margin-bottom: 16px; }
+.settings-panel .setup-head h2 { margin: 0; }
 .setup-guide { display: grid; gap: 12px; }
 .setup-steps { margin: 0; padding: 0 0 0 18px; display: grid; gap: 6px; }
 .setup-steps li { padding-left: 2px; }

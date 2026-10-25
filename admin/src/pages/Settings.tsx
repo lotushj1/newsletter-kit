@@ -84,6 +84,8 @@ function refreshSession() {
 export function Settings() {
   const session = useOutletContext<Session | null>();
   const [page, setPage] = useState<Page>('general');
+  // 從「一般」跳過來時，寄信分頁先打開選到的管道，而不是使用中的那個。
+  const [emailPath, setEmailPath] = useState<string | null>(null);
 
   if (!session) return <p className="muted">載入中…</p>;
 
@@ -102,14 +104,14 @@ export function Settings() {
             type="button"
             role="tab"
             aria-selected={page === item.id}
-            onClick={() => setPage(item.id)}
+            onClick={() => { setEmailPath(null); setPage(item.id); }}
           >
             {item.label}
           </button>
         ))}
       </div>
-      {page === 'general' && <GeneralSettings session={session} onEditEmail={() => setPage('email')} />}
-      {page === 'email' && <><EmailSettings /><FooterSettings /></>}
+      {page === 'general' && <GeneralSettings onEditEmail={(provider) => { setEmailPath(provider); setPage('email'); }} />}
+      {page === 'email' && <><EmailSettings initialPath={emailPath} /><FooterSettings /></>}
       {page === 'ai' && <AiSettings session={session} />}
       {page === 'agent' && <AgentSettings session={session} />}
     </div>
@@ -141,9 +143,9 @@ function FooterSettings() {
   </section>;
 }
 
-function EmailSettings() {
+function EmailSettings({ initialPath }: { initialPath: string | null }) {
   const [integrations, setIntegrations] = useState<Integrations | null>(null);
-  const [path, setPath] = useState<string | null>(null);
+  const [path, setPath] = useState<string | null>(initialPath);
   const [from, setFrom] = useState('');
   const [replyTo, setReplyTo] = useState('');
   const [extraInput, setExtraInput] = useState('');
@@ -159,10 +161,10 @@ function EmailSettings() {
       setIntegrations(data);
       setFrom(data.email.from);
       setReplyTo(data.email.replyTo);
-      const current = data.email.choices.find((choice) => choice.id === data.email.provider);
-      setExtraInput(current?.extra ?? '');
+      const shown = data.email.choices.find((choice) => choice.id === (initialPath ?? data.email.provider));
+      setExtraInput(shown?.extra ?? '');
     }).catch((err: Error) => setError(err.message));
-  }, []);
+  }, [initialPath]);
 
   const choices = integrations?.email.choices ?? [];
   const selected = path ?? (choices.some((choice) => choice.id === integrations?.email.provider) ? integrations?.email.provider : 'dry_run');
@@ -240,7 +242,7 @@ function EmailSettings() {
       {message && <div className="notice">{message}</div>}
       {verify && active && <div className={`notice ${verify.ok ? '' : 'error'}`}>{verify.message}</div>}
       <div className="settings-fields">
-        <Field label="寄信管道" hint={active ? '目前使用中。' : '儲存後改用這個管道。'}>
+        <Field label="寄信管道" hint={active ? undefined : '儲存後改用這個管道。'}>
           <EmailProviderSelect
             choices={choices}
             value={selected ?? ''}
@@ -311,13 +313,18 @@ function EmailProviderSelect({
   );
 }
 
-/** 金鑰必填的管道還沒存金鑰時，切過去會寄不出去。 */
-function needsSetup(choice: EmailChoice): boolean {
-  if (choice.kind === 'dry_run' || choice.kind === 'webhook' || choice.kind === 'zeabur') return false;
-  return Boolean(choice.keyLabel) && !choice.keySet;
+/** 這兩種管道的金鑰可以留空（寄信分頁也標「可留空」）；端點仍然必填。 */
+const OPTIONAL_KEY_KINDS = new Set(['webhook', 'zeabur']);
+
+/** 列出還沒填的必填欄位；有缺的管道切過去會寄不出去。 */
+function missingEmailFields(choice: EmailChoice): string[] {
+  const missing: string[] = [];
+  if (choice.extraLabel && !choice.extra.trim()) missing.push(choice.extraLabel);
+  if (choice.keyLabel && !choice.keySet && !OPTIONAL_KEY_KINDS.has(choice.kind)) missing.push(choice.keyLabel);
+  return missing;
 }
 
-function GeneralSettings({ session, onEditEmail }: { session: Session; onEditEmail: () => void }) {
+function GeneralSettings({ onEditEmail }: { onEditEmail: (provider: string | null) => void }) {
   const [integrations, setIntegrations] = useState<Integrations | null>(null);
   const [provider, setProvider] = useState('');
   const [saving, setSaving] = useState(false);
@@ -336,6 +343,9 @@ function GeneralSettings({ session, onEditEmail }: { session: Session; onEditEma
   const picked = choices.find((item) => item.id === provider);
   const changed = Boolean(integrations && provider !== integrations.email.provider);
   const from = integrations?.email.from ?? '';
+  const missing = picked ? missingEmailFields(picked) : [];
+  const keyOnly = missing.length === 1 && missing[0] === picked?.keyLabel;
+  const edit = () => onEditEmail(picked?.id ?? null);
 
   const save = () => {
     if (!integrations || !picked) return;
@@ -369,7 +379,7 @@ function GeneralSettings({ session, onEditEmail }: { session: Session; onEditEma
       {error && <div className="notice error">{error}</div>}
       {message && <div className="notice">{message}</div>}
       <div className="settings-fields">
-        <Field label="使用中的寄信管道" hint="各管道的金鑰與端點在「寄信」分頁設定。">
+        <Field label={changed ? '寄信管道' : '使用中的寄信管道'} hint="各管道的金鑰與端點在「寄信」分頁設定。">
           <EmailProviderSelect
             choices={choices}
             value={provider}
@@ -377,26 +387,26 @@ function GeneralSettings({ session, onEditEmail }: { session: Session; onEditEma
             onChange={(id) => { setProvider(id); setMessage(''); setError(''); }}
           />
         </Field>
-        {picked && changed && needsSetup(picked) && (
+        {picked && missing.length > 0 && (
           <div className="notice warn settings-inline-notice">
-            {picked.label} 還沒填 {picked.keyLabel}，切換後會寄不出去。
-            <button type="button" className="btn ghost" onClick={onEditEmail}>去填金鑰</button>
+            {picked.label} 還沒填 {missing.join('、')}，{changed ? '切換後會寄不出去' : '目前寄不出去'}。
+            <button type="button" className="btn ghost" onClick={edit}>{keyOnly ? '去填金鑰' : '去填寫'}</button>
           </div>
         )}
         {integrations && !from.trim() && (
           <div className="notice warn settings-inline-notice">
             還沒設定寄件人，請先到「寄信」分頁填好。
-            <button type="button" className="btn ghost" onClick={onEditEmail}>前往寄信</button>
+            <button type="button" className="btn ghost" onClick={edit}>前往寄信</button>
           </div>
         )}
         <div className="settings-actions">
-          <button type="button" className="btn" onClick={onEditEmail}>寄信詳細設定</button>
+          <button type="button" className="btn" onClick={edit}>寄信詳細設定</button>
           <button type="button" className="btn primary" disabled={saving || !changed || !from.trim()} onClick={save}>
             {saving ? '切換中…' : '切換管道'}
           </button>
         </div>
       </div>
-      <p className="muted settings-footnote">切換後立即套用到之後寄出的信。{session.ai.configured ? '' : 'AI 尚未接上，可在「AI」分頁設定。'}</p>
+      <p className="muted settings-footnote">切換後立即套用到之後寄出的信。</p>
     </section>
   );
 }

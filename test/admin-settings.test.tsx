@@ -43,6 +43,16 @@ const choice = (id: string, label: string, kind: string, extra: Partial<Record<s
   ...extra,
 });
 
+let choices = defaultChoices();
+
+function defaultChoices() {
+  return [
+    choice('dry_run', '測試用', 'dry_run'),
+    choice('resend', 'Resend', 'resend', { keyLabel: 'API 金鑰' }),
+    choice('webhook', 'Webhook', 'webhook', { keyLabel: '簽章密鑰', extraLabel: 'Webhook 網址', extraPlaceholder: 'https://example.com/send' }),
+  ];
+}
+
 function integrations(provider: string) {
   return {
     email: {
@@ -51,11 +61,7 @@ function integrations(provider: string) {
       replyTo: '',
       webhookUrl: '',
       webhookSecretSet: false,
-      choices: [
-        choice('dry_run', '測試用', 'dry_run'),
-        choice('resend', 'Resend', 'resend', { keyLabel: 'API 金鑰' }),
-        choice('webhook', 'Webhook', 'webhook', { keyLabel: '簽章密鑰', extraLabel: 'Webhook 網址', extraPlaceholder: 'https://example.com/send' }),
-      ],
+      choices,
     },
     ai: { provider: 'none', model: '', baseUrl: '', apiKeySet: false, configured: false, choices: [] },
   };
@@ -69,6 +75,7 @@ let provider: string;
 beforeEach(() => {
   calls = [];
   provider = 'dry_run';
+  choices = defaultChoices();
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET';
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
@@ -160,6 +167,8 @@ describe('後台設定頁', () => {
     expect(container.querySelector('.settings-subnav')).toBeNull();
     const select = container.querySelector<HTMLSelectElement>('select')!;
     expect([...select.options].map((option) => option.value)).toEqual(['dry_run', 'resend', 'webhook']);
+    expect(select.options[0]!.textContent).toBe('測試用（使用中）');
+    expect(container.textContent).not.toContain('目前使用中。');
     expect(container.textContent).not.toContain('Webhook 網址');
 
     await choose(select, 'webhook');
@@ -180,5 +189,52 @@ describe('後台設定頁', () => {
     const privacy = container.querySelector<HTMLInputElement>('#privacy-url')!;
     expect(address.value).toBe('');
     expect(privacy.value).toBe('');
+  });
+
+  it('選到還沒啟用的管道時，標籤改成「寄信管道」', async () => {
+    await renderSettings();
+    expect(container.querySelector('label')?.firstChild?.textContent).toBe('使用中的寄信管道');
+    await choose(container.querySelector('select')!, 'resend');
+    expect(container.querySelector('label')?.firstChild?.textContent).toBe('寄信管道');
+  });
+
+  it('去填金鑰會帶著選到的管道打開寄信分頁', async () => {
+    await renderSettings();
+    await choose(container.querySelector('select')!, 'resend');
+    await click(button('去填金鑰'));
+    expect(tab('寄信').getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector<HTMLSelectElement>('select')!.value).toBe('resend');
+    expect(container.querySelector('h2')?.textContent).toBe('Resend');
+    expect(container.textContent).toContain('儲存後改用這個管道。');
+
+    await click(tab('一般'));
+    await click(tab('寄信'));
+    expect(container.querySelector<HTMLSelectElement>('select')!.value).toBe('dry_run');
+  });
+
+  it.each([
+    ['webhook', 'Webhook', 'webhook', { keyLabel: '簽章金鑰', extraLabel: '網址' }, '網址'],
+    ['zeabur', 'Zeabur', 'zeabur', { keyLabel: 'Token', extraLabel: '端點' }, '端點'],
+    ['postal', 'Postal', 'http', { keyLabel: 'Server API Key', extraLabel: '端點', keySet: true }, '端點'],
+    ['mailgun', 'Mailgun', 'http', { keyLabel: 'API 金鑰', extraLabel: '寄信網域', keySet: true }, '寄信網域'],
+    ['insforge', 'InsForge', 'insforge', { keyLabel: 'API 金鑰', extraLabel: '網址', keySet: true }, '網址'],
+    ['insforge', 'InsForge', 'insforge', { keyLabel: 'API 金鑰', extraLabel: '網址' }, '網址、API 金鑰'],
+  ] as const)('%s 缺必填欄位時要警告（%s）', async (id, label, kind, extra, missing) => {
+    choices = [choice('dry_run', '測試用', 'dry_run'), choice(id, label, kind, { ...extra })];
+    await renderSettings();
+    await choose(container.querySelector('select')!, id);
+    expect(container.querySelector('.notice.warn')?.textContent).toContain(`${label} 還沒填 ${missing}，切換後會寄不出去。`);
+    expect(button('去填寫')).toBeTruthy();
+  });
+
+  it.each([
+    ['webhook', 'webhook', { keyLabel: '簽章金鑰', extraLabel: '網址', extra: 'https://example.com/send' }],
+    ['zeabur', 'zeabur', { keyLabel: 'Token', extraLabel: '端點', extra: 'https://example.com/send' }],
+    ['mailgun', 'http', { keyLabel: 'API 金鑰', extraLabel: '寄信網域', extra: 'mg.example.com', keySet: true }],
+  ] as const)('%s 必填欄位都有值就不警告', async (id, kind, extra) => {
+    choices = [choice('dry_run', '測試用', 'dry_run'), choice(id, id, kind, { ...extra })];
+    await renderSettings();
+    await choose(container.querySelector('select')!, id);
+    expect(container.querySelector('.notice.warn')).toBeNull();
   });
 });
