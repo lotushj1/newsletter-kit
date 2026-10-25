@@ -135,6 +135,20 @@ Portaly Email 目前是**邀請制 beta**：只有 Portaly 開通的帳號能用
 - 額度不足（`SEND_QUOTA_EXCEEDED`）與帳號未開通（`403 FORBIDDEN`）會直接判定失敗並寫清楚原因，
   不會傻傻重試；短暫限流（429）會依 `Retry-After` 自動緩退。
 
+#### 從沙箱切到正式寄送
+
+Portaly 沒有「正式／沙箱」開關，**寄件人網域**決定一切，金鑰本身不分 test／live：
+
+1. 在 <https://portaly.cc/admin/email/domains> 確認寄件網域（例如 `news.example.com`）是
+   DKIM `verified`、MAIL FROM `success`、狀態 `active`。
+2. 確認目前這把 `pem_` 金鑰建立時有勾到這個網域（或「全部網域」）。網域驗證**之前**建立的金鑰
+   預設只涵蓋 `sandbox.portaly.tw`，寄自有網域會回 `403 DOMAIN_NOT_ALLOWED`，要重建一把。
+3. 把寄件人改成該網域的地址：後台「設定 → 寄信」的寄件人欄位（存在資料庫，會蓋過 `MAIL_FROM`），
+   或只用環境變數時改 `MAIL_FROM`。
+4. 按「檢查設定」：寄件人在 `sandbox.portaly.tw` 會顯示「沙箱模式」；自有網域會顯示
+   「正式寄送」。用完整權限金鑰時還會核對網域驗證狀態；僅寄信金鑰讀不到網域清單，請在電子報編輯頁
+   的「測試信」寄一封給自己確認。
+
 ### 寫自己的 adapter
 
 實作這個介面就好：

@@ -37,6 +37,80 @@ function parseSender(value: string): { email: string; name?: string } {
   return name ? { email, name } : { email };
 }
 
+export const PORTALY_SANDBOX_DOMAIN = 'sandbox.portaly.tw';
+
+/** 取出寄件地址的網域（小寫）；解析不出來回傳空字串。 */
+export function senderDomain(from: string | undefined): string {
+  if (!from) return '';
+  const email = parseSender(from).email;
+  const at = email.lastIndexOf('@');
+  return at >= 0 ? email.slice(at + 1).trim().toLowerCase() : '';
+}
+
+interface PortalyDomain {
+  host?: string;
+  identityStatus?: string;
+  mailFromStatus?: string | null;
+  status?: string;
+}
+
+/**
+ * Portaly 沒有「正式／沙箱」開關：寄件網域決定一切。
+ * - 寄件人在 sandbox.portaly.tw → 沙箱，只能寄給帳號本人驗證過的信箱，一天 50 封。
+ * - 寄件人在自己的網域 → 正式寄送，前提是網域已驗證（DKIM verified + MAIL FROM success），
+ *   而且這把金鑰建立時有勾到這個網域（否則 403 DOMAIN_NOT_ALLOWED）。
+ * 網域清單要 full 權限的金鑰才讀得到；sending 金鑰會拿到 403，此時只能靠測試信確認。
+ */
+async function senderMode(input: PortalyInput, from: string | undefined): Promise<{ ok: boolean; message: string }> {
+  const domain = senderDomain(from);
+  if (!domain) return { ok: true, message: '寄件人需用已驗證網域或 sandbox.portaly.tw。' };
+  if (domain === PORTALY_SANDBOX_DOMAIN) {
+    return {
+      ok: true,
+      message: `目前是沙箱模式：寄件人在 ${PORTALY_SANDBOX_DOMAIN}，只能寄給 Portaly 帳號本人驗證過的信箱，一天 50 封。要寄給讀者請改用已驗證的自有網域。`,
+    };
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${input.host}/api/email/domains`, {
+      headers: { authorization: `Bearer ${input.apiKey}` },
+    });
+  } catch {
+    return { ok: true, message: `寄件網域 ${domain}（正式寄送）。暫時查不到網域狀態，請寄一封測試信確認。` };
+  }
+  if (!response.ok) {
+    return {
+      ok: true,
+      message: `寄件網域 ${domain}（正式寄送）。這把金鑰沒有讀取網域的權限，無法確認網域與金鑰範圍；請寄一封測試信給自己確認，若回 DOMAIN_NOT_ALLOWED 代表金鑰建立時沒勾這個網域，需要重建金鑰。`,
+    };
+  }
+  let domains: PortalyDomain[] = [];
+  try {
+    const body = (await response.json()) as { data?: PortalyDomain[] };
+    domains = Array.isArray(body.data) ? body.data : [];
+  } catch {
+    domains = [];
+  }
+  const match = domains.find((item) => item.host?.toLowerCase() === domain);
+  if (!match) {
+    return {
+      ok: false,
+      message: `寄件網域 ${domain} 不在這個 Portaly 帳號的寄件網域清單裡，寄出會被拒絕（DOMAIN_NOT_ALLOWED）。請到 https://portaly.cc/admin/email/domains 綁定，或改用已綁定的網域。`,
+    };
+  }
+  const verified = match.identityStatus === 'verified' && match.mailFromStatus === 'success';
+  if (match.status && match.status !== 'active') {
+    return { ok: false, message: `寄件網域 ${domain} 目前是 ${match.status}，Portaly 不會寄出，請聯絡 Portaly。` };
+  }
+  if (!verified) {
+    return {
+      ok: false,
+      message: `寄件網域 ${domain} 尚未驗證完成（DKIM ${match.identityStatus ?? '未知'}、MAIL FROM ${match.mailFromStatus ?? '未知'}），寄出會回 DOMAIN_NOT_VERIFIED。請到 https://portaly.cc/admin/email/domains 按「重新檢查」。`,
+    };
+  }
+  return { ok: true, message: `正式寄送：寄件網域 ${domain} 已驗證，可以寄給讀者。` };
+}
+
 /** Idempotency-Key 與 tag 值只允許英數、底線、連字號。 */
 export function sanitizeIdempotencyKey(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 256);
@@ -198,6 +272,7 @@ export const createPortalyAdapter: EmailAdapterFactory = (context): EmailAdapter
   async verify() {
     const input = resolveInput(context);
     if ('error' in input) return { ok: false, message: `${input.error}。金鑰在 https://portaly.cc/admin/email/api-keys 建立。` };
+    let quotaLine: string;
     try {
       const response = await fetch(`${input.host}/api/email/quota`, {
         headers: { authorization: `Bearer ${input.apiKey}` },
@@ -210,13 +285,12 @@ export const createPortalyAdapter: EmailAdapterFactory = (context): EmailAdapter
       };
       const remaining = body.data?.remaining ?? 0;
       const sandbox = body.data?.sandboxRemainingToday ?? 0;
-      return {
-        ok: true,
-        message: `Portaly 金鑰可用。本月剩餘額度 ${remaining} 封，沙箱今日還可寄 ${sandbox} 封。寄件人需用已驗證網域或 sandbox.portaly.tw。`,
-      };
+      quotaLine = `Portaly 金鑰可用。本月剩餘額度 ${remaining} 封，沙箱今日還可寄 ${sandbox} 封。`;
     } catch (error) {
       return { ok: false, message: `無法連到 Portaly：${(error as Error).message}` };
     }
+    const mode = await senderMode(input, context.from);
+    return { ok: mode.ok, message: `${quotaLine}${mode.message}` };
   },
 
   async send(message) {
