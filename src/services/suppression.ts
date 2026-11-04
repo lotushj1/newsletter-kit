@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { nowIso } from '../core/ids.js';
+import { syncSubscriberToNotion } from './notion-sync.js';
 import type { ServiceContext } from './context.js';
 
 export type SuppressionReason = 'bounce' | 'complaint';
@@ -34,6 +35,7 @@ export async function applyProviderProblem(
         unsubscribedAt: status === 'unsubscribed' ? subscriber.unsubscribedAt ?? nowIso() : subscriber.unsubscribedAt,
         meta: { ...subscriber.meta, suppressedReason: reason, suppressedBy: input.provider },
       });
+      if (subscriber.status !== status) syncSubscriberToNotion(email, status);
       changed = true;
     }
   }
