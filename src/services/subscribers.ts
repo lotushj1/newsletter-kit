@@ -82,6 +82,8 @@ export async function subscribe(
   const tags = normalizeTags(input.tags);
   const source = optionalString(input.source, '來源', 120);
   const existing = await ctx.store.getSubscriberByEmail(email);
+  const doubleOptIn =
+    ctx.config.doubleOptIn && !(source && (ctx.config.singleOptInSources ?? []).includes(source.toLowerCase()));
 
   if (existing) {
     if (existing.status === 'subscribed') {
@@ -93,7 +95,7 @@ export async function subscribe(
     }
     // 退訂過或還沒確認的人重新訂閱：回到流程起點，不要留著舊狀態。
     const merged = [...new Set([...existing.tags, ...tags])];
-    if (ctx.config.doubleOptIn) {
+    if (doubleOptIn) {
       const updated = (await ctx.store.updateSubscriber(existing.id, {
         status: 'pending',
         name: name ?? existing.name,
@@ -117,7 +119,7 @@ export async function subscribe(
     return { status: 'subscribed', message: '訂閱成功。', subscriber: updated };
   }
 
-  const status: SubscriberStatus = ctx.config.doubleOptIn ? 'pending' : 'subscribed';
+  const status: SubscriberStatus = doubleOptIn ? 'pending' : 'subscribed';
   const created = await ctx.store.createSubscriber({
     id: newId('sub'),
     email,
