@@ -7,6 +7,7 @@ import { emailBrandName } from '../core/brand-signature.js';
 import { confirmEmailContentHtml } from '../core/system-emails.js';
 import { createToken, verifyToken } from '../core/tokens.js';
 import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.js';
+import { syncSubscriberToNotion } from './notion-sync.js';
 import type { Paged, Subscriber, SubscriberQuery, SubscriberStatus } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getBrand } from './brand.js';
@@ -99,6 +100,7 @@ export async function subscribe(
         tags: merged,
         unsubscribedAt: undefined,
       }))!;
+      syncSubscriberToNotion(updated.email, updated.status);
       await sendConfirmEmail(ctx, updated);
       return { status: 'pending', message: '確認信已寄出，請到信箱點確認連結。', subscriber: updated };
     }
@@ -109,6 +111,7 @@ export async function subscribe(
       confirmedAt: nowIso(),
       unsubscribedAt: undefined,
     }))!;
+    syncSubscriberToNotion(updated.email, updated.status);
     await enrollSubscriber(ctx, updated, { type: 'subscribe' });
     if (merged.length > 0) await enrollSubscriber(ctx, updated, { type: 'tag', tags: merged });
     return { status: 'subscribed', message: '訂閱成功。', subscriber: updated };
@@ -125,6 +128,7 @@ export async function subscribe(
     createdAt: nowIso(),
     confirmedAt: status === 'subscribed' ? nowIso() : undefined,
   });
+  syncSubscriberToNotion(created.email, created.status);
 
   if (status === 'pending') {
     await sendConfirmEmail(ctx, created);
@@ -151,6 +155,7 @@ export async function confirmSubscription(
     confirmedAt: nowIso(),
     unsubscribedAt: undefined,
   }))!;
+  syncSubscriberToNotion(confirmed.email, confirmed.status);
   await enrollSubscriber(ctx, confirmed, { type: 'subscribe' });
   if (confirmed.tags.length > 0) {
     await enrollSubscriber(ctx, confirmed, { type: 'tag', tags: confirmed.tags });
@@ -183,6 +188,7 @@ export async function unsubscribeByEmail(
     status: 'unsubscribed',
     unsubscribedAt: nowIso(),
   });
+  if (updated) syncSubscriberToNotion(updated.email, updated.status);
   if (updated) await enrollSubscriber(ctx, updated, { type: 'unsubscribe' });
   if (updated && source?.campaignId) {
     await ctx.store.createEvent({
@@ -236,6 +242,7 @@ export async function createSubscriber(
     createdAt: nowIso(),
     confirmedAt: status === 'subscribed' ? nowIso() : undefined,
   });
+  syncSubscriberToNotion(created.email, created.status);
   if (created.status === 'subscribed') {
     await enrollSubscriber(ctx, created, { type: 'subscribe' });
     if (created.tags.length > 0) await enrollSubscriber(ctx, created, { type: 'tag', tags: created.tags });
@@ -272,6 +279,9 @@ export async function updateSubscriber(
   }
   const updated = await ctx.store.updateSubscriber(id, patch);
   if (!updated) throw notFound('找不到這位訂閱者');
+  if (updated.status !== current.status || updated.email !== current.email) {
+    syncSubscriberToNotion(updated.email, updated.status);
+  }
   if (updated.status === 'subscribed') {
     if (input.tags !== undefined) {
       const added = updated.tags.filter((tag) => !current.tags.includes(tag));
