@@ -1,0 +1,10 @@
+name = "newsletter-kit-tick"
+main = "index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+[vars]
+TICK_URL = "https://newsletter-kit-bay.vercel.app/api/cron/tick"
+
+[triggers]
+crons = ["* * * * *"]
