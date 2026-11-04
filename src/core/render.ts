@@ -299,7 +299,7 @@ function footerHtml(input: EmailLayoutInput): string {
   if (input.privacyUrl && /^https?:\/\//i.test(input.privacyUrl)) lines.push(`<p style="margin:4px 0 0;${FOOTER_TEXT}"><a href="${escapeHtml(input.privacyUrl)}" style="color:${C.soft};">隱私權政策</a></p>`);
   if (lines.length === 0) return '';
   return `<tr>
-          <td class="nk-edge nk-footer" style="padding:28px ${EMAIL_BODY_PAD_X}px 8px;text-align:left;${FOOTER_TEXT}">
+          <td class="nk-edge nk-footer" style="padding:28px ${EMAIL_BODY_PAD_X}px 8px;text-align:center;${FOOTER_TEXT}">
             ${lines.join('\n            ')}
           </td>
         </tr>`;
