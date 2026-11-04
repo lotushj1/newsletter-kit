@@ -423,7 +423,10 @@ NODE_ENV=production npm start
 
 規模與供應商怎麼選見 [docs/hosting.md](docs/hosting.md)。
 多台機器時，只讓其中一台設 `SCHEDULER_ENABLED=true`，否則排程的電子報會被重複寄出。
-或者全部關掉排程器，改用外部 cron 定時觸發。
+或者全部關掉排程器，改用外部 cron 定時觸發：設定 `CRON_SECRET`，
+定時以 `Authorization: Bearer $CRON_SECRET` 打 `POST /api/cron/tick`。
+Vercel 上沒有長駐程序（`SCHEDULER_ENABLED` 預設關閉），Hobby 方案的 Vercel Cron 一天只能跑一次，
+所以 repo 內附 `.github/workflows/scheduler-tick.yml` 每 5 分鐘打一次（需設 repo secret `CRON_SECRET`）。
 
 ## 開發
 

@@ -1,0 +1,24 @@
+name: scheduler-tick
+
+# Vercel Hobby 的 cron 一天只能跑一次，排程寄送改由這裡每 5 分鐘打一次 tick。
+# 需要 repo secret：CRON_SECRET（與 Vercel 環境變數相同）；可選 variable：TICK_URL。
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scheduler-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Tick
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TICK_URL: ${{ vars.TICK_URL || 'https://newsletter-kit-bay.vercel.app/api/cron/tick' }}
+        run: |
+          curl -fsS --max-time 320 -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$TICK_URL"

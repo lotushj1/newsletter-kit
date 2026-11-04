@@ -46,7 +46,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     webhookSecrets: {},
     join: { headline: undefined, description: undefined, tags: [] },
     send: { batchSize: 2, batchDelayMs: 0, maxAttempts: 2 },
-    scheduler: { enabled: false, pollMs: 1000 },
+    scheduler: { enabled: false, pollMs: 1000, cronSecret: undefined },
     isProduction: false,
     warnings: [],
     ai: { provider: 'none', apiKey: undefined, model: undefined, baseUrl: undefined },

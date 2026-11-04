@@ -8,6 +8,7 @@ import { mcpRouter } from './routes/mcp.js';
 import { publicRouter } from './routes/public.js';
 import { trackingRouter } from './routes/tracking.js';
 import { providerWebhookRouter } from './routes/provider-webhooks.js';
+import { cronRouter } from './routes/cron.js';
 
 export type RequestWithRawBody = Request & { rawBody?: string };
 
@@ -58,6 +59,7 @@ export function createApp(ctx: ServiceContext, options: { googleFetch?: typeof f
       headers: 'content-type, authorization, mcp-protocol-version',
     }),
   );
+  app.use('/api/cron', cronRouter(ctx));
   app.use('/', publicRouter(ctx));
   app.use('/', trackingRouter(ctx));
   app.use('/mcp', mcpRouter(ctx));
