@@ -70,6 +70,8 @@ export interface Config {
     baseUrl: string | undefined;
   };
   doubleOptIn: boolean;
+  /** 這些 source 來的公開訂閱跳過確認信（逗號分隔，SINGLE_OPT_IN_SOURCES）。 */
+  singleOptInSources: string[];
   corsOrigins: string[];
   publicRateLimitPerMin: number;
   trackingEnabled: boolean;
@@ -211,6 +213,7 @@ export function loadConfig(): Config {
       baseUrl: optional('AI_BASE_URL'),
     },
     doubleOptIn: bool('DOUBLE_OPT_IN', true),
+    singleOptInSources: (optional('SINGLE_OPT_IN_SOURCES') ?? '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean),
     corsOrigins: corsRaw === '*' ? ['*'] : corsRaw.split(',').map((o) => o.trim()).filter(Boolean),
     publicRateLimitPerMin: num('PUBLIC_RATE_LIMIT_PER_MIN', 20),
     trackingEnabled: bool('TRACKING_ENABLED', true),

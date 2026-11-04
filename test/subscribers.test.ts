@@ -176,3 +176,15 @@ describe('後台編輯刪除', () => {
     expect(await ctx.store.getSubscriber(created.id)).toBeNull();
   });
 });
+
+describe('指定來源跳過確認信', () => {
+  it('SINGLE_OPT_IN_SOURCES 內的 source 直接訂閱、不寄確認信', async () => {
+    const { ctx, adapter } = await makeContext();
+    const before = adapter.sent.length;
+    const out = await subscribe(ctx, { email: 'popup@example.com', source: 'KevinDesigner.com' });
+    expect(out.status).toBe('subscribed');
+    expect(adapter.sent.length).toBe(before);
+    const other = await subscribe(ctx, { email: 'other@example.com', source: 'elsewhere' });
+    expect(other.status).toBe('pending');
+  });
+});

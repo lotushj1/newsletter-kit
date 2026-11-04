@@ -38,6 +38,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
       platformSecrets: {},
     },
     doubleOptIn: true,
+    singleOptInSources: ['kevindesigner.com'],
     corsOrigins: ['*'],
     publicRateLimitPerMin: 100,
     trackingEnabled: true,
