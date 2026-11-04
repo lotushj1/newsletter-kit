@@ -81,7 +81,7 @@ export interface Config {
   privacyUrl?: string | undefined;
   join: { headline: string | undefined; description: string | undefined; tags: string[] };
   send: { batchSize: number; batchDelayMs: number; maxAttempts: number };
-  scheduler: { enabled: boolean; pollMs: number };
+  scheduler: { enabled: boolean; pollMs: number; cronSecret: string | undefined };
   isProduction: boolean;
   warnings: string[];
 }
@@ -251,6 +251,7 @@ export function loadConfig(): Config {
     scheduler: {
       enabled: bool('SCHEDULER_ENABLED', !onVercel),
       pollMs: Math.max(1000, num('SCHEDULER_POLL_MS', 30_000)),
+      cronSecret: optional('CRON_SECRET'),
     },
     isProduction,
     warnings,
