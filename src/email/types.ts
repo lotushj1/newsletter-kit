@@ -51,6 +51,8 @@ export interface AdapterContext {
   portalyApiKey?: string | undefined;
   /** 覆寫 Portaly API 位址，預設 https://portaly.ai。 */
   portalyApiHost?: string | undefined;
+  /** 目前設定的寄件人（MAIL_FROM 或後台設定），verify 用來判斷沙箱／正式網域。 */
+  from?: string | undefined;
   /** HTTP 平台的金鑰，例如 Postmark、SendGrid。 */
   apiKey?: string | undefined;
   /** 網域、端點或 Project ID。 */
