@@ -121,6 +121,8 @@ export const STALE_SENDING_MS = 5 * 60 * 1000;
 
 function isStaleSending(campaign: Campaign): boolean {
   if (campaign.status !== 'sending') return false;
+  // 因時間預算刻意暫停的不是卡死，等排程或人工續寄。
+  if (campaign.sendPauseReason === 'time_budget') return false;
   // 這個程序正在寄的不算卡死；寄送迴圈每批都會更新 updatedAt 當心跳，
   // 所以別的實例寄到一半的也會有新的 updatedAt。
   if (isSendingNow(campaign.id)) return false;

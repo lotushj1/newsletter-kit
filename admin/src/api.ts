@@ -103,6 +103,9 @@ export interface Campaign {
   folderId?: string;
   scheduledAt?: string | null;
   sentAt?: string | null;
+  /** 因單次寄送時間用完而暫停（排程 15 分鐘內會自動接續，也可手動續寄）。 */
+  sendPausedAt?: string | null;
+  sendPauseReason?: 'time_budget' | null;
   stats: CampaignStats;
   tracking: TrackingStats;
   createdAt: string;

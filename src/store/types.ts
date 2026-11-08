@@ -67,6 +67,12 @@ export interface Campaign {
   folderId?: string | undefined;
   scheduledAt?: string | null | undefined;
   sentAt?: string | null | undefined;
+  /**
+   * 寄送因單次時間預算用完而暫停的時間與原因。排程器只會自動接續「剛暫停」的寄送；
+   * 部署、重啟、還原的舊資料沒有這個標記，不會被自動續寄。
+   */
+  sendPausedAt?: string | null | undefined;
+  sendPauseReason?: 'time_budget' | null | undefined;
   stats: CampaignStats;
   tracking: TrackingStats;
   createdAt: string;
