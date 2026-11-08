@@ -62,6 +62,8 @@ interface CampaignRow {
   sent_at: string | null;
   created_at: string;
   updated_at: string;
+  send_paused_at?: string | null;
+  send_pause_reason?: string | null;
 }
 
 interface DeliveryRow {
@@ -295,6 +297,8 @@ function toSubscriber(row: SubscriberRow): Subscriber {
 function toCampaign(row: CampaignRow, stats: CampaignStats, tracking: TrackingStats): Campaign {
   const audience = parseJson<string[] | { tags?: string[]; condition?: Campaign['audienceCondition'] }>(row.audience_tags, []);
   return {
+    sendPausedAt: row.send_paused_at ?? null,
+    sendPauseReason: row.send_pause_reason === 'time_budget' ? 'time_budget' : null,
     id: row.id,
     title: row.title,
     slug: row.slug,
@@ -435,6 +439,12 @@ export class SqliteStore implements Store {
     }
     if (!hasColumn(this.db, 'campaigns', 'folder_id')) {
       this.db.exec(`ALTER TABLE campaigns ADD COLUMN folder_id TEXT`);
+    }
+    if (!hasColumn(this.db, 'campaigns', 'send_paused_at')) {
+      this.db.exec(`ALTER TABLE campaigns ADD COLUMN send_paused_at TEXT`);
+    }
+    if (!hasColumn(this.db, 'campaigns', 'send_pause_reason')) {
+      this.db.exec(`ALTER TABLE campaigns ADD COLUMN send_pause_reason TEXT`);
     }
     if (!hasColumn(this.db, 'deliveries', 'claim_id')) {
       this.db.exec(`ALTER TABLE deliveries ADD COLUMN claim_id TEXT`);
@@ -715,7 +725,8 @@ export class SqliteStore implements Store {
         .prepare(
           `UPDATE campaigns SET title=@title, slug=@slug, subject=@subject, preheader=@preheader,
            body_markdown=@body_markdown, body_html=@body_html, status=@status, audience_tags=@audience_tags,
-           audience_folder_id=@audience_folder_id, folder_id=@folder_id, scheduled_at=@scheduled_at, sent_at=@sent_at, updated_at=@updated_at WHERE id=@id`,
+           audience_folder_id=@audience_folder_id, folder_id=@folder_id, scheduled_at=@scheduled_at, sent_at=@sent_at,
+           send_paused_at=@send_paused_at, send_pause_reason=@send_pause_reason, updated_at=@updated_at WHERE id=@id`,
         )
         .run({
           id,
@@ -731,6 +742,8 @@ export class SqliteStore implements Store {
           folder_id: next.folderId ?? null,
           scheduled_at: next.scheduledAt ?? null,
           sent_at: next.sentAt ?? null,
+          send_paused_at: next.sendPausedAt ?? null,
+          send_pause_reason: next.sendPauseReason ?? null,
           updated_at: next.updatedAt,
         });
     } catch (error) {

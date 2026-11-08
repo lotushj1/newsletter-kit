@@ -95,6 +95,16 @@ export class SendRecordError extends Error {
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
+/** 因時間預算暫停後，排程器在這段時間內會自動接續；超過就要人工按「繼續寄送」。 */
+export const AUTO_CONTINUE_WINDOW_MS = 15 * 60 * 1000;
+
+/** 這份寄送是不是「剛因時間預算暫停」：只有這種才會被排程自動接續。 */
+export function isFreshTimeBudgetPause(campaign: Pick<Campaign, 'status' | 'sendPauseReason' | 'sendPausedAt'>, now = Date.now()): boolean {
+  if (campaign.status !== 'sending' || campaign.sendPauseReason !== 'time_budget' || !campaign.sendPausedAt) return false;
+  const pausedAt = Date.parse(campaign.sendPausedAt);
+  return Number.isFinite(pausedAt) && now - pausedAt <= AUTO_CONTINUE_WINDOW_MS;
+}
+
 /** 依受眾撈出收件人並建立 pending deliveries；同一個 email 只會有一筆。 */
 async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promise<number> {
   const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
@@ -256,6 +266,9 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
   try {
     const campaign = await getCampaign(ctx, campaignId);
     const { batchSize, batchDelayMs, maxAttempts } = ctx.config.send;
+    if (campaign.sendPauseReason) {
+      await ctx.store.updateCampaign(campaignId, { sendPausedAt: null, sendPauseReason: null, updatedAt: nowIso() });
+    }
 
     for (let pass = 0; pass < maxAttempts; pass += 1) {
       for (;;) {
@@ -276,7 +289,11 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
           if (outOfTime()) {
             // 快到函式時間上限：先收手，紀錄都已寫回，留給人工（或 SEND_AUTO_RESUME）續寄。
             logger.warn('單次寄送時間用完，先暫停', { campaignId, elapsedMs: Date.now() - startedAt });
-            await ctx.store.updateCampaign(campaignId, { updatedAt: nowIso() });
+            await ctx.store.updateCampaign(campaignId, {
+              updatedAt: nowIso(),
+              sendPausedAt: nowIso(),
+              sendPauseReason: 'time_budget',
+            });
             const stats = await ctx.store.deliveryStats(campaignId);
             return { campaignId, ...stats, status: 'sending', paused: 'time_budget' };
           }

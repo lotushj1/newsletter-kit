@@ -97,6 +97,25 @@ describe('開信與點擊追蹤', () => {
     expect(rates.openRate).toBeNull();
   });
 
+  it('連結查詢字串裡的 &amp; 會解碼，轉址導向正確網址（含已寄出的舊 token）', async () => {
+    const { ctx } = await makeContext();
+    const html = injectTracking(
+      '<a href="https://example.com/a?x=1&amp;utm_source=newsletter&amp;utm_medium=email">a</a>',
+      { secret: ctx.config.appSecret, publicBaseUrl: ctx.config.publicBaseUrl, email: 'a@example.com', campaignId: 'cmp_1', deliveryId: 'dlv_1', subscriberId: 'sub_1' },
+    );
+    const clickToken = /\/t\/click\?token=([^"&]+)/.exec(html)?.[1];
+    expect(await recordClick(ctx, decodeURIComponent(clickToken!))).toBe(
+      'https://example.com/a?x=1&utm_source=newsletter&utm_medium=email',
+    );
+    // 舊版已簽進 token 的 &amp; 網址，轉址時也會修正
+    const { createTrackingToken } = await import('../src/core/tokens.js');
+    const legacy = createTrackingToken(ctx.config.appSecret, {
+      purpose: 'click', email: 'a@example.com', campaignId: 'cmp_1', deliveryId: 'dlv_1', subscriberId: 'sub_1',
+      url: 'https://www.youtube.com/watch?v=abc&amp;utm_source=newsletter',
+    });
+    expect(await recordClick(ctx, legacy)).toBe('https://www.youtube.com/watch?v=abc&utm_source=newsletter');
+  });
+
   it('退訂連結不會被改成轉址', () => {
     const html = injectTracking(
       '<a href="https://newsletter.test/unsubscribe?token=abc">退訂</a><a href="https://other.test">外</a>',

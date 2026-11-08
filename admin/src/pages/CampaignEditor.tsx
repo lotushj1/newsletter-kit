@@ -223,7 +223,46 @@ export function CampaignEditor() {
         )}
         {campaign.status === 'sending' && (
           <div className="notice">
-            寄送中。若超過 5 分鐘沒有進度，重新整理後會顯示為「失敗」，即可重新寄送。
+            {campaign.sendPauseReason === 'time_budget'
+              ? `已暫停：單次寄送時間用完（已寄出 ${campaign.stats.sent}／${campaign.stats.total}）。排程開啟時 15 分鐘內會自動接續，也可以直接按「繼續寄送」；已寄出的人不會重複收到。`
+              : '寄送中。若超過 5 分鐘沒有進度，重新整理後會顯示為「失敗」，即可重新寄送。'}
+            {campaign.sendPauseReason === 'time_budget' && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => {
+                    void api
+                      .post(`/campaigns/${id}/resume`)
+                      .then(() => { setMessage('已繼續寄送'); setCampaign({ ...campaign, sendPauseReason: null }); })
+                      .catch((err: Error) => setMessage(err.message));
+                  }}
+                >
+                  繼續寄送
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {(campaign.stats.unconfirmed ?? 0) > 0 && (
+          <div className="notice error">
+            有 {campaign.stats.unconfirmed} 筆已交給寄信服務、但結果沒有確認（例如逾時）。這些不會自動重寄，避免同一人收到兩次。
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  void api
+                    .post<{ confirmed: number; stillUnknown: number; supported: boolean }>(`/campaigns/${id}/reconcile`)
+                    .then((r) => setMessage(r.supported
+                      ? `對帳完成：確認已寄出 ${r.confirmed} 筆，仍不明 ${r.stillUnknown} 筆`
+                      : '這個寄信服務不支援自動對帳，請到服務商後台確認'))
+                    .catch((err: Error) => setMessage(err.message));
+                }}
+              >
+                向寄信服務對帳
+              </button>
+            </div>
           </div>
         )}
         <div>

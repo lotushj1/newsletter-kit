@@ -3,7 +3,7 @@ import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
 import { maybeSyncPortalyDeliveries } from './portaly-sync.js';
 import { processDueEnrollments } from './sequences.js';
-import { isSending, processCampaign, sendingBlockedReason, startCampaign } from './sending.js';
+import { isFreshTimeBudgetPause, isSending, processCampaign, sendingBlockedReason, startCampaign } from './sending.js';
 
 export interface TickSummary {
   resumed: number;
@@ -44,13 +44,14 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
         logger.warn('排程器跳過寄送', { reason: blocked });
       } else {
         // 「寄送中」預設不自動續寄：部署、重啟、還原資料後都要人工在後台確認再續寄。
-        if (ctx.config.send.autoResume) {
-          for (const campaign of await ctx.store.findSendingCampaigns()) {
-            if (isSending(campaign.id)) continue;
-            logger.info('接續未完成的寄送', { campaignId: campaign.id });
-            await processCampaign(ctx, campaign.id);
-            summary.resumed += 1;
-          }
+        // 例外：15 分鐘內才因時間預算暫停的寄送，是同一次寄送的下一段，自動接續。
+        for (const campaign of await ctx.store.findSendingCampaigns()) {
+          if (isSending(campaign.id)) continue;
+          const fresh = isFreshTimeBudgetPause(campaign);
+          if (!fresh && !ctx.config.send.autoResume) continue;
+          logger.info('接續未完成的寄送', { campaignId: campaign.id, reason: fresh ? 'time_budget' : 'auto_resume' });
+          await processCampaign(ctx, campaign.id);
+          summary.resumed += 1;
         }
         for (const campaign of await ctx.store.findDueCampaigns(nowIso())) {
           logger.info('排程時間到，開始寄送', { campaignId: campaign.id, slug: campaign.slug });

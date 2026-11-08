@@ -1,7 +1,22 @@
 import { createTrackingToken } from './tokens.js';
 
+/**
+ * href 屬性值是 HTML，查詢字串裡的 & 會被寫成 &amp;。簽名與轉址要用解碼後的真正網址，
+ * 否則 ?a=1&amp;utm_source=x 會讓 utm 參數變成「amp;utm_source」。
+ * 舊信件裡已簽名的網址也走這裡，所以已寄出的信再點也會導到正確網址。
+ */
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;|&#0*38;|&#x0*26;/gi, '&')
+    .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"')
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
 export function normalizeTrackedUrl(url: string): string {
-  try { return new URL(url).toString(); } catch { return url; }
+  const decoded = decodeHtmlEntities(url.trim());
+  try { return new URL(decoded).toString(); } catch { return decoded; }
 }
 
 export interface TrackingInjectInput {
