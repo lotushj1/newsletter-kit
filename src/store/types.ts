@@ -30,6 +30,11 @@ export interface CampaignStats {
   total: number;
   sent: number;
   failed: number;
+  /**
+   * 已交給供應商、但結果還沒寫回（或寫回失敗）的筆數（status=sending）。
+   * 這些不能自動重寄，要先跟供應商對帳。
+   */
+  unconfirmed?: number | undefined;
 }
 
 export interface TrackingStats {
@@ -38,6 +43,8 @@ export interface TrackingStats {
   clicks: number;
   uniqueClicks: number;
   unsubscribes: number;
+  /** 指向已不存在（或不是已寄出）寄送紀錄的事件數；>0 代表統計資料不完整。 */
+  orphanEvents?: number | undefined;
 }
 
 export interface Campaign {
@@ -75,7 +82,11 @@ export type AudienceCondition =
   | { op: 'created'; after?: string; before?: string }
   | { op: 'engagement'; event: 'open' | 'click'; campaignId?: string; withinDays?: number; url?: string };
 
-export type DeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
+/**
+ * sending：已被某個寄送程序領走（claim）並交給供應商，結果尚未確認。
+ * 程序中斷或結果寫回失敗時會停在這個狀態，之後一律不自動重寄，要先對帳。
+ */
+export type DeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
 
 export interface Delivery {
   id: string;
@@ -87,6 +98,19 @@ export interface Delivery {
   error?: string | undefined;
   providerMessageId?: string | undefined;
   sentAt?: string | undefined;
+  /** 領走這筆的寄送批次 id 與時間（防止多個實例同時寄同一筆）。 */
+  claimId?: string | undefined;
+  claimedAt?: string | undefined;
+}
+
+export interface DeliveryClaim {
+  claimId: string;
+  claimedAt: string;
+}
+
+export interface DeliveryUpdate {
+  id: string;
+  patch: Partial<Delivery>;
 }
 
 export type TrackingEventType = 'open' | 'click' | 'unsubscribe';
@@ -103,6 +127,8 @@ export interface PeriodStats {
   sent: number;
   uniqueOpens: number;
   uniqueClicks: number;
+  /** 期間內對不到已寄出寄送紀錄的開信／點擊事件數；>0 代表比率不可信。 */
+  orphanEvents?: number | undefined;
 }
 
 export interface TrackingEvent {
@@ -306,6 +332,14 @@ export interface Store {
 
   createDeliveries(deliveries: Delivery[]): Promise<void>;
   updateDelivery(id: string, patch: Partial<Delivery>): Promise<void>;
+  /**
+   * 原子地把仍是 pending 的寄送紀錄改成 sending 並記下 claim；
+   * 回傳真的領到的 id（已被別人領走或不再 pending 的不會回傳）。
+   * 寄信前一定要先 claim 成功並持久化，才能交給供應商。
+   */
+  claimDeliveries(ids: string[], claim: DeliveryClaim): Promise<string[]>;
+  /** 一次寫回多筆寄送結果；回傳實際套用的筆數（找不到的紀錄不算）。 */
+  updateDeliveries(updates: DeliveryUpdate[]): Promise<number>;
   /** 用供應商回傳的訊息 id 反查寄送紀錄（Portaly 投遞狀態回查用）。 */
   findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null>;
   listDeliveries(

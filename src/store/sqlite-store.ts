@@ -9,6 +9,8 @@ import type {
   CampaignQuery,
   CampaignStats,
   Delivery,
+  DeliveryClaim,
+  DeliveryUpdate,
   DeliveryStatus,
   Folder,
   FolderKind,
@@ -72,6 +74,8 @@ interface DeliveryRow {
   error: string | null;
   provider_message_id: string | null;
   sent_at: string | null;
+  claim_id?: string | null;
+  claimed_at?: string | null;
 }
 
 interface EventRow {
@@ -332,6 +336,8 @@ function toDelivery(row: DeliveryRow): Delivery {
     error: row.error ?? undefined,
     providerMessageId: row.provider_message_id ?? undefined,
     sentAt: row.sent_at ?? undefined,
+    claimId: row.claim_id ?? undefined,
+    claimedAt: row.claimed_at ?? undefined,
   };
 }
 
@@ -429,6 +435,12 @@ export class SqliteStore implements Store {
     }
     if (!hasColumn(this.db, 'campaigns', 'folder_id')) {
       this.db.exec(`ALTER TABLE campaigns ADD COLUMN folder_id TEXT`);
+    }
+    if (!hasColumn(this.db, 'deliveries', 'claim_id')) {
+      this.db.exec(`ALTER TABLE deliveries ADD COLUMN claim_id TEXT`);
+    }
+    if (!hasColumn(this.db, 'deliveries', 'claimed_at')) {
+      this.db.exec(`ALTER TABLE deliveries ADD COLUMN claimed_at TEXT`);
     }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_subscribers_folder ON subscribers(folder_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_folder ON campaigns(folder_id)`);
@@ -831,20 +843,57 @@ export class SqliteStore implements Store {
       | DeliveryRow
       | undefined;
     if (!row) return;
-    const next: Delivery = { ...toDelivery(row), ...patch, id };
+    this.writeDelivery({ ...toDelivery(row), ...patch, id });
+  }
+
+  private writeDelivery(next: Delivery): void {
     this.db
       .prepare(
         `UPDATE deliveries SET status=@status, attempts=@attempts, error=@error,
-         provider_message_id=@provider_message_id, sent_at=@sent_at WHERE id=@id`,
+         provider_message_id=@provider_message_id, sent_at=@sent_at,
+         claim_id=@claim_id, claimed_at=@claimed_at WHERE id=@id`,
       )
       .run({
-        id,
+        id: next.id,
         status: next.status,
         attempts: next.attempts,
         error: next.error ?? null,
         provider_message_id: next.providerMessageId ?? null,
         sent_at: next.sentAt ?? null,
+        claim_id: next.claimId ?? null,
+        claimed_at: next.claimedAt ?? null,
       });
+  }
+
+  async claimDeliveries(ids: string[], claim: DeliveryClaim): Promise<string[]> {
+    const update = this.db.prepare(
+      `UPDATE deliveries SET status='sending', claim_id=@claim_id, claimed_at=@claimed_at
+       WHERE id=@id AND status='pending'`,
+    );
+    const run = this.db.transaction((items: string[]) => {
+      const claimed: string[] = [];
+      for (const id of items) {
+        const result = update.run({ id, claim_id: claim.claimId, claimed_at: claim.claimedAt });
+        if (result.changes > 0) claimed.push(id);
+      }
+      return claimed;
+    });
+    return run(ids);
+  }
+
+  async updateDeliveries(updates: DeliveryUpdate[]): Promise<number> {
+    const select = this.db.prepare('SELECT * FROM deliveries WHERE id = ?');
+    const run = this.db.transaction((items: DeliveryUpdate[]) => {
+      let applied = 0;
+      for (const { id, patch } of items) {
+        const row = select.get(id) as DeliveryRow | undefined;
+        if (!row) continue;
+        this.writeDelivery({ ...toDelivery(row), ...patch, id });
+        applied += 1;
+      }
+      return applied;
+    });
+    return run(updates);
   }
 
   async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
@@ -876,11 +925,22 @@ export class SqliteStore implements Store {
       .prepare(
         `SELECT COUNT(*) AS total,
                 SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                SUM(CASE WHEN status = 'sending' THEN 1 ELSE 0 END) AS unconfirmed
          FROM deliveries WHERE campaign_id = ?`,
       )
-      .get(campaignId) as { total: number; sent: number | null; failed: number | null };
-    return { total: row.total, sent: row.sent ?? 0, failed: row.failed ?? 0 };
+      .get(campaignId) as {
+      total: number;
+      sent: number | null;
+      failed: number | null;
+      unconfirmed: number | null;
+    };
+    return {
+      total: row.total,
+      sent: row.sent ?? 0,
+      failed: row.failed ?? 0,
+      unconfirmed: row.unconfirmed ?? 0,
+    };
   }
 
   async deleteDeliveries(campaignId: string): Promise<void> {
@@ -926,7 +986,8 @@ export class SqliteStore implements Store {
            COUNT(DISTINCT CASE WHEN type = 'open' THEN IFNULL(subscriber_id, id) END) AS unique_opens,
            SUM(CASE WHEN type = 'click' THEN 1 ELSE 0 END) AS clicks,
            COUNT(DISTINCT CASE WHEN type = 'click' THEN IFNULL(subscriber_id, id) END) AS unique_clicks
-         FROM events WHERE campaign_id = ?`,
+         FROM events WHERE campaign_id = ? AND (delivery_id IS NULL OR EXISTS (
+             SELECT 1 FROM deliveries d WHERE d.id = events.delivery_id AND d.status = 'sent' AND d.campaign_id = events.campaign_id))`,
       )
       .get(campaignId) as {
       opens: number | null;
@@ -957,6 +1018,15 @@ export class SqliteStore implements Store {
       clicks: row.clicks ?? 0,
       uniqueClicks: row.unique_clicks ?? 0,
       unsubscribes: unsub.n,
+      orphanEvents: (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM events
+             WHERE campaign_id = ? AND type IN ('open', 'click') AND NOT (delivery_id IS NULL OR EXISTS (
+             SELECT 1 FROM deliveries d WHERE d.id = events.delivery_id AND d.status = 'sent' AND d.campaign_id = events.campaign_id))`,
+          )
+          .get(campaignId) as { n: number }
+      ).n,
     };
   }
 
@@ -997,8 +1067,9 @@ export class SqliteStore implements Store {
     const uniqueOpens = (
       this.db
         .prepare(
-          `SELECT COUNT(DISTINCT IFNULL(subscriber_id, id)) AS n FROM events
-           WHERE type = 'open'
+          `SELECT COUNT(DISTINCT campaign_id || ':' || IFNULL(subscriber_id, id)) AS n FROM events
+           WHERE type = 'open' AND (delivery_id IS NULL OR EXISTS (
+             SELECT 1 FROM deliveries d WHERE d.id = events.delivery_id AND d.status = 'sent' AND d.campaign_id = events.campaign_id))
              AND (@from IS NULL OR created_at >= @from)
              AND (@to IS NULL OR created_at <= @to)`,
         )
@@ -1007,8 +1078,9 @@ export class SqliteStore implements Store {
     const uniqueClicks = (
       this.db
         .prepare(
-          `SELECT COUNT(DISTINCT IFNULL(subscriber_id, id)) AS n FROM events
-           WHERE type = 'click'
+          `SELECT COUNT(DISTINCT campaign_id || ':' || IFNULL(subscriber_id, id)) AS n FROM events
+           WHERE type = 'click' AND (delivery_id IS NULL OR EXISTS (
+             SELECT 1 FROM deliveries d WHERE d.id = events.delivery_id AND d.status = 'sent' AND d.campaign_id = events.campaign_id))
              AND (@from IS NULL OR created_at >= @from)
              AND (@to IS NULL OR created_at <= @to)`,
         )
@@ -1021,6 +1093,17 @@ export class SqliteStore implements Store {
       sent: sentRow.sent,
       uniqueOpens,
       uniqueClicks,
+      orphanEvents: (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM events
+             WHERE type IN ('open', 'click') AND NOT (delivery_id IS NULL OR EXISTS (
+             SELECT 1 FROM deliveries d WHERE d.id = events.delivery_id AND d.status = 'sent' AND d.campaign_id = events.campaign_id))
+               AND (@from IS NULL OR created_at >= @from)
+               AND (@to IS NULL OR created_at <= @to)`,
+          )
+          .get(bounds) as { n: number }
+      ).n,
     };
   }
 
