@@ -9,6 +9,7 @@ import type { EmailMessage, SendResult } from '../email/types.js';
 import { withEmailHeaders } from '../email/headers.js';
 import type { Campaign, Delivery, DeliveryUpdate, Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
+import { getBrand } from './brand.js';
 import { getCampaign, renderCampaign } from './campaigns.js';
 import { clearSending, isSendingNow, markSending } from './send-state.js';
 import { unsubscribeUrl } from './subscribers.js';
@@ -193,8 +194,9 @@ async function deliverBatch(
   if (mine.length === 0) return;
 
   const messages: EmailMessage[] = [];
+  const brand = await getBrand(ctx);
   for (const { delivery, recipient } of mine) {
-    const rendered = await renderCampaign(ctx, campaign, recipient);
+    const rendered = await renderCampaign(ctx, campaign, recipient, brand);
     messages.push({
       to: delivery.email,
       from: ctx.config.email.from,

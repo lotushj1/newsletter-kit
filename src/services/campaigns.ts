@@ -331,8 +331,10 @@ export async function renderCampaign(
   ctx: ServiceContext,
   campaign: Campaign,
   recipient: Pick<Subscriber, 'email' | 'name'>,
+  /** 整批寄送時先讀一次品牌設定傳進來，不要每封信各讀一次。 */
+  preloadedBrand?: Awaited<ReturnType<typeof getBrand>>,
 ): Promise<RenderedEmail> {
-  const brand = await getBrand(ctx);
+  const brand = preloadedBrand ?? (await getBrand(ctx));
   const variables = await campaignVariables(ctx, recipient, brand);
   const contentHtml = brandedContentHtml(campaignContentHtml(campaign), variables);
   const subject = applyCampaignVariables(campaign.subject, variables, 'text');

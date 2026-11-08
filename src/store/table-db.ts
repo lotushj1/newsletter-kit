@@ -79,10 +79,11 @@ export function likeContains(text: string): string {
 }
 
 /**
- * InsForge 的閘道在查詢網址約 4KB 時回 502（實測：40 個排除名單 key 可以、50 個失敗）。
- * in 條件放在網址上，所以一次帶的值要控制總長度。
+ * InsForge 的閘道在查詢網址約 4KB 時回 502（實測：40 個排除名單 key 約 3,200 字元可以、
+ * 50 個約 4,000 字元失敗）。in 條件放在網址上，所以一次帶的值要控制總長度，
+ * 並留空間給網址其他部分。
  */
-export const MAX_IN_FILTER_CHARS = 1500;
+export const MAX_IN_FILTER_CHARS = 2500;
 
 /** 依網址編碼後的長度切段（每段至少一個值）。 */
 export function chunkByLength(values: string[], maxChars = MAX_IN_FILTER_CHARS): string[][] {
