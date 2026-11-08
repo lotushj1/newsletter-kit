@@ -1537,3 +1537,22 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 @media (max-width: 560px) {
   .template-gallery { grid-template-columns: 1fr; }
 }
+
+/* ── 手機與窄螢幕（≤768px）：側欄固定為圖示列，內容與編輯側欄改為上下排列 ── */
+@media (max-width: 768px) {
+  .ad-sider { width: var(--sidebar-collapsed); }
+  .ad-logo { justify-content: center; padding: 0; }
+  .ad-logo span,
+  .ad-menu a span { display: none; }
+  .ad-menu { padding: var(--space) 4px; }
+  .ad-menu a { justify-content: center; padding: 0; }
+  .ad-sider-foot { padding: var(--space) 4px; flex-direction: column; align-items: center; gap: 8px; }
+  .ad-header { padding: 0 1rem; }
+  .ad-content { padding: 1rem 1rem 2rem; }
+  .page-head { flex-wrap: wrap; }
+  .editor-shell { flex-direction: column; }
+  .editor-main { padding: 20px 16px 40px; }
+  .editor-side { width: auto; border-left: 0; border-top: 1px solid var(--border); }
+  table.data { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.data th, table.data td { white-space: nowrap; }
+}
