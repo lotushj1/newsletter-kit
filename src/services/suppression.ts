@@ -16,6 +16,14 @@ export async function isSuppressed(ctx: ServiceContext, email: string): Promise<
   return Boolean(await ctx.store.getSetting(key(email)));
 }
 
+/** 整批查排除名單，回傳被排除的地址（小寫）。名單很長時不用每個人各打一次資料庫。 */
+export async function suppressedEmails(ctx: ServiceContext, emails: string[]): Promise<Set<string>> {
+  const byKey = new Map(emails.map((email) => [key(email), email.trim().toLowerCase()]));
+  if (byKey.size === 0) return new Set();
+  const found = await ctx.store.getSettings([...byKey.keys()]);
+  return new Set(Object.entries(found).filter(([, value]) => Boolean(value)).map(([k]) => byKey.get(k)!));
+}
+
 /** Shared by provider webhooks and Portaly polling. A complaint always wins over a bounce. */
 export async function applyProviderProblem(
   ctx: ServiceContext,

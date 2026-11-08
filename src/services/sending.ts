@@ -13,7 +13,7 @@ import { getCampaign, renderCampaign } from './campaigns.js';
 import { clearSending, isSendingNow, markSending } from './send-state.js';
 import { unsubscribeUrl } from './subscribers.js';
 import { selectAudience } from './audience.js';
-import { isSuppressed } from './suppression.js';
+import { isSuppressed, suppressedEmails } from './suppression.js';
 
 function trackedHtml(
   ctx: ServiceContext,
@@ -166,9 +166,14 @@ async function deliverBatch(
   // 中途退訂或被抑制的人直接跳過，不要寄出去。
   const skips: DeliveryUpdate[] = [];
   const candidates: { delivery: Delivery; recipient: { email: string; name?: string | undefined } }[] = [];
+  // 整批讀訂閱者與排除名單（各一次查詢），不要每封各打一次資料庫。
+  const subscribers = new Map(
+    (await ctx.store.getSubscribersByIds(batch.map((d) => d.subscriberId))).map((s) => [s.id, s]),
+  );
+  const suppressed = await suppressedEmails(ctx, batch.map((d) => d.email));
   for (const delivery of batch) {
-    const subscriber = await ctx.store.getSubscriber(delivery.subscriberId);
-    if ((subscriber && (subscriber.status !== 'subscribed' || subscriber.meta?.suppressedReason)) || await isSuppressed(ctx, delivery.email)) {
+    const subscriber = subscribers.get(delivery.subscriberId) ?? null;
+    if ((subscriber && (subscriber.status !== 'subscribed' || subscriber.meta?.suppressedReason)) || suppressed.has(delivery.email.trim().toLowerCase())) {
       skips.push({ id: delivery.id, patch: { status: 'skipped', error: '已非訂閱狀態' } });
       continue;
     }

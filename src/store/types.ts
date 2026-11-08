@@ -302,6 +302,8 @@ export interface Store {
   updateSubscriber(id: string, patch: Partial<Subscriber>): Promise<Subscriber | null>;
   getSubscriber(id: string): Promise<Subscriber | null>;
   getSubscriberByEmail(email: string): Promise<Subscriber | null>;
+  /** 一次讀多位訂閱者（找不到的略過）；寄送時整批檢查訂閱狀態，不用每封各查一次。 */
+  getSubscribersByIds(ids: string[]): Promise<Subscriber[]>;
   listSubscribers(query?: SubscriberQuery): Promise<Paged<Subscriber>>;
   listSubscriberTags(): Promise<string[]>;
   deleteSubscriber(id: string): Promise<boolean>;
@@ -374,6 +376,8 @@ export interface Store {
   deleteTemplate(id: string): Promise<boolean>;
 
   getSetting(key: string): Promise<string | undefined>;
+  /** 一次讀多個設定，只回傳有值的鍵（整批查排除名單用）。 */
+  getSettings(keys: string[]): Promise<Record<string, string>>;
   setSetting(key: string, value: string): Promise<void>;
 
   createCampaignStarter(starter: CampaignStarter): Promise<CampaignStarter>;
