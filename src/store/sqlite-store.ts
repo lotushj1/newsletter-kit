@@ -535,6 +535,15 @@ export class SqliteStore implements Store {
     return row ? toSubscriber(row) : null;
   }
 
+  async getSubscribersByIds(ids: string[]): Promise<Subscriber[]> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return [];
+    const rows = this.db
+      .prepare(`SELECT * FROM subscribers WHERE id IN (${unique.map(() => '?').join(', ')})`)
+      .all(...unique) as SubscriberRow[];
+    return rows.map(toSubscriber);
+  }
+
   async listSubscribers(query: SubscriberQuery = {}): Promise<Paged<Subscriber>> {
     const where: string[] = [];
     const params: Record<string, unknown> = {};
@@ -1325,6 +1334,15 @@ export class SqliteStore implements Store {
       | { value: string }
       | undefined;
     return row?.value;
+  }
+
+  async getSettings(keys: string[]): Promise<Record<string, string>> {
+    const unique = [...new Set(keys)];
+    if (unique.length === 0) return {};
+    const rows = this.db
+      .prepare(`SELECT key, value FROM settings WHERE key IN (${unique.map(() => '?').join(', ')})`)
+      .all(...unique) as { key: string; value: string }[];
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
   }
 
   async setSetting(key: string, value: string): Promise<void> {

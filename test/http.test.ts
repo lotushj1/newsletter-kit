@@ -40,7 +40,8 @@ describe('公開端點', () => {
   it('健康檢查會回報目前的 store 與寄信管道', async () => {
     const response = await fetch(`${base}/health`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, provider: 'fake', store: 'memory' });
+    const expectedStore = process.env.NK_TEST_STORE === 'tables' ? 'insforge-tables' : 'memory';
+    expect(await response.json()).toMatchObject({ ok: true, provider: 'fake', store: expectedStore });
   });
 
   it('簽名圖示是公開的 PNG', async () => {

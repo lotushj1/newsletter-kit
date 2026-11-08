@@ -19,6 +19,8 @@ InsForge store 把整份資料存成一列 JSON（`nk_snapshots`），每個 ser
 
 ## 資料層防護（`src/store/insforge-store.ts`、`src/store/snapshot-guard.ts`）
 
+結構性的解法是改用逐表的 `STORE_DRIVER=insforge-tables`：不再整份讀寫，也沒有快照可以被覆寫。搬移與回退見 [InsForge 逐表 store](insforge-tables.md)。以下是單列 JSON driver 的防護。
+
 - **不寫空白：** 讀到 `null` 時先用最小查詢確認資料列是否存在；存在就拒絕啟動。全新安裝只用 insert 建立，不可能覆寫既有資料。
 - **條件更新：** 寫入時要求 `payload->>__nk_version` 等於剛讀到的版本，不符就重讀、重新合併再寫。
 - **損毀偵測：** 遠端版本號倒退，或資料大量消失（集合 ≥5 筆且少掉一半以上）又沒有對應的刪除墓碑，就視為遠端損毀。該實例停止寫入（fail closed），`/health` 回 503 並顯示 `storeIntegrity: frozen`。

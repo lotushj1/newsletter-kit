@@ -139,6 +139,15 @@ export class MemoryStore implements Store {
     return null;
   }
 
+  async getSubscribersByIds(ids: string[]): Promise<Subscriber[]> {
+    const out: Subscriber[] = [];
+    for (const id of new Set(ids)) {
+      const found = this.subscribers.get(id);
+      if (found) out.push(clone(found));
+    }
+    return out;
+  }
+
   async listSubscribers(query: SubscriberQuery = {}): Promise<Paged<Subscriber>> {
     const search = query.search?.toLowerCase();
     const filtered = [...this.subscribers.values()]
@@ -697,6 +706,15 @@ export class MemoryStore implements Store {
 
   async getSetting(key: string): Promise<string | undefined> {
     return this.settings.get(key);
+  }
+
+  async getSettings(keys: string[]): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const key of keys) {
+      const value = this.settings.get(key);
+      if (value !== undefined) out[key] = value;
+    }
+    return out;
   }
 
   async setSetting(key: string, value: string): Promise<void> {

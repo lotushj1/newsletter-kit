@@ -50,6 +50,7 @@ const HISTORY_KEEP = 72;
 const READ_METHODS = [
   'getSubscriber',
   'getSubscriberByEmail',
+  'getSubscribersByIds',
   'listSubscribers',
   'listSubscriberTags',
   'countSubscribersByStatus',
@@ -78,6 +79,7 @@ const READ_METHODS = [
   'getTemplate',
   'listTemplates',
   'getSetting',
+  'getSettings',
   'getCampaignStarter',
   'listCampaignStarters',
 ] as const;
