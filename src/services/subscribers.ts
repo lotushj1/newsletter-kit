@@ -8,6 +8,7 @@ import { confirmEmailContentHtml } from '../core/system-emails.js';
 import { createToken, verifyToken } from '../core/tokens.js';
 import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.js';
 import { syncSubscriberToNotion } from './notion-sync.js';
+import { clearUnsubscribeSuppression, recordUnsubscribeWithoutSubscriber } from './suppression.js';
 import type { Paged, Subscriber, SubscriberQuery, SubscriberStatus } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getBrand } from './brand.js';
@@ -106,6 +107,7 @@ export async function subscribe(
       await sendConfirmEmail(ctx, updated);
       return { status: 'pending', message: '確認信已寄出，請到信箱點確認連結。', subscriber: updated };
     }
+    await clearUnsubscribeSuppression(ctx, email);
     const updated = (await ctx.store.updateSubscriber(existing.id, {
       status: 'subscribed',
       name: name ?? existing.name,
@@ -120,6 +122,7 @@ export async function subscribe(
   }
 
   const status: SubscriberStatus = doubleOptIn ? 'pending' : 'subscribed';
+  if (status === 'subscribed') await clearUnsubscribeSuppression(ctx, email);
   const created = await ctx.store.createSubscriber({
     id: newId('sub'),
     email,
@@ -152,6 +155,7 @@ export async function confirmSubscription(
   if (!subscriber) return { ok: false, message: '找不到對應的訂閱資料，請重新訂閱。' };
   if (subscriber.status === 'subscribed') return { ok: true, message: '你已經完成訂閱了。' };
 
+  await clearUnsubscribeSuppression(ctx, subscriber.email);
   const confirmed = (await ctx.store.updateSubscriber(subscriber.id, {
     status: 'subscribed',
     confirmedAt: nowIso(),
@@ -184,7 +188,11 @@ export async function unsubscribeByEmail(
   source?: { campaignId?: string; deliveryId?: string; subscriberId?: string },
 ): Promise<{ ok: boolean; message: string }> {
   const subscriber = await ctx.store.getSubscriberByEmail(email.toLowerCase());
-  if (!subscriber) return { ok: true, message: '這個地址不在名單內。' };
+  if (!subscriber) {
+    // 名單裡找不到（可能是資料遺失期間）也要留下退訂紀錄，不能只回成功。
+    await recordUnsubscribeWithoutSubscriber(ctx, email);
+    return { ok: true, message: '已退訂，之後不會再寄信到這個地址。' };
+  }
   if (subscriber.status === 'unsubscribed') return { ok: true, message: '你已經退訂了。' };
   const updated = await ctx.store.updateSubscriber(subscriber.id, {
     status: 'unsubscribed',

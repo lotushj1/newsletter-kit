@@ -137,7 +137,7 @@ describe('電子報內容', () => {
     expect(copy.audienceTags).toEqual(['vip']);
     expect(copy.status).toBe('draft');
     expect(copy.sentAt).toBeNull();
-    expect(copy.stats).toEqual({ total: 0, sent: 0, failed: 0 });
+    expect(copy.stats).toEqual({ total: 0, sent: 0, failed: 0, unconfirmed: 0 });
     expect(original?.status).toBe('sent');
     expect(original?.title).toBe('九月號');
   });

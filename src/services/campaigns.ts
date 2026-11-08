@@ -166,17 +166,26 @@ export interface OverviewRates {
   uniqueClicks: number;
   openRate: number | null;
   clickRate: number | null;
+  /** 有對不到寄送紀錄的事件、或比率超過 100%：這段期間的比率不可信，介面要標示。 */
+  dataIncomplete: boolean;
 }
+
+const rate = (count: number, sent: number): number | null =>
+  sent > 0 && count <= sent ? count / sent : null;
 
 export async function overviewRates(
   ctx: ServiceContext,
   range?: { from?: string; to?: string },
 ): Promise<OverviewRates> {
   const stats = await ctx.store.periodStats(range);
+  const dataIncomplete =
+    (stats.orphanEvents ?? 0) > 0 || stats.uniqueOpens > stats.sent || stats.uniqueClicks > stats.sent;
   return {
     ...stats,
-    openRate: stats.sent > 0 ? stats.uniqueOpens / stats.sent : null,
-    clickRate: stats.sent > 0 ? stats.uniqueClicks / stats.sent : null,
+    // 資料不完整時一律不給比率：0% 或 10600% 都一樣會誤導。
+    openRate: dataIncomplete ? null : rate(stats.uniqueOpens, stats.sent),
+    clickRate: dataIncomplete ? null : rate(stats.uniqueClicks, stats.sent),
+    dataIncomplete,
   };
 }
 

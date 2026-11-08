@@ -86,6 +86,12 @@ export function Dashboard() {
           }}
         />
       </div>
+      {rates.dataIncomplete ? (
+        <div className="notice error">
+          這段時間有 {rates.orphanEvents ?? 0} 筆開信／點擊事件對不到寄送紀錄（寄送紀錄遺失），
+          開信率與點擊率暫不顯示；數字以寄信服務的紀錄為準。
+        </div>
+      ) : null}
       <div className="grid stats">
         <div className="card">
           <div className="muted">新增訂閱</div>
@@ -101,12 +107,12 @@ export function Dashboard() {
         <div className="card">
           <div className="muted">開信率</div>
           <div className="dash-stat">{formatRate(rates.openRate, rates.sent)}</div>
-          <div className="muted">{rates.sent > 0 ? `${rates.uniqueOpens}／${rates.sent} 已寄` : '還沒有寄出紀錄'}</div>
+          <div className="muted">{rates.dataIncomplete ? '資料不完整' : rates.sent > 0 ? `${rates.uniqueOpens}／${rates.sent} 已寄` : '還沒有寄出紀錄'}</div>
         </div>
         <div className="card">
           <div className="muted">點擊率</div>
           <div className="dash-stat">{formatRate(rates.clickRate, rates.sent)}</div>
-          <div className="muted">{rates.sent > 0 ? `${rates.uniqueClicks}／${rates.sent} 已寄` : '還沒有寄出紀錄'}</div>
+          <div className="muted">{rates.dataIncomplete ? '資料不完整' : rates.sent > 0 ? `${rates.uniqueClicks}／${rates.sent} 已寄` : '還沒有寄出紀錄'}</div>
         </div>
         <div className="card">
           <div className="muted">退訂</div>

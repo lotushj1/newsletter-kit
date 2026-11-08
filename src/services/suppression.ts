@@ -5,6 +5,9 @@ import type { ServiceContext } from './context.js';
 
 export type SuppressionReason = 'bounce' | 'complaint';
 
+/** 名單裡找不到的地址按了退訂（例如資料遺失期間）：先記下來，還原或匯入名單後也不會寄給他。 */
+const UNSUBSCRIBE_MARK = 'unsubscribe';
+
 function key(email: string): string {
   return `suppression:${createHash('sha256').update(email.trim().toLowerCase()).digest('hex')}`;
 }
@@ -44,4 +47,23 @@ export async function applyProviderProblem(
     changed = true;
   }
   return changed;
+}
+
+/**
+ * 退訂了但名單裡沒有這個人（2026-11-04 資料被清空後就發生過，當時退訂完全沒有留下紀錄）。
+ * 記進排除名單；之後即使從備份還原或重新匯入，寄送時也會因為 isSuppressed 而跳過。
+ */
+export async function recordUnsubscribeWithoutSubscriber(ctx: ServiceContext, email: string): Promise<void> {
+  const settingKey = key(email);
+  const current = await ctx.store.getSetting(settingKey);
+  if (current) return; // 已有退信／檢舉／退訂紀錄
+  await ctx.store.setSetting(settingKey, UNSUBSCRIBE_MARK);
+}
+
+/** 本人重新訂閱並完成確認時，解除「退訂」這種排除（退信、檢舉不解除）。 */
+export async function clearUnsubscribeSuppression(ctx: ServiceContext, email: string): Promise<void> {
+  const settingKey = key(email);
+  if ((await ctx.store.getSetting(settingKey)) === UNSUBSCRIBE_MARK) {
+    await ctx.store.setSetting(settingKey, '');
+  }
 }

@@ -2,9 +2,12 @@ import { createAdminClient } from '@insforge/sdk';
 import { logger } from './logger.js';
 import { withTimeoutRetry } from './retry.js';
 import type { MemorySnapshot } from '../store/memory-store.js';
+import { SnapshotConflictError } from '../store/snapshot-guard.js';
 
 export const INSFORGE_SNAPSHOT_TABLE = 'nk_snapshots';
 export const INSFORGE_SNAPSHOT_ID = 'default';
+/** 歷史版本存在同一張表、id 以這個前綴開頭（每小時一份，只新增不覆寫）。 */
+export const INSFORGE_HISTORY_PREFIX = 'history-';
 export const INSFORGE_UPLOAD_BUCKET = 'nk-uploads';
 
 /**
@@ -17,6 +20,8 @@ const RETRY_ATTEMPTS = 3;
 
 /** 4xx（參數、權限、額度之類）重試沒有意義；逾時、斷線、5xx 才重試。 */
 function isTransient(error: unknown): boolean {
+  // 版本衝突要交回 store 重讀合併，不能在這層盲目重送。
+  if (error instanceof SnapshotConflictError) return false;
   if (error instanceof Error && error.name === 'InsForgeError') {
     const status = (error as { statusCode?: number }).statusCode ?? 0;
     return status === 0 || status === 408 || status === 429 || status >= 500;
@@ -31,9 +36,24 @@ function closeConnectionFetch(input: RequestInfo | URL, init?: RequestInit): Pro
   return fetch(input, { ...init, headers, keepalive: false });
 }
 
+export interface SnapshotSaveOptions {
+  /**
+   * 遠端目前應該是這個版本號才寫入（compare-and-swap）；0 代表舊資料沒有版本號。
+   * 不相符時丟 SnapshotConflictError，絕不覆寫別人剛寫入的資料。
+   */
+  expectedVersion?: number | undefined;
+}
+
 export interface InsForgeBackend {
   loadSnapshot(): Promise<MemorySnapshot | null>;
-  saveSnapshot(snapshot: MemorySnapshot): Promise<void>;
+  /** 只更新既有資料列；帶 expectedVersion 時做條件更新。 */
+  saveSnapshot(snapshot: MemorySnapshot, options?: SnapshotSaveOptions): Promise<void>;
+  /** 用最小查詢確認資料列是否存在（讀到 null 時用來判斷是「真的沒有」還是「讀取異常」）。 */
+  snapshotExists?(): Promise<boolean>;
+  /** 只新增、不覆寫：資料列已存在時會失敗。只在全新安裝時用。 */
+  createSnapshot?(snapshot: MemorySnapshot): Promise<void>;
+  /** 寫一份歷史版本（同 key 已存在就略過），並刪掉超過 keep 份的舊歷史。 */
+  saveHistory?(key: string, snapshot: MemorySnapshot, keep: number): Promise<void>;
   uploadImage(fileName: string, bytes: Buffer, mime: string): Promise<{ url: string }>;
   sendEmail(input: {
     to: string;
@@ -107,24 +127,89 @@ export function createInsForgeBackend(): InsForgeBackend {
       });
     },
 
-    async saveSnapshot(snapshot) {
+    async saveSnapshot(snapshot, options = {}) {
       await withInsForgeRetry('寫入快照', async () => {
         const row = {
-          id: INSFORGE_SNAPSHOT_ID,
           payload: snapshot,
           updated_at: new Date().toISOString(),
         };
+        let query = admin.database
+          .from(INSFORGE_SNAPSHOT_TABLE)
+          .update(row)
+          .eq('id', INSFORGE_SNAPSHOT_ID);
+        const expected = options.expectedVersion;
+        if (expected !== undefined) {
+          query =
+            expected === 0
+              ? query.is('payload->>__nk_version', null)
+              : query.eq('payload->>__nk_version', String(expected));
+        }
+        const { data, error } = await query.select('id');
+        if (error) throw asError(error, '寫入 InsForge 資料失敗');
+        if (!Array.isArray(data)) {
+          throw new Error('InsForge 寫入後沒有回傳更新結果，無法確認是否寫入');
+        }
+        if (data.length === 0) {
+          // 版本不符（別人先寫了）或資料列不存在：都不能當成功。
+          throw new SnapshotConflictError(
+            `InsForge 快照版本已變動（預期 ${expected ?? '任意'}），拒絕覆寫`,
+          );
+        }
+      });
+    },
+
+    async snapshotExists() {
+      return withInsForgeRetry('確認快照資料列', async () => {
+        const { data, error } = await admin.database
+          .from(INSFORGE_SNAPSHOT_TABLE)
+          .select('id')
+          .eq('id', INSFORGE_SNAPSHOT_ID);
+        if (error) throw asError(error, '確認 InsForge 資料列失敗');
+        if (!Array.isArray(data)) throw new Error('InsForge 回傳格式異常（確認資料列）');
+        return data.length > 0;
+      });
+    },
+
+    async createSnapshot(snapshot) {
+      await withInsForgeRetry('建立快照', async () => {
+        const { error } = await admin.database.from(INSFORGE_SNAPSHOT_TABLE).insert([
+          { id: INSFORGE_SNAPSHOT_ID, payload: snapshot, updated_at: new Date().toISOString() },
+        ]);
+        if (error) throw asError(error, '建立 InsForge 資料列失敗');
+      });
+    },
+
+    async saveHistory(key, snapshot, keep) {
+      const id = `${INSFORGE_HISTORY_PREFIX}${key}`;
+      await withInsForgeRetry('寫入歷史版本', async () => {
         const { data: existing, error: readError } = await admin.database
           .from(INSFORGE_SNAPSHOT_TABLE)
           .select('id')
-          .eq('id', INSFORGE_SNAPSHOT_ID)
-          .maybeSingle();
-        if (readError) throw asError(readError, '寫入 InsForge 前讀取失敗');
-        const result = existing
-          ? await admin.database.from(INSFORGE_SNAPSHOT_TABLE).update(row).eq('id', INSFORGE_SNAPSHOT_ID)
-          : await admin.database.from(INSFORGE_SNAPSHOT_TABLE).insert([row]);
-        if (result.error) throw asError(result.error, '寫入 InsForge 資料失敗');
+          .eq('id', id);
+        if (readError) throw asError(readError, '讀取歷史版本失敗');
+        if (Array.isArray(existing) && existing.length > 0) return;
+        const { error } = await admin.database
+          .from(INSFORGE_SNAPSHOT_TABLE)
+          .insert([{ id, payload: snapshot, updated_at: new Date().toISOString() }]);
+        // 另一個實例同一小時先寫了也沒關係（主鍵衝突）。
+        if (error && !/duplicate|unique|23505|409/i.test(`${error.message ?? ''} ${(error as { code?: string }).code ?? ''}`)) {
+          throw asError(error, '寫入歷史版本失敗');
+        }
       });
+      // 清理：只動 history- 開頭的資料列，絕不碰正本。
+      const { data: rows, error } = await admin.database
+        .from(INSFORGE_SNAPSHOT_TABLE)
+        .select('id')
+        .like('id', `${INSFORGE_HISTORY_PREFIX}%`)
+        .order('id', { ascending: false });
+      if (error || !Array.isArray(rows)) return;
+      const stale = (rows as { id: string }[])
+        .map((r) => r.id)
+        .filter((rowId) => rowId.startsWith(INSFORGE_HISTORY_PREFIX) && rowId !== INSFORGE_SNAPSHOT_ID)
+        .slice(keep);
+      if (stale.length > 0) {
+        await admin.database.from(INSFORGE_SNAPSHOT_TABLE).delete().in('id', stale);
+      }
     },
 
     uploadImage(fileName, bytes, mime) {

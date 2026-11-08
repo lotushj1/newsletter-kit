@@ -6,7 +6,9 @@ import type {
   CampaignQuery,
   CampaignStats,
   Delivery,
+  DeliveryClaim,
   DeliveryStatus,
+  DeliveryUpdate,
   Folder,
   FolderKind,
   PeriodQuery,
@@ -371,6 +373,41 @@ export class MemoryStore implements Store {
     await this.persist();
   }
 
+  /** 只改記憶體、不持久化；InsForgeStore 會在原子區段裡呼叫。 */
+  protected claimDeliveriesInMemory(ids: string[], claim: DeliveryClaim): string[] {
+    const claimed: string[] = [];
+    for (const id of ids) {
+      const current = this.deliveries.get(id);
+      if (!current || current.status !== 'pending') continue;
+      this.deliveries.set(id, {
+        ...current,
+        status: 'sending',
+        claimId: claim.claimId,
+        claimedAt: claim.claimedAt,
+      });
+      claimed.push(id);
+    }
+    return claimed;
+  }
+
+  async claimDeliveries(ids: string[], claim: DeliveryClaim): Promise<string[]> {
+    const claimed = this.claimDeliveriesInMemory(ids, claim);
+    if (claimed.length > 0) await this.persist();
+    return claimed;
+  }
+
+  async updateDeliveries(updates: DeliveryUpdate[]): Promise<number> {
+    let applied = 0;
+    for (const { id, patch } of updates) {
+      const current = this.deliveries.get(id);
+      if (!current) continue;
+      this.deliveries.set(id, { ...current, ...clone(patch), id: current.id });
+      applied += 1;
+    }
+    if (applied > 0) await this.persist();
+    return applied;
+  }
+
   async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
     for (const delivery of this.deliveries.values()) {
       if (delivery.providerMessageId === providerMessageId) return clone(delivery);
@@ -389,12 +426,13 @@ export class MemoryStore implements Store {
   }
 
   async deliveryStats(campaignId: string): Promise<CampaignStats> {
-    const stats: CampaignStats = { total: 0, sent: 0, failed: 0 };
+    const stats: CampaignStats = { total: 0, sent: 0, failed: 0, unconfirmed: 0 };
     for (const delivery of this.deliveries.values()) {
       if (delivery.campaignId !== campaignId) continue;
       stats.total += 1;
       if (delivery.status === 'sent') stats.sent += 1;
       if (delivery.status === 'failed') stats.failed += 1;
+      if (delivery.status === 'sending') stats.unconfirmed! += 1;
     }
     return stats;
   }
@@ -425,8 +463,14 @@ export class MemoryStore implements Store {
     const clicks = new Set<string>();
     let openCount = 0;
     let clickCount = 0;
+    let orphanEvents = 0;
     for (const event of this.events.values()) {
       if (event.campaignId !== campaignId) continue;
+      if (event.type !== 'unsubscribe' && !this.isAttributable(event)) {
+        // 寄送紀錄已遺失的事件不算進開信／點擊，避免分母殘缺時算出 10600% 這種數字。
+        orphanEvents += 1;
+        continue;
+      }
       const who = event.subscriberId ?? event.id;
       if (event.type === 'open') {
         openCount += 1;
@@ -455,7 +499,15 @@ export class MemoryStore implements Store {
       clicks: clickCount,
       uniqueClicks: clicks.size,
       unsubscribes: unsubscribed.size,
+      orphanEvents,
     };
+  }
+
+  /** 事件有 deliveryId 時，必須對得到一筆已寄出的寄送紀錄才算數。 */
+  protected isAttributable(event: TrackingEvent): boolean {
+    if (!event.deliveryId) return true;
+    const delivery = this.deliveries.get(event.deliveryId);
+    return !!delivery && delivery.status === 'sent' && delivery.campaignId === event.campaignId;
   }
 
   async periodStats(query: PeriodQuery = {}): Promise<PeriodStats> {
@@ -486,9 +538,16 @@ export class MemoryStore implements Store {
 
     const opens = new Set<string>();
     const clicks = new Set<string>();
+    let orphanEvents = 0;
     for (const event of this.events.values()) {
       if (!inRange(event.createdAt)) continue;
-      const who = event.subscriberId ?? event.id;
+      if (event.type !== 'open' && event.type !== 'click') continue;
+      if (!this.isAttributable(event)) {
+        orphanEvents += 1;
+        continue;
+      }
+      // 以「哪一封信被開」計：同一人開了兩期算兩次，分母（已寄封數）才對得上。
+      const who = `${event.campaignId}:${event.subscriberId ?? event.id}`;
       if (event.type === 'open') opens.add(who);
       if (event.type === 'click') clicks.add(who);
     }
@@ -500,6 +559,7 @@ export class MemoryStore implements Store {
       sent,
       uniqueOpens: opens.size,
       uniqueClicks: clicks.size,
+      orphanEvents,
     };
   }
 
