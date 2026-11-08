@@ -36,7 +36,7 @@ Mailchimp／ConvertKit 同等名單通常 $50–300／月，還綁他們的編�
 
 - **本機／單一 VPS + SQLite**（預設）：5,000 人完全夠。Zeabur／Fly 一台約 **$5–19／月**。優點便宜、備份一個檔；缺點不好水平擴充。
 - **同一套程式 + Postgres**：名單過萬、要開多實例或 MCP 常駐時再加。月費約 **$15–40**。實作 `Store` 介面即可，服務層不用改。
-- **BaaS（可選，不是預設）**：`STORE_DRIVER=insforge` 把資料與上傳圖片存在你自己的 InsForge 專案（`INSFORGE_URL` + `INSFORGE_API_KEY`）。寄信可另設 `EMAIL_PROVIDER=insforge`（需付費方案）。程式不綁死任何一家，也不內建任何現成專案的金鑰。
+- **BaaS（可選，不是預設）**：`STORE_DRIVER=insforge` 把資料與上傳圖片存在你自己的 InsForge 專案（`INSFORGE_URL` + `INSFORGE_API_KEY`）；名單會長大就用逐表的 `STORE_DRIVER=insforge-tables`（見 [InsForge 逐表 store](insforge-tables.md)）。寄信可另設 `EMAIL_PROVIDER=insforge`（需付費方案）。程式不綁死任何一家，也不內建任何現成專案的金鑰。
 
 多台機器時，只讓其中一台設 `SCHEDULER_ENABLED=true`，否則排程與序列信會被重複寄出。
 
