@@ -15,8 +15,8 @@ export const INSFORGE_UPLOAD_BUCKET = 'nk-uploads';
  * 壞掉的 keep-alive socket（serverless 解凍後最常見）會被丟棄，
  * 重試就走新連線。快照寫入是「同一份合併結果整列覆寫」，重試不會寫壞資料。
  */
-const PER_ATTEMPT_TIMEOUT_MS = 8000;
-const RETRY_ATTEMPTS = 3;
+export const PER_ATTEMPT_TIMEOUT_MS = 8000;
+export const RETRY_ATTEMPTS = 3;
 
 /** 4xx（參數、權限、額度之類）重試沒有意義；逾時、斷線、5xx 才重試。 */
 function isTransient(error: unknown): boolean {
@@ -30,7 +30,7 @@ function isTransient(error: unknown): boolean {
 }
 
 /** Fluid Compute 解凍後 SDK 內建的 keep-alive 連線常是死的；每次請求強制 Connection: close。 */
-function closeConnectionFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export function closeConnectionFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set('connection', 'close');
   return fetch(input, { ...init, headers, keepalive: false });
@@ -69,7 +69,7 @@ interface SnapshotRow {
   payload: MemorySnapshot;
 }
 
-function requireCreds(): { url: string; apiKey: string } {
+export function requireCreds(): { url: string; apiKey: string } {
   const url = process.env.INSFORGE_URL?.replace(/\/+$/, '');
   const apiKey = process.env.INSFORGE_API_KEY;
   if (!url || !apiKey) {

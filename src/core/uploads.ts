@@ -72,7 +72,10 @@ export async function saveCampaignImage(
   input: { driver: StoreDriver; uploadsPath: string },
   fileBase64: string,
 ): Promise<{ fileName: string; url: string; mime: string }> {
-  if (input.driver !== 'insforge') return saveImageUpload(input.uploadsPath, fileBase64);
+  // 兩種 InsForge store 都沒有持久硬碟可用，圖片一律放 InsForge Storage。
+  if (input.driver !== 'insforge' && input.driver !== 'insforge-tables') {
+    return saveImageUpload(input.uploadsPath, fileBase64);
+  }
   const buf = decodeImageBase64(fileBase64);
   if (buf.length === 0) throw badRequest('請選擇圖片');
   if (buf.length > MAX_IMAGE_BYTES) throw badRequest(IMAGE_TOO_LARGE_MESSAGE);
