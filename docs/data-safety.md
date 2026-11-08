@@ -29,9 +29,9 @@ InsForge store 把整份資料存成一列 JSON（`nk_snapshots`），每個 ser
 
 - **先領取再寄：** 寄信前原子地把寄送紀錄從 `pending` 改成 `sending` 並持久化；只有領到的才交給寄信服務，多個實例不會寄同一筆。
 - **寫回核對：** 寄送結果一次寫回並核對筆數，少一筆就丟 `SendRecordError` 停止寄送。
-- **結果不明不重寄：** 逾時、5xx、409（Portaly 同一冪等鍵處理中）視為結果不明，留在 `sending`。重寄或續寄都不會碰這些紀錄；用 `POST /admin/api/campaigns/:id/reconcile` 依 ref（= delivery id）向寄信服務對帳，查到才標成已寄出。
+- **結果不明不重寄：** 逾時、5xx、409（Portaly 同一冪等鍵處理中）視為結果不明，留在 `sending`。重寄或續寄都不會碰這些紀錄；用 `POST /api/admin/campaigns/:id/reconcile` 依 ref（= delivery id）向寄信服務對帳，查到才標成已寄出。
 - **去重：** 同一個 email 只建立一筆寄送紀錄；重寄失敗的電子報只排回 `failed`／`pending`，同一地址已有 `sent`／`sending` 的會標成 `skipped`。
-- **時間預算：** 單次寄送超過 `SEND_TIME_BUDGET_MS`（Vercel 預設 240 秒，函式上限 300 秒）就先收手，佇列保留，用 `POST /admin/api/campaigns/:id/resume` 續寄。
+- **時間預算：** 單次寄送超過 `SEND_TIME_BUDGET_MS`（Vercel 預設 240 秒，函式上限 300 秒）就先收手，佇列保留，用 `POST /api/admin/campaigns/:id/resume` 續寄。
 - **退訂排除：** 名單裡找不到的地址按退訂也會記入排除名單；之後還原或匯入名單，寄送時仍會跳過。本人重新訂閱並完成確認才解除。
 
 ## 環境變數
