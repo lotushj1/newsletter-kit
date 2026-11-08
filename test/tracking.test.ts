@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { injectTracking } from '../src/core/tracking.js';
-import { createCampaign } from '../src/services/campaigns.js';
+import { createCampaign, overviewRates } from '../src/services/campaigns.js';
 import { startCampaign, sendTestEmail } from '../src/services/sending.js';
 import { createSubscriber } from '../src/services/subscribers.js';
 import { recordClick, recordOpen } from '../src/services/tracking.js';
@@ -41,6 +41,17 @@ describe('開信與點擊追蹤', () => {
 
   it('pixel 與轉址會記入 events', async () => {
     const { ctx } = await makeContext();
+    await ctx.store.createDeliveries([
+      {
+        id: 'dlv_1',
+        campaignId: 'cmp_1',
+        subscriberId: 'sub_1',
+        email: 'a@example.com',
+        status: 'sent',
+        attempts: 1,
+        sentAt: new Date().toISOString(),
+      },
+    ]);
     const html = injectTracking('<body><a href="https://example.com/a">a</a></body>', {
       secret: ctx.config.appSecret,
       publicBaseUrl: ctx.config.publicBaseUrl,
@@ -60,6 +71,30 @@ describe('開信與點擊追蹤', () => {
     expect(stats.opens).toBe(1);
     expect(stats.uniqueOpens).toBe(1);
     expect(stats.clicks).toBe(1);
+    expect(stats.orphanEvents).toBe(0);
+  });
+
+  it('寄送紀錄已遺失的開信事件不算進統計，改計為 orphanEvents（避免開信率超過 100%）', async () => {
+    const { ctx } = await makeContext();
+    const html = injectTracking('<body><a href="https://example.com/a">a</a></body>', {
+      secret: ctx.config.appSecret,
+      publicBaseUrl: ctx.config.publicBaseUrl,
+      email: 'lost@example.com',
+      campaignId: 'cmp_1',
+      deliveryId: 'dlv_lost',
+      subscriberId: 'sub_lost',
+    });
+    const openToken = /\/t\/open\?token=([^"&]+)/.exec(html)?.[1];
+    expect(await recordOpen(ctx, decodeURIComponent(openToken!))).toBe(true);
+    const stats = await ctx.store.campaignTrackingStats('cmp_1');
+    expect(stats.uniqueOpens).toBe(0);
+    expect(stats.orphanEvents).toBe(1);
+    const period = await ctx.store.periodStats({});
+    expect(period.uniqueOpens).toBe(0);
+    expect(period.orphanEvents).toBe(1);
+    const rates = await overviewRates(ctx, {});
+    expect(rates.dataIncomplete).toBe(true);
+    expect(rates.openRate).toBeNull();
   });
 
   it('退訂連結不會被改成轉址', () => {

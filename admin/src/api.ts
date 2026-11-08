@@ -62,6 +62,8 @@ export interface CampaignStats {
   total: number;
   sent: number;
   failed: number;
+  /** 已交給寄信服務、結果尚未確認的筆數（不會自動重寄）。 */
+  unconfirmed?: number;
 }
 
 export interface TrackingStats {
@@ -70,6 +72,7 @@ export interface TrackingStats {
   clicks: number;
   uniqueClicks: number;
   unsubscribes: number;
+  orphanEvents?: number;
 }
 
 export interface OverviewRates {
@@ -81,6 +84,8 @@ export interface OverviewRates {
   uniqueClicks: number;
   openRate: number | null;
   clickRate: number | null;
+  orphanEvents?: number;
+  dataIncomplete?: boolean;
 }
 
 export interface Campaign {
