@@ -80,7 +80,20 @@ export interface Config {
   physicalAddress?: string | undefined;
   privacyUrl?: string | undefined;
   join: { headline: string | undefined; description: string | undefined; tags: string[] };
-  send: { batchSize: number; batchDelayMs: number; maxAttempts: number };
+  send: {
+    batchSize: number;
+    batchDelayMs: number;
+    maxAttempts: number;
+    /**
+     * 排程器（含外部 cron 打 /api/cron/tick）是否自動接續「寄送中」的電子報。
+     * 預設 false：部署、重啟、還原資料後都不會自己恢復寄送，要人工在後台按續寄。
+     */
+    autoResume?: boolean | undefined;
+    /** 單次寄送最多跑多久（毫秒）就先收手；0 = 不限。Vercel 預設 240 秒（函式上限 300 秒）。 */
+    timeBudgetMs?: number | undefined;
+    /** SEND_PAUSED=true：全面停止寄送（含手動、排程、序列信），只能改環境變數解除。 */
+    paused?: boolean | undefined;
+  };
   scheduler: { enabled: boolean; pollMs: number; cronSecret: string | undefined };
   isProduction: boolean;
   warnings: string[];
@@ -247,6 +260,9 @@ export function loadConfig(): Config {
       batchSize: Math.max(1, num('SEND_BATCH_SIZE', 20)),
       batchDelayMs: num('SEND_BATCH_DELAY_MS', 1000),
       maxAttempts: Math.max(1, num('SEND_MAX_ATTEMPTS', 3)),
+      autoResume: bool('SEND_AUTO_RESUME', false),
+      timeBudgetMs: Math.max(0, num('SEND_TIME_BUDGET_MS', onVercel ? 240_000 : 0)),
+      paused: bool('SEND_PAUSED', false),
     },
     scheduler: {
       enabled: bool('SCHEDULER_ENABLED', !onVercel),

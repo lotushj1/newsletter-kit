@@ -18,7 +18,25 @@ export interface EmailMessage {
 
 export type SendResult =
   | { ok: true; id?: string | undefined }
-  | { ok: false; error: string; retryable?: boolean | undefined };
+  | {
+      ok: false;
+      error: string;
+      retryable?: boolean | undefined;
+      /**
+       * true = 供應商可能已經收下這封（逾時、斷線、5xx）。
+       * 這種結果不能直接重寄，寄送紀錄會停在 sending，等對帳確認。
+       */
+      outcomeUnknown?: boolean | undefined;
+    };
+
+/** 供應商端查到的寄送紀錄（用 ref／冪等鍵對帳）。 */
+export interface ProviderSentRecord {
+  ref: string;
+  providerMessageId?: string | undefined;
+  acceptedAt?: string | undefined;
+  /** 供應商回報的收件人狀態，例如 delivered、bounced；accepted ≠ delivered。 */
+  recipientStatus?: string | undefined;
+}
 
 export interface VerifyResult {
   ok: boolean;
@@ -36,6 +54,11 @@ export interface EmailAdapter {
   send(message: EmailMessage): Promise<SendResult>;
   /** 有批次 API 的供應商可實作，沒實作就退回逐封 send */
   sendBatch?(messages: EmailMessage[]): Promise<SendResult[]>;
+  /**
+   * 用 ref（= delivery id）查供應商是否已收下這些信，結果不明的寄送紀錄靠它對帳。
+   * 沒實作的供應商就無法自動對帳，只能人工確認。
+   */
+  findSentByRefs?(refs: string[], sinceIso: string): Promise<Map<string, ProviderSentRecord>>;
 }
 
 export interface AdapterContext {

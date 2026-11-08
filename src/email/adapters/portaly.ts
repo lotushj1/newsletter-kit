@@ -164,16 +164,42 @@ async function postJson(
   }
 }
 
+/** 逾時／斷線、502 SEND_OUTCOME_UNKNOWN、其他 5xx：Portaly 可能已經收下，不能當成沒寄。 */
+function isOutcomeUnknown(error: PortalyError): boolean {
+  // 409 IDEMPOTENCY_KEY_IN_USE：同一把鍵的請求還在處理，也可能已寄出。
+  return error.status === 0 || error.status === 409 || error.status >= 500;
+}
+
 function toSendResult(outcome: Awaited<ReturnType<typeof postJson>>): SendResult {
   if (outcome.ok) {
     const id = (outcome.raw as { data?: { id?: string } }).data?.id;
     return { ok: true, id };
   }
   if (outcome.error.status === 0) {
-    return { ok: false, error: `Portaly 連線失敗：${outcome.error.message}`, retryable: true };
+    return {
+      ok: false,
+      error: `Portaly 連線失敗（結果不明）：${outcome.error.message}`,
+      retryable: true,
+      outcomeUnknown: true,
+    };
   }
-  return { ok: false, error: describe(outcome.error), retryable: isRetryable(outcome.error) };
+  return {
+    ok: false,
+    error: describe(outcome.error),
+    retryable: isRetryable(outcome.error),
+    outcomeUnknown: isOutcomeUnknown(outcome.error),
+  };
 }
+
+interface PortalyListedEmail {
+  id?: string;
+  createdAt?: string;
+  tags?: { name?: string; value?: string }[];
+  recipients?: { status?: string }[];
+}
+
+/** 列表 API 每分鐘上限 120 次；對帳最多翻這麼多頁（每頁 100 封）。 */
+const LOOKUP_MAX_PAGES = 100;
 
 /** 整個批次共用一個冪等鍵；同一組訊息重試會得到同一個鍵。 */
 export function batchIdempotencyKey(keys: string[]): string {
@@ -225,6 +251,39 @@ export const createPortalyAdapter: EmailAdapterFactory = (context): EmailAdapter
     const key = messageKey(message);
     const outcome = await postJson(input, '/api/email/emails', portalyEmailPayload(message, key), key);
     return toSendResult(outcome);
+  },
+
+  async findSentByRefs(refs, sinceIso) {
+    const input = resolveInput(context);
+    if ('error' in input) throw new Error(input.error);
+    const wanted = new Set(refs.map(sanitizeIdempotencyKey));
+    const found = new Map<string, { ref: string; providerMessageId?: string; acceptedAt?: string; recipientStatus?: string }>();
+    let cursor: string | undefined;
+    for (let page = 0; page < LOOKUP_MAX_PAGES && found.size < wanted.size; page += 1) {
+      const params = new URLSearchParams({ startDate: sinceIso, limit: '100' });
+      if (cursor) params.set('startAfter', cursor);
+      const response = await fetch(`${input.host}/api/email/emails?${params.toString()}`, {
+        headers: { authorization: `Bearer ${input.apiKey}`, accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error(describe(await readError(response)));
+      const body = (await response.json()) as {
+        data?: PortalyListedEmail[];
+        pagination?: { hasMore?: boolean; nextCursor?: string };
+      };
+      for (const item of body.data ?? []) {
+        const ref = item.tags?.find((tag) => tag.name === 'ref')?.value;
+        if (!ref || !wanted.has(ref) || found.has(ref)) continue;
+        found.set(ref, {
+          ref,
+          providerMessageId: item.id,
+          acceptedAt: item.createdAt,
+          recipientStatus: item.recipients?.[0]?.status,
+        });
+      }
+      if (!body.pagination?.hasMore || !body.pagination.nextCursor) break;
+      cursor = body.pagination.nextCursor;
+    }
+    return found;
   },
 
   async sendBatch(messages) {

@@ -33,8 +33,8 @@ export function cronRouter(ctx: ServiceContext): Router {
       res.status(401).json({ error: '未授權' });
       return;
     }
-    await scheduler.tick();
-    res.json({ ok: true, at: new Date().toISOString() });
+    const summary = await scheduler.tick();
+    res.json({ ok: !summary.error, at: new Date().toISOString(), ...summary });
   });
   router.get('/tick', handler);
   router.post('/tick', handler);

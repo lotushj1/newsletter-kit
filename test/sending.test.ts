@@ -132,7 +132,7 @@ describe('寄送', () => {
 
 describe('排程器', () => {
   it('時間到了才會寄出', async () => {
-    const { ctx, adapter } = await makeContext();
+    const { ctx, adapter } = await makeContext({ scheduler: { enabled: true, pollMs: 1000, cronSecret: undefined } });
     await createSubscriber(ctx, { email: 'a@example.com' });
     const campaign = await createCampaign(ctx, { title: 't', bodyMarkdown: '內容' });
     const scheduler = createScheduler(ctx);

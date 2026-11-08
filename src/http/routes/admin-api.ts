@@ -39,7 +39,13 @@ import {
   listSequencesWithSteps,
   updateSequence,
 } from '../../services/sequences.js';
-import { cancelSending, sendTestEmail, startCampaign } from '../../services/sending.js';
+import {
+  cancelSending,
+  reconcileUnconfirmed,
+  resumeCampaign,
+  sendTestEmail,
+  startCampaign,
+} from '../../services/sending.js';
 import {
   createFolder,
   deleteFolder,
@@ -504,6 +510,23 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     asyncRoute(async (req, res) => {
       const result = await startCampaign(ctx, pathParam(req, 'id'), { background: true });
       res.json({ ok: true, total: result.total });
+    }),
+  );
+
+  // 人工續寄：只寄仍是 pending 的；停在 sending（結果不明）的不會重寄。
+  router.post(
+    '/campaigns/:id/resume',
+    asyncRoute(async (req, res) => {
+      const result = await resumeCampaign(ctx, pathParam(req, 'id'), { background: true });
+      res.json({ ok: true, ...result });
+    }),
+  );
+
+  // 對帳：把結果不明的寄送紀錄拿去供應商查，查到才標成已寄出。
+  router.post(
+    '/campaigns/:id/reconcile',
+    asyncRoute(async (req, res) => {
+      res.json(await reconcileUnconfirmed(ctx, pathParam(req, 'id')));
     }),
   );
 

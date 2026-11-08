@@ -5,9 +5,9 @@ import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
 import { injectTracking } from '../core/tracking.js';
 import { sendMessages } from '../email/registry.js';
-import type { EmailMessage } from '../email/types.js';
+import type { EmailMessage, SendResult } from '../email/types.js';
 import { withEmailHeaders } from '../email/headers.js';
-import type { Campaign, Delivery, Subscriber } from '../store/types.js';
+import type { Campaign, Delivery, DeliveryUpdate, Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getCampaign, renderCampaign } from './campaigns.js';
 import { clearSending, isSendingNow, markSending } from './send-state.js';
@@ -42,7 +42,11 @@ export interface SendSummary {
   total: number;
   sent: number;
   failed: number;
+  /** 已交給供應商但結果未確認的筆數。 */
+  unconfirmed?: number | undefined;
   status: Campaign['status'];
+  /** 這次寄送提早收手的原因（例如 time_budget）；campaign 仍是 sending。 */
+  paused?: 'time_budget' | undefined;
 }
 
 /** 寄測試信給指定地址，不建立 delivery 紀錄、不動名單。 */
@@ -68,34 +72,88 @@ export async function sendTestEmail(
     : { ok: false, message: result.error };
 }
 
-/** 依 audienceTags 撈出收件人並建立 pending deliveries。 */
+/** 寄送被擋下的原因；SEND_PAUSED 或資料層停寫時一律不寄。 */
+export function sendingBlockedReason(ctx: ServiceContext): string | null {
+  if (ctx.config.send.paused) return '寄送已全面暫停（SEND_PAUSED=true），解除前不會寄出任何信';
+  const integrity = (ctx.store as { integrityStatus?: () => { ok: boolean; reason?: string } })
+    .integrityStatus?.();
+  if (integrity && !integrity.ok) {
+    return `資料層完整性異常，已停止寄送：${integrity.reason ?? '未知原因'}`;
+  }
+  return null;
+}
+
+function assertSendingAllowed(ctx: ServiceContext): void {
+  const reason = sendingBlockedReason(ctx);
+  if (reason) throw badRequest(reason);
+}
+
+/** 寄送紀錄寫回失敗：供應商可能已收下信，必須停下來，不能繼續寄或重寄。 */
+export class SendRecordError extends Error {
+  override readonly name = 'SendRecordError';
+}
+
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
+/** 依受眾撈出收件人並建立 pending deliveries；同一個 email 只會有一筆。 */
 async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promise<number> {
   const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
   if (existing.length > 0) {
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
     if (campaign.status === 'failed') {
-      // 重寄失敗／卡死的電子報：失敗與還停在 pending 的都重新排入。
-      // 冪等鍵仍是 delivery id，支援冪等的供應商（如 Portaly）會擋掉其實已寄出的重複信。
-      for (const delivery of await ctx.store.listDeliveries(campaign.id)) {
-        if (delivery.status !== 'failed' && delivery.status !== 'pending') continue;
-        await ctx.store.updateDelivery(delivery.id, { status: 'pending', attempts: 0, error: undefined });
-      }
+      // 重寄失敗／卡死的電子報：只把 failed 與 pending 重新排入。
+      // sending（已交給供應商、結果未確認）一律不動，要先對帳，避免重複寄。
+      const all = await ctx.store.listDeliveries(campaign.id);
+      const delivered = new Set(
+        all.filter((d) => d.status === 'sent' || d.status === 'sending').map((d) => normalizeEmail(d.email)),
+      );
+      const updates = all
+        .filter((d) => d.status === 'failed' || d.status === 'pending')
+        .map((d) =>
+          delivered.has(normalizeEmail(d.email))
+            ? { id: d.id, patch: { status: 'skipped' as const, error: '同一個地址已有寄出或待確認的紀錄' } }
+            : { id: d.id, patch: { status: 'pending' as const, attempts: 0, error: undefined } },
+        );
+      if (updates.length > 0) await ctx.store.updateDeliveries(updates);
     }
     return (await ctx.store.deliveryStats(campaign.id)).total;
   }
   const audience = await selectAudience(ctx, campaign);
   if (audience.length === 0) throw badRequest('目前沒有符合條件的收件人');
 
-  const deliveries: Delivery[] = audience.map((subscriber) => ({
-    id: newId('dlv'),
-    campaignId: campaign.id,
-    subscriberId: subscriber.id,
-    email: subscriber.email,
-    status: 'pending',
-    attempts: 0,
-  }));
+  const seen = new Set<string>();
+  const deliveries: Delivery[] = [];
+  for (const subscriber of audience) {
+    const key = normalizeEmail(subscriber.email);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deliveries.push({
+      id: newId('dlv'),
+      campaignId: campaign.id,
+      subscriberId: subscriber.id,
+      email: subscriber.email,
+      status: 'pending',
+      attempts: 0,
+    });
+  }
   await ctx.store.createDeliveries(deliveries);
   return deliveries.length;
+}
+
+/** 寫回寄送結果；有任何一筆沒寫進去就丟錯停止（那筆可能已寄出卻沒有紀錄）。 */
+async function writeResults(ctx: ServiceContext, updates: DeliveryUpdate[]): Promise<void> {
+  if (updates.length === 0) return;
+  let applied: number;
+  try {
+    applied = await ctx.store.updateDeliveries(updates);
+  } catch (error) {
+    throw new SendRecordError(`寄送結果寫回失敗，已停止寄送：${(error as Error).message}`);
+  }
+  if (applied !== updates.length) {
+    throw new SendRecordError(
+      `寄送結果只寫回 ${applied}／${updates.length} 筆（寄送紀錄已不存在），已停止寄送`,
+    );
+  }
 }
 
 async function deliverBatch(
@@ -103,15 +161,34 @@ async function deliverBatch(
   campaign: Campaign,
   batch: Delivery[],
 ): Promise<void> {
-  const messages: EmailMessage[] = [];
+  assertSendingAllowed(ctx);
+
+  // 中途退訂或被抑制的人直接跳過，不要寄出去。
+  const skips: DeliveryUpdate[] = [];
+  const candidates: { delivery: Delivery; recipient: { email: string; name?: string | undefined } }[] = [];
   for (const delivery of batch) {
     const subscriber = await ctx.store.getSubscriber(delivery.subscriberId);
-    const recipient = subscriber ?? { email: delivery.email, name: undefined };
-    // 中途退訂的人直接跳過，不要寄出去。
     if ((subscriber && (subscriber.status !== 'subscribed' || subscriber.meta?.suppressedReason)) || await isSuppressed(ctx, delivery.email)) {
-      await ctx.store.updateDelivery(delivery.id, { status: 'skipped', error: '已非訂閱狀態' });
+      skips.push({ id: delivery.id, patch: { status: 'skipped', error: '已非訂閱狀態' } });
       continue;
     }
+    candidates.push({ delivery, recipient: subscriber ?? { email: delivery.email, name: undefined } });
+  }
+  await writeResults(ctx, skips);
+  if (candidates.length === 0) return;
+
+  // 先 claim 並持久化，成功領到的才寄；別的實例已領走的不寄。
+  const claimedIds = new Set(
+    await ctx.store.claimDeliveries(
+      candidates.map((c) => c.delivery.id),
+      { claimId: newId('clm'), claimedAt: nowIso() },
+    ),
+  );
+  const mine = candidates.filter((c) => claimedIds.has(c.delivery.id));
+  if (mine.length === 0) return;
+
+  const messages: EmailMessage[] = [];
+  for (const { delivery, recipient } of mine) {
     const rendered = await renderCampaign(ctx, campaign, recipient);
     messages.push({
       to: delivery.email,
@@ -130,32 +207,40 @@ async function deliverBatch(
       idempotencyKey: delivery.id,
     });
   }
-  if (messages.length === 0) return;
 
-  const targets = batch.filter((d) => messages.some((m) => m.to === d.email));
-  const results = await sendMessages(ctx.adapter, messages);
+  let results: SendResult[];
+  try {
+    results = await sendMessages(ctx.adapter, messages);
+  } catch (error) {
+    // 呼叫本身炸掉：不知道供應商收了沒有，全部留在 sending 等對帳。
+    results = messages.map(() => ({
+      ok: false as const,
+      error: `寄送呼叫失敗（結果不明）：${(error as Error).message}`,
+      outcomeUnknown: true,
+    }));
+  }
 
-  for (const [index, delivery] of targets.entries()) {
+  const updates: DeliveryUpdate[] = mine.map(({ delivery }, index) => {
     const result = results[index];
     const attempts = delivery.attempts + 1;
     if (result?.ok) {
-      await ctx.store.updateDelivery(delivery.id, {
-        status: 'sent',
-        attempts,
-        sentAt: nowIso(),
-        providerMessageId: result.id,
-        error: undefined,
-      });
-      continue;
+      return {
+        id: delivery.id,
+        patch: { status: 'sent', attempts, sentAt: nowIso(), providerMessageId: result.id, error: undefined },
+      };
     }
     const error = result?.error ?? '寄送失敗（沒有回傳結果）';
-    const canRetry = (result?.retryable ?? true) && attempts < ctx.config.send.maxAttempts;
-    await ctx.store.updateDelivery(delivery.id, {
-      status: canRetry ? 'pending' : 'failed',
-      attempts,
-      error,
-    });
-  }
+    if (!result || result.outcomeUnknown) {
+      // 可能已寄出：留在 sending，不自動重寄。
+      return { id: delivery.id, patch: { status: 'sending', attempts, error } };
+    }
+    const canRetry = (result.retryable ?? true) && attempts < ctx.config.send.maxAttempts;
+    return {
+      id: delivery.id,
+      patch: { status: canRetry ? 'pending' : 'failed', attempts, error, claimId: undefined, claimedAt: undefined },
+    };
+  });
+  await writeResults(ctx, updates);
 }
 
 /** 實際跑寄送迴圈：批次 + 批次間節流 + 失敗退避重試。 */
@@ -163,7 +248,11 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
   if (isSendingNow(campaignId)) {
     throw badRequest('這份電子報正在寄送中');
   }
+  assertSendingAllowed(ctx);
   markSending(campaignId);
+  const startedAt = Date.now();
+  const budgetMs = ctx.config.send.timeBudgetMs ?? 0;
+  const outOfTime = () => budgetMs > 0 && Date.now() - startedAt > budgetMs;
   try {
     const campaign = await getCampaign(ctx, campaignId);
     const { batchSize, batchDelayMs, maxAttempts } = ctx.config.send;
@@ -171,7 +260,11 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
     for (let pass = 0; pass < maxAttempts; pass += 1) {
       for (;;) {
         const current = await ctx.store.getCampaign(campaignId);
-        if (!current || current.status === 'canceled') break;
+        if (!current) {
+          // 寄到一半電子報不見了：資料層出事，停下來，不要繼續寄。
+          throw new SendRecordError('寄送中的電子報紀錄消失，已停止寄送');
+        }
+        if (current.status === 'canceled') break;
 
         const pending = (await ctx.store.listDeliveries(campaignId, {
           status: 'pending',
@@ -180,6 +273,13 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
         if (pending.length === 0) break;
 
         for (let i = 0; i < pending.length; i += batchSize) {
+          if (outOfTime()) {
+            // 快到函式時間上限：先收手，紀錄都已寫回，留給人工（或 SEND_AUTO_RESUME）續寄。
+            logger.warn('單次寄送時間用完，先暫停', { campaignId, elapsedMs: Date.now() - startedAt });
+            await ctx.store.updateCampaign(campaignId, { updatedAt: nowIso() });
+            const stats = await ctx.store.deliveryStats(campaignId);
+            return { campaignId, ...stats, status: 'sending', paused: 'time_budget' };
+          }
           await deliverBatch(ctx, campaign, pending.slice(i, i + batchSize));
           // 心跳：updatedAt 代表「還有進度」，別的實例才不會把活著的寄送當成卡死。
           await ctx.store.updateCampaign(campaignId, { updatedAt: nowIso() });
@@ -193,19 +293,19 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
     }
 
     // 重試用完還是 pending 的，收尾標成失敗。
-    for (const delivery of await ctx.store.listDeliveries(campaignId, { status: 'pending' })) {
-      await ctx.store.updateDelivery(delivery.id, {
-        status: 'failed',
-        error: delivery.error ?? '超過重試次數',
-      });
-    }
+    const leftovers = await ctx.store.listDeliveries(campaignId, { status: 'pending' });
+    await writeResults(
+      ctx,
+      leftovers.map((d) => ({ id: d.id, patch: { status: 'failed' as const, error: d.error ?? '超過重試次數' } })),
+    );
 
     const stats = await ctx.store.deliveryStats(campaignId);
     const latest = await ctx.store.getCampaign(campaignId);
     if (latest?.status === 'canceled') {
       return { campaignId, ...stats, status: 'canceled' };
     }
-    const status: Campaign['status'] = stats.sent > 0 ? 'sent' : 'failed';
+    // 有結果不明的寄送紀錄：標成失敗讓後台看得到，但那些紀錄不會被重寄（要先對帳）。
+    const status: Campaign['status'] = stats.sent > 0 && !stats.unconfirmed ? 'sent' : 'failed';
     await ctx.store.updateCampaign(campaignId, {
       status,
       sentAt: nowIso(),
@@ -228,6 +328,7 @@ export async function startCampaign(
   campaignId: string,
   options: StartOptions = {},
 ): Promise<{ total: number; summary?: SendSummary }> {
+  assertSendingAllowed(ctx);
   const campaign = await getCampaign(ctx, campaignId);
   if (campaign.status === 'sending') throw badRequest('這份電子報正在寄送中');
   if (campaign.status === 'sent') throw badRequest('這份電子報已經寄過了');
@@ -268,6 +369,73 @@ export async function startCampaign(
   return { total, summary: await processCampaign(ctx, campaignId) };
 }
 
+/** 人工續寄「寄送中」但沒有程序在跑的電子報（例如時間預算用完或重啟後）。 */
+export async function resumeCampaign(
+  ctx: ServiceContext,
+  campaignId: string,
+  options: StartOptions = {},
+): Promise<{ started: boolean; summary?: SendSummary }> {
+  assertSendingAllowed(ctx);
+  const campaign = await ctx.store.getCampaign(campaignId);
+  if (!campaign) throw badRequest('找不到這份電子報');
+  if (campaign.status !== 'sending') throw badRequest('只有寄送中的電子報可以續寄');
+  if (isSendingNow(campaignId)) throw badRequest('這份電子報正在寄送中');
+  const run = () =>
+    processCampaign(ctx, campaignId).catch((error) => {
+      logger.error('續寄失敗', { campaignId, error: (error as Error).message });
+      return undefined;
+    });
+  if (options.background && scheduleBackgroundWork(run)) return { started: true };
+  const summary = await run();
+  return summary ? { started: true, summary } : { started: true };
+}
+
+export interface ReconcileSummary {
+  checked: number;
+  confirmed: number;
+  stillUnknown: number;
+  supported: boolean;
+}
+
+/**
+ * 對帳：把停在 sending（結果不明）的寄送紀錄拿去供應商查。
+ * 查到 → 標成 sent；查不到 → 維持 sending，不自動重寄，由人工決定。
+ */
+export async function reconcileUnconfirmed(ctx: ServiceContext, campaignId: string): Promise<ReconcileSummary> {
+  const unconfirmed = await ctx.store.listDeliveries(campaignId, { status: 'sending', limit: 100_000 });
+  if (unconfirmed.length === 0) return { checked: 0, confirmed: 0, stillUnknown: 0, supported: true };
+  if (!ctx.adapter.findSentByRefs) {
+    return { checked: unconfirmed.length, confirmed: 0, stillUnknown: unconfirmed.length, supported: false };
+  }
+  const earliest = unconfirmed
+    .map((d) => d.claimedAt)
+    .filter((v): v is string => !!v)
+    .sort()[0];
+  const since = new Date(Date.parse(earliest ?? nowIso()) - 10 * 60 * 1000).toISOString();
+  const found = await ctx.adapter.findSentByRefs(unconfirmed.map((d) => d.id), since);
+  const updates: DeliveryUpdate[] = [];
+  for (const delivery of unconfirmed) {
+    const record = found.get(delivery.id);
+    if (!record) continue;
+    updates.push({
+      id: delivery.id,
+      patch: {
+        status: 'sent',
+        providerMessageId: record.providerMessageId ?? delivery.providerMessageId,
+        sentAt: record.acceptedAt ?? delivery.claimedAt ?? nowIso(),
+        error: undefined,
+      },
+    });
+  }
+  await writeResults(ctx, updates);
+  return {
+    checked: unconfirmed.length,
+    confirmed: updates.length,
+    stillUnknown: unconfirmed.length - updates.length,
+    supported: true,
+  };
+}
+
 export async function cancelSending(ctx: ServiceContext, campaignId: string): Promise<Campaign> {
   const campaign = await getCampaign(ctx, campaignId);
   if (campaign.status !== 'sending' && campaign.status !== 'scheduled') {
@@ -292,6 +460,8 @@ export async function sendCampaignToSubscriber(
   subscriber: Subscriber,
   options: { allowUnsubscribed?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string }> {
+  const blocked = sendingBlockedReason(ctx);
+  if (blocked) return { ok: false, error: blocked };
   if (subscriber.meta?.suppressedReason || await isSuppressed(ctx, subscriber.email) || (subscriber.status !== 'subscribed' && !options.allowUnsubscribed)) {
     return { ok: false, error: '已非訂閱狀態' };
   }

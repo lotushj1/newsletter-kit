@@ -44,7 +44,17 @@ export function publicRouter(ctx: ServiceContext): Router {
   const limiter = rateLimit(ctx.config.publicRateLimitPerMin);
 
   router.get('/health', (_req, res) => {
-    res.json({ ok: true, provider: ctx.adapter.name, store: ctx.store.driver });
+    const integrity = (ctx.store as { integrityStatus?: () => { ok: boolean; reason?: string } })
+      .integrityStatus?.() ?? { ok: true };
+    res.status(integrity.ok ? 200 : 503).json({
+      ok: integrity.ok,
+      provider: ctx.adapter.name,
+      store: ctx.store.driver,
+      storeIntegrity: integrity.ok ? 'ok' : 'frozen',
+      scheduler: ctx.config.scheduler.enabled ? 'enabled' : 'disabled',
+      sendAutoResume: !!ctx.config.send.autoResume,
+      sendPaused: !!ctx.config.send.paused,
+    });
   });
 
   router.get('/sig-icons/:file', (req, res) => {
