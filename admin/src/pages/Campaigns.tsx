@@ -526,7 +526,7 @@ export function Campaigns() {
               }}>
                 <label htmlFor="campaign-ai-filter">想看哪些信</label>
                 <textarea id="campaign-ai-filter" required value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="例如：九月的草稿" />
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <div className="row dialog-actions">
                   <button className="btn primary" type="submit" disabled={aiBusy}>{aiBusy ? '理解中…' : '預覽篩選'}</button>
                 </div>
               </form>
@@ -534,7 +534,7 @@ export function Campaigns() {
               <div>
                 <p>{filterPreview.explanation || '已理解這句話。'}</p>
                 {filterPreview.unsupported && <div className="notice">{filterPreview.unsupported}</div>}
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <div className="row dialog-actions">
                   <button type="button" className="btn primary" onClick={() => {
                     setSearch(filterPreview.search);
                     setStatus(filterPreview.status);
@@ -594,7 +594,7 @@ export function Campaigns() {
                     ))}
                   </tbody>
                 </table>
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <div className="row dialog-actions">
                   <button className="btn primary" type="submit" disabled={aiBusy}>{aiBusy ? '套用中…' : '套用勾選'}</button>
                 </div>
               </form>
@@ -647,7 +647,7 @@ function WriteCampaignDialog({
             onChange={(event) => setBrief(event.target.value)}
             placeholder="這封信要跟讀者說什麼"
           />
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <div className="row dialog-actions">
             <button className="btn primary" type="submit" disabled={busy || !canWrite}>{busy ? '產生中…' : '產生預覽'}</button>
           </div>
         </form>
@@ -656,7 +656,7 @@ function WriteCampaignDialog({
           <p><strong>{draft.title}</strong></p>
           <p className="muted">{draft.preheader || '（沒有前導文字）'}</p>
           <div className="ai-html" dangerouslySetInnerHTML={{ __html: draft.bodyHtml }} />
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <div className="row dialog-actions">
             <button type="button" className="btn" onClick={() => setDraft(null)}>重寫</button>
             <button
               type="button"
