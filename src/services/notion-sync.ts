@@ -21,12 +21,12 @@ export function notionStatusFor(status: SubscriberStatus): string {
 
 type FetchLike = typeof fetch;
 
-interface NotionEnv {
+export interface NotionEnv {
   token: string;
   databaseId: string;
 }
 
-function readEnv(): NotionEnv | null {
+export function readNotionEnv(): NotionEnv | null {
   const token = process.env.NOTION_TOKEN?.trim();
   const databaseId = process.env.NOTION_SUBSCRIBERS_DB_ID?.trim();
   if (!token || !databaseId) return null;
@@ -63,7 +63,7 @@ export async function upsertNotionSubscriber(
   status: SubscriberStatus,
   fetchImpl: FetchLike = fetch,
 ): Promise<'created' | 'updated' | 'skipped'> {
-  const env = readEnv();
+  const env = readNotionEnv();
   if (!env) return 'skipped';
   const normalized = email.trim().toLowerCase();
   const statusName = notionStatusFor(status);
@@ -105,7 +105,7 @@ function keepAlive(promise: Promise<unknown>): void {
 
 /** 背景同步，不 await、不丟錯。 */
 export function syncSubscriberToNotion(email: string, status: SubscriberStatus): void {
-  if (!readEnv()) return;
+  if (!readNotionEnv()) return;
   const job = upsertNotionSubscriber(email, status)
     .then((action) => logger.info('Notion 同步完成', { email, status, action }))
     .catch((error: unknown) =>
