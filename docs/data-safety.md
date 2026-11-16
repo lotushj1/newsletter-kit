@@ -57,3 +57,13 @@ InsForge store 把整份資料存成一列 JSON（`nk_snapshots`），每個 ser
 - 依寄送順序的推定另列一份名單，必須人工核准。
 
 判斷不使用開信資料；服務商收下（accepted）不等於送達（delivered）。
+
+## 名單反向同步（Notion → 電子報系統）
+
+`src/services/notion-inbound-sync.ts`。官網與 Portaly 的訂閱者會被寫進 Notion 會員資料庫，但不會直接進電子報系統；排程 tick 每 5 分鐘查一次 Notion「上次之後被修改的列」拉回名單。它不寄信，所以 `SCHEDULER_ENABLED=false` 時也會執行；`NOTION_INBOUND_SYNC=false` 可關閉。
+
+- 只新增同步開始（第一次執行往前 48 小時）之後才訂閱的人；更早的列若不在名單內一律略過，避免把刻意清除的舊會員加回來。
+- Notion 已退訂 → 名單跟著退訂。名單裡已退訂的人，只有 Notion 訂閱日晚於退訂時間才恢復訂閱。
+- 排除名單（退信、檢舉）裡的地址不會被加回來。
+- 匯入的訂閱者 id 由 email 決定，多個實例同時匯入不會產生重複。
+- 沒有變動時不寫入資料。

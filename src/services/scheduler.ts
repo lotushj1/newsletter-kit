@@ -2,6 +2,7 @@ import { logger } from '../core/logger.js';
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
 import { maybeSyncPortalyDeliveries } from './portaly-sync.js';
+import { maybeSyncFromNotion, type NotionInboundSummary } from './notion-inbound-sync.js';
 import { processDueEnrollments } from './sequences.js';
 import { isFreshTimeBudgetPause, isSending, processCampaign, sendingBlockedReason, startCampaign } from './sending.js';
 
@@ -12,6 +13,8 @@ export interface TickSummary {
   /** scheduler_disabled：SCHEDULER_ENABLED=false，只做投遞狀態回查，不寄任何信。 */
   skippedReason?: 'scheduler_disabled' | 'sending_blocked' | 'already_running' | undefined;
   error?: string | undefined;
+  /** 這次 tick 從 Notion 拉回名單的結果（節流時 ran=false）。 */
+  notion?: NotionInboundSummary | undefined;
 }
 
 export interface Scheduler {
@@ -65,6 +68,12 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
       const portaly = await maybeSyncPortalyDeliveries(ctx);
       if (portaly.updated > 0) {
         logger.info('Portaly 投遞狀態已同步', { checked: portaly.checked, updated: portaly.updated });
+      }
+      // 官網／Portaly 的新訂閱只會進 Notion，從那裡拉回名單（不寄信，所以不受排程開關影響）。
+      try {
+        summary.notion = await maybeSyncFromNotion(ctx);
+      } catch (error) {
+        logger.error('Notion 名單同步失敗', { error: (error as Error).message });
       }
     } catch (error) {
       logger.error('排程器執行失敗', { error: (error as Error).message });
