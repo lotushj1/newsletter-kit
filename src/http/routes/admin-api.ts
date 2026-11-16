@@ -15,6 +15,7 @@ import {
   suggestSubjects,
 } from '../../ai/tasks.js';
 import { publicSession } from '../../services/session.js';
+import { approveHeldUnsubscribes, getNotionInboundStatus } from '../../services/notion-inbound-sync.js';
 import {
   bulkDeleteCampaigns,
   bulkSetCampaignFolder,
@@ -142,7 +143,26 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       const tags = [...new Set(sample.items.flatMap((s) => s.tags))].sort().slice(0, 50);
       const folders = await listFolders(ctx);
       const rates = await overviewRates(ctx, { from, to });
-      res.json({ counts, campaigns: recent.items, provider: ctx.adapter.name, tags, folders, rates });
+      const notionSync = await getNotionInboundStatus(ctx);
+      res.json({ counts, campaigns: recent.items, provider: ctx.adapter.name, tags, folders, rates, notionSync });
+    }),
+  );
+
+  router.get(
+    '/notion-sync',
+    asyncRoute(async (_req, res) => {
+      res.json(await getNotionInboundStatus(ctx));
+    }),
+  );
+
+  // Notion 一次退訂太多人而暫停時，由後台確認後套用。
+  router.post(
+    '/notion-sync/approve-unsubscribes',
+    asyncRoute(async (_req, res) => {
+      const summary = await approveHeldUnsubscribes(ctx);
+      if (summary.reason === 'nothing_held') throw badRequest('目前沒有暫停中的退訂');
+      if (!summary.ran) throw badRequest('Notion 名單同步沒有啟用，無法套用');
+      res.json({ summary, status: await getNotionInboundStatus(ctx) });
     }),
   );
 

@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AddressInfo } from 'node:net';
+import { createApp } from '../src/http/app.js';
 import {
+  approveHeldUnsubscribes,
+  getNotionInboundStatus,
   maybeSyncFromNotion,
   notionSubscriberId,
   resetNotionInboundThrottle,
@@ -174,5 +178,156 @@ describe('從 Notion 拉回官網新訂閱', () => {
     expect(summary.notion?.added).toBe(1);
     expect((await store.getSubscriberByEmail('tick@example.com'))?.status).toBe('subscribed');
     expect(adapter.sent).toHaveLength(0);
+  });
+});
+
+describe('Notion 一次退訂太多人時先暫停', () => {
+  beforeEach(() => {
+    vi.stubEnv('NOTION_TOKEN', 'secret_test');
+    vi.stubEnv('NOTION_SUBSCRIBERS_DB_ID', 'db_test');
+    resetNotionInboundThrottle();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  async function withSubscribers(count: number) {
+    const made = await makeContext();
+    for (let i = 0; i < count; i += 1) {
+      await made.store.createSubscriber({ id: `sub_${i}`, email: `m${i}@example.com`, status: 'subscribed', tags: [], createdAt: '2026-01-01T00:00:00.000Z' });
+    }
+    return made;
+  }
+  const bulkUnsubscribe = (count: number, edited = '2026-11-16T02:30:00.000Z') =>
+    Array.from({ length: count }, (_, i) =>
+      page({ email: `m${i}@example.com`, status: '已退訂', created: '2026-01-01T00:00:00.000Z', edited }),
+    );
+  const subscribedCount = async (store: any) => (await store.listAudience({})).length;
+
+  it('超過上限（預設 20 人）整批不套用、游標不前進，重跑也不重複寫入', async () => {
+    const { ctx, store } = await withSubscribers(25);
+    const { fetchImpl, queries } = fakeNotion(bulkUnsubscribe(25));
+    const summary = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    expect(summary).toMatchObject({ ran: true, held: true, pendingUnsubscribes: 25, unsubscribed: 0, reason: 'too_many_unsubscribes' });
+    expect(await subscribedCount(store)).toBe(25);
+    const state = JSON.parse((await store.getSetting('notion_inbound_sync'))!);
+    expect(state.cursor).toBe(SINCE);
+    expect(state.held.unsubscribes).toBe(25);
+    expect((await getNotionInboundStatus(ctx)).held?.unsubscribes).toBe(25);
+
+    const spy = vi.spyOn(store, 'setSetting');
+    const again = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW + 10 * 60_000 });
+    expect(again.held).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+    expect(queries.at(-1).filter.last_edited_time.on_or_after).toBe(SINCE);
+  });
+
+  it('後台確認後才套用，套用完解除暫停', async () => {
+    const { ctx, store } = await withSubscribers(25);
+    const { fetchImpl } = fakeNotion(bulkUnsubscribe(25));
+    await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    const applied = await approveHeldUnsubscribes(ctx, { fetchImpl, now: NOW + 60_000 });
+    expect(applied).toMatchObject({ unsubscribed: 25 });
+    expect(applied.held).toBeUndefined();
+    expect(await subscribedCount(store)).toBe(0);
+    const status = await getNotionInboundStatus(ctx);
+    expect(status.held).toBeNull();
+    expect(JSON.parse((await store.getSetting('notion_inbound_sync'))!).approvedUnsubscribes).toBeUndefined();
+  });
+
+  it('確認之後 Notion 又多了更多退訂：再暫停一次', async () => {
+    const { ctx, store } = await withSubscribers(40);
+    const notionPages = bulkUnsubscribe(25);
+    const { fetchImpl } = fakeNotion(notionPages);
+    await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    notionPages.push(...bulkUnsubscribe(40).slice(25));
+    const result = await approveHeldUnsubscribes(ctx, { fetchImpl, now: NOW + 60_000 });
+    expect(result).toMatchObject({ held: true, pendingUnsubscribes: 40, unsubscribed: 0 });
+    expect(await subscribedCount(store)).toBe(40);
+  });
+
+  it('在 Notion 改回訂閱中：自動解除暫停，名單完全沒被動到', async () => {
+    const { ctx, store } = await withSubscribers(25);
+    const notionPages = bulkUnsubscribe(25);
+    const { fetchImpl } = fakeNotion(notionPages);
+    await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    for (const p of notionPages) {
+      p.properties['狀態'].select.name = '訂閱中';
+      p.last_edited_time = '2026-11-16T02:40:00.000Z';
+    }
+    const summary = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW + 10 * 60_000 });
+    expect(summary.held).toBeUndefined();
+    expect(summary.unsubscribed).toBe(0);
+    expect(await subscribedCount(store)).toBe(25);
+    expect((await getNotionInboundStatus(ctx)).held).toBeNull();
+  });
+
+  it('上限以內照常套用；NOTION_INBOUND_MAX_UNSUBSCRIBES 可調整', async () => {
+    const small = await withSubscribers(20);
+    expect((await maybeSyncFromNotion(small.ctx, { fetchImpl: fakeNotion(bulkUnsubscribe(20)).fetchImpl, now: NOW })).unsubscribed).toBe(20);
+
+    resetNotionInboundThrottle();
+    vi.stubEnv('NOTION_INBOUND_MAX_UNSUBSCRIBES', '30');
+    const big = await withSubscribers(25);
+    expect((await maybeSyncFromNotion(big.ctx, { fetchImpl: fakeNotion(bulkUnsubscribe(25)).fetchImpl, now: NOW })).unsubscribed).toBe(25);
+  });
+
+  it('同一分鐘批次修改超過一輪的量：分頁接著讀，後面的新訂閱不會卡住', async () => {
+    const { ctx, store } = await makeContext();
+    const sameMinute = '2026-11-16T02:00:00.000Z';
+    const flood = Array.from({ length: 1200 }, (_, i) =>
+      page({ email: `old${i}@example.com`, created: '2026-08-01T00:00:00.000Z', edited: sameMinute }),
+    );
+    const fresh = page({ email: 'fresh@example.com', created: '2026-11-16T02:01:00.000Z' });
+    const { fetchImpl } = fakeNotion([...flood, fresh]);
+
+    const first = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    expect(first.checked).toBe(500);
+    let state = JSON.parse((await store.getSetting('notion_inbound_sync'))!);
+    expect(state.cursor).toBe(SINCE);
+    expect(state.pageCursor).toBe('500');
+
+    await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW + 10 * 60_000 });
+    const third = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW + 20 * 60_000 });
+    expect(third).toMatchObject({ checked: 201, added: 1 });
+    state = JSON.parse((await store.getSetting('notion_inbound_sync'))!);
+    expect(state.cursor).toBe('2026-11-16T02:01:00.000Z');
+    expect(state.pageCursor).toBeUndefined();
+    expect((await store.getSubscriberByEmail('fresh@example.com'))?.status).toBe('subscribed');
+  });
+
+  it('後台 API：總覽帶出暫停狀態，按確認後套用', async () => {
+    const { ctx, store } = await withSubscribers(25);
+    const { fetchImpl: notionFetch } = fakeNotion(bulkUnsubscribe(25));
+    await maybeSyncFromNotion(ctx, { fetchImpl: notionFetch, now: NOW });
+
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', ((url: any, init: any) =>
+      String(url).startsWith('https://api.notion.com/') ? notionFetch(url, init) : realFetch(url, init)) as typeof fetch);
+    const server = createApp(ctx).listen(0);
+    try {
+      const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/admin`;
+      const headers = { authorization: 'Bearer test-admin-token', 'content-type': 'application/json' };
+      const overview = await (await realFetch(`${base}/overview`, { headers })).json();
+      expect(overview.notionSync.held.unsubscribes).toBe(25);
+
+      const approve = await realFetch(`${base}/notion-sync/approve-unsubscribes`, { method: 'POST', headers });
+      expect(approve.status).toBe(200);
+      const body = await approve.json();
+      expect(body.summary.unsubscribed).toBe(25);
+      expect(body.status.held).toBeNull();
+      expect(await subscribedCount(store)).toBe(0);
+
+      const nothing = await realFetch(`${base}/notion-sync/approve-unsubscribes`, { method: 'POST', headers });
+      expect(nothing.status).toBe(400);
+
+      vi.stubEnv('NOTION_INBOUND_SYNC', 'false');
+      const disabled = await realFetch(`${base}/notion-sync/approve-unsubscribes`, { method: 'POST', headers });
+      expect(disabled.status).toBe(400);
+      expect((await disabled.json()).error).toContain('沒有啟用');
+    } finally {
+      server.close();
+    }
   });
 });

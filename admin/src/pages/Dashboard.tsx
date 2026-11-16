@@ -9,6 +9,14 @@ interface Overview {
   provider: string;
   tags: string[];
   rates: OverviewRates;
+  notionSync?: NotionSyncStatus;
+}
+
+interface NotionSyncStatus {
+  enabled: boolean;
+  lastRunAt: string | null;
+  maxUnsubscribesPerRun: number;
+  held: { at: string; unsubscribes: number } | null;
 }
 
 function pad(value: number): string {
@@ -47,6 +55,29 @@ export function Dashboard() {
   const [error, setError] = useState('');
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
+  const [approving, setApproving] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
+
+  const approveUnsubscribes = async (count: number) => {
+    if (!window.confirm(`確定要把這 ${count} 位訂閱者改成已退訂？之後的電子報不會再寄給他們。`)) return;
+    setApproving(true);
+    setSyncMessage('');
+    try {
+      const result = await api.post<{ summary: { unsubscribed: number; held?: boolean }; status: NotionSyncStatus }>(
+        '/notion-sync/approve-unsubscribes',
+      );
+      setData((current) => (current ? { ...current, notionSync: result.status } : current));
+      setSyncMessage(
+        result.summary.held
+          ? 'Notion 又多了更多退訂，請再確認一次。'
+          : `已套用，${result.summary.unsubscribed} 位訂閱者改成已退訂。`,
+      );
+    } catch (err) {
+      setSyncMessage((err as Error).message);
+    } finally {
+      setApproving(false);
+    }
+  };
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -67,9 +98,29 @@ export function Dashboard() {
   if (!data) return <p className="muted">載入中…</p>;
 
   const rates = data.rates ?? EMPTY_RATES;
+  const held = data.notionSync?.held ?? null;
 
   return (
     <div>
+      {held ? (
+        <div className="notice error notice-stack" role="alert">
+          <p>
+            {`Notion 名單同步已暫停：Notion 上有 ${held.unsubscribes} 位訂閱者一次被改成「已退訂」，超過單次 ${data.notionSync?.maxUnsubscribesPerRun ?? 20} 人的上限（${formatTime(held.at)} 偵測到）。這段期間新的訂閱也不會進來。`}
+          </p>
+          <p>
+            如果是你自己在 Notion 改的，按「套用這些退訂」。不是的話，先到 Notion 把狀態改回「訂閱中」，5 分鐘內會自動恢復同步，名單不會被動到。
+          </p>
+          <button
+            type="button"
+            className="btn"
+            disabled={approving}
+            onClick={() => void approveUnsubscribes(held.unsubscribes)}
+          >
+            {approving ? '套用中…' : `套用這些退訂（${held.unsubscribes} 位）`}
+          </button>
+        </div>
+      ) : null}
+      {syncMessage ? <div className="notice">{syncMessage}</div> : null}
       <div className="dash-total">
         <div className="muted">訂閱數</div>
         <div className="dash-total-value">{data.counts.subscribed ?? 0}</div>

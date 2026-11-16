@@ -16,7 +16,8 @@ import { NOTION_SUBSCRIBED, NOTION_UNSUBSCRIBED, readNotionEnv, type NotionEnv }
  *
  * 保守規則：
  * - 只新增「同步開始之後才訂閱」的人；更早的列若不在名單內（例如刻意清除的舊會員）一律略過。
- * - Notion 已退訂 → 電子報系統跟著退訂（安全方向，一定照做）。
+ * - Notion 已退訂 → 電子報系統跟著退訂。但一次要退訂的人超過上限（預設 20）時整批暫停、
+ *   游標不前進，等後台按「套用這些退訂」才執行；防止在 Notion 批次誤改狀態就清掉名單。
  * - 電子報系統裡已退訂的人，只有 Notion 的訂閱日晚於退訂時間才會恢復訂閱（避免被舊資料翻回來）。
  * - 退信／檢舉等排除名單裡的地址不會被加回來。
  * - 不寄確認信、不回寫 Notion（資料本來就從 Notion 來）。
@@ -32,6 +33,7 @@ const MAX_PAGES = 5;
 const NOTION_VERSION = '2022-06-28';
 const TIMEOUT_MS = 10_000;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DEFAULT_MAX_UNSUBSCRIBES = 20;
 
 type FetchLike = typeof fetch;
 
@@ -40,7 +42,17 @@ interface SyncState {
   since: string;
   /** 下次查詢的起點（Notion last_edited_time，分鐘精度）。 */
   cursor: string;
+  /**
+   * 一輪讀不完（超過 MAX_PAGES）時，Notion 的分頁游標，下一輪從這裡接著讀。
+   * Notion 的修改時間只到分鐘，批次修改大量列時它們時間相同，
+   * 只靠時間游標會每輪重讀同一批、永遠讀不到後面的新訂閱。
+   */
+  pageCursor?: string | undefined;
   lastRunAt?: string | undefined;
+  /** 一次退訂太多人而暫停時的紀錄；套用或在 Notion 改回後清掉。 */
+  held?: { at: string; unsubscribes: number } | undefined;
+  /** 後台確認後，下一輪最多可套用幾筆退訂。用過即清。 */
+  approvedUnsubscribes?: number | undefined;
 }
 
 export interface NotionInboundSummary {
@@ -53,7 +65,17 @@ export interface NotionInboundSummary {
   skippedSuppressed: number;
   skippedConflict: number;
   invalid: number;
+  /** 這一輪因為退訂人數超過上限而整批暫停。 */
+  held?: boolean | undefined;
+  pendingUnsubscribes?: number | undefined;
   reason?: string | undefined;
+}
+
+export interface NotionInboundStatus {
+  enabled: boolean;
+  lastRunAt: string | null;
+  maxUnsubscribesPerRun: number;
+  held: { at: string; unsubscribes: number } | null;
 }
 
 interface NotionRow {
@@ -84,6 +106,13 @@ let lastAttemptAt = 0;
 /** 測試用：清掉這個程序內的節流紀錄。 */
 export function resetNotionInboundThrottle(): void {
   lastAttemptAt = 0;
+}
+
+/** 單一輪最多自動套用幾筆退訂；NOTION_INBOUND_MAX_UNSUBSCRIBES 可調整。 */
+export function maxUnsubscribesPerRun(): number {
+  const raw = process.env.NOTION_INBOUND_MAX_UNSUBSCRIBES?.trim();
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_MAX_UNSUBSCRIBES;
 }
 
 export function isNotionInboundEnabled(): boolean {
@@ -243,6 +272,52 @@ async function applyRow(ctx: ServiceContext, row: NotionRow, since: string, summ
   }
 }
 
+/** 這批列套用後，會有幾位目前訂閱中的人被退訂（同一信箱只算一次）。 */
+async function countPendingUnsubscribes(ctx: ServiceContext, rows: NotionRow[]): Promise<number> {
+  const emails = new Set<string>();
+  for (const row of rows) {
+    if (row.status !== NOTION_UNSUBSCRIBED || !EMAIL_PATTERN.test(row.email) || emails.has(row.email)) continue;
+    const existing = await ctx.store.getSubscriberByEmail(row.email);
+    if (existing && (existing.status === 'subscribed' || existing.status === 'pending')) emails.add(row.email);
+  }
+  return emails.size;
+}
+
+export async function getNotionInboundStatus(ctx: ServiceContext): Promise<NotionInboundStatus> {
+  const raw = await ctx.store.getSetting(SETTING_KEY);
+  let state: Partial<SyncState> = {};
+  if (raw) {
+    try {
+      state = JSON.parse(raw) as Partial<SyncState>;
+    } catch {
+      state = {};
+    }
+  }
+  return {
+    enabled: isNotionInboundEnabled(),
+    lastRunAt: state.lastRunAt ?? null,
+    maxUnsubscribesPerRun: maxUnsubscribesPerRun(),
+    held: state.held ?? null,
+  };
+}
+
+/**
+ * 後台確認暫停中的退訂：允許下一輪套用目前偵測到的數量，並立刻執行一次。
+ * 如果確認之後 Notion 又多出更多退訂，會再次暫停等確認。
+ */
+export async function approveHeldUnsubscribes(
+  ctx: ServiceContext,
+  options: { fetchImpl?: FetchLike; now?: number } = {},
+): Promise<NotionInboundSummary> {
+  if (!readNotionEnv()) return emptySummary('notion_not_configured');
+  if (!isNotionInboundEnabled()) return emptySummary('disabled');
+  const raw = await ctx.store.getSetting(SETTING_KEY);
+  const state = raw ? (JSON.parse(raw) as SyncState) : null;
+  if (!state?.held) return emptySummary('nothing_held');
+  await ctx.store.setSetting(SETTING_KEY, JSON.stringify({ ...state, approvedUnsubscribes: state.held.unsubscribes }));
+  return maybeSyncFromNotion(ctx, { ...options, force: true });
+}
+
 /** 每 5 分鐘最多執行一次；失敗只記 log，不影響排程器其他工作。 */
 export async function maybeSyncFromNotion(
   ctx: ServiceContext,
@@ -260,26 +335,65 @@ export async function maybeSyncFromNotion(
   const summary = emptySummary();
   summary.ran = true;
 
-  let cursor = state.cursor;
-  let startCursor: string | undefined;
+  // 先把這一輪所有變動讀完，才能在動到名單之前判斷要不要暫停。
+  const rows: NotionRow[] = [];
+  let startCursor = state.pageCursor;
+  let unfinishedPageCursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const { results, hasMore, nextCursor } = await queryChanged(env, fetchImpl, state.cursor, startCursor);
     for (const raw of results) {
       const row = parseRow(raw);
-      if (!row) {
-        summary.invalid += 1;
-        continue;
-      }
-      summary.checked += 1;
-      await applyRow(ctx, row, state.since, summary);
-      if (row.lastEditedTime > cursor) cursor = row.lastEditedTime;
+      if (row) rows.push(row);
+      else summary.invalid += 1;
     }
-    if (!hasMore || !nextCursor) break;
+    if (!hasMore || !nextCursor) {
+      unfinishedPageCursor = undefined;
+      break;
+    }
     startCursor = nextCursor;
+    unfinishedPageCursor = nextCursor;
   }
 
-  if (fresh || cursor !== state.cursor) {
-    await ctx.store.setSetting(SETTING_KEY, JSON.stringify({ since: state.since, cursor, lastRunAt: nowIso() }));
+  const pendingUnsubscribes = await countPendingUnsubscribes(ctx, rows);
+  const limit = maxUnsubscribesPerRun();
+  if (pendingUnsubscribes > limit && pendingUnsubscribes > (state.approvedUnsubscribes ?? 0)) {
+    summary.held = true;
+    summary.pendingUnsubscribes = pendingUnsubscribes;
+    summary.reason = 'too_many_unsubscribes';
+    // 游標不前進，這些列下一輪會再被讀到；同樣的暫停狀態不重複寫入。
+    if (fresh || state.held?.unsubscribes !== pendingUnsubscribes) {
+      const next: SyncState = {
+        since: state.since,
+        cursor: state.cursor,
+        pageCursor: state.pageCursor,
+        lastRunAt: nowIso(),
+        held: { at: nowIso(), unsubscribes: pendingUnsubscribes },
+      };
+      await ctx.store.setSetting(SETTING_KEY, JSON.stringify(next));
+    }
+    logger.error('Notion 名單同步暫停：一次有太多訂閱者被改成已退訂，等後台確認', { pendingUnsubscribes, limit });
+    return summary;
+  }
+
+  let latestEdited = state.cursor;
+  for (const row of rows) {
+    summary.checked += 1;
+    await applyRow(ctx, row, state.since, summary);
+    if (row.lastEditedTime > latestEdited) latestEdited = row.lastEditedTime;
+  }
+
+  // 還沒讀完：時間游標不動（分頁游標只對同一個查詢條件有效），下一輪從分頁游標接著讀。
+  // 讀完了：結果依修改時間遞增排序，最後讀到的就是最新的修改時間。
+  const cursor = unfinishedPageCursor ? state.cursor : latestEdited;
+  const changedState =
+    fresh ||
+    cursor !== state.cursor ||
+    unfinishedPageCursor !== state.pageCursor ||
+    state.held !== undefined ||
+    state.approvedUnsubscribes !== undefined;
+  if (changedState) {
+    const next: SyncState = { since: state.since, cursor, pageCursor: unfinishedPageCursor, lastRunAt: nowIso() };
+    await ctx.store.setSetting(SETTING_KEY, JSON.stringify(next));
   }
   const changed = summary.added + summary.unsubscribed + summary.resubscribed;
   if (changed > 0 || summary.skippedConflict > 0) logger.info('Notion 名單同步完成', { ...summary });
