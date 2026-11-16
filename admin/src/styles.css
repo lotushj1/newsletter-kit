@@ -201,6 +201,8 @@ button.icon[aria-expanded="true"] {
 .notice { padding: 10px 12px; border-radius: var(--radius-md); background: var(--muted); margin: 0 0 12px; }
 .notice.warn { background: color-mix(in oklch, oklch(0.85 0.12 85) 25%, var(--muted)); }
 .notice.error { background: color-mix(in oklch, var(--destructive) 12%, var(--muted)); }
+.notice-stack { display: grid; gap: 8px; justify-items: start; }
+.notice-stack > p { margin: 0; }
 
 .toolbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 16px;
