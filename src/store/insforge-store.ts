@@ -104,11 +104,20 @@ export class InsForgeStore extends MemoryStore {
   private lastSyncAt = 0;
   private lastHistoryKey = '';
   private queue: Promise<unknown> = Promise.resolve();
-  /** 偵測到遠端損毀後就不再寫入，直到程序重啟並由人工確認資料。 */
+  /**
+   * 偵測到遠端損毀後就不再寫入。版本倒退、資料大量消失要等程序重啟並由人工確認；
+   * 只是「讀到空值」的話，之後讀回正常且通過檢查就自動恢復（見 refreshIfStale）。
+   */
   private integrityError: SnapshotIntegrityError | null = null;
+  /** 讀到空值時，隔多久再讀一次（毫秒）。資料庫介面重啟的空檔通常兩三秒內結束。 */
+  private readonly nullReadRetryDelaysMs: number[];
 
-  constructor(private readonly backend: InsForgeBackend = createInsForgeBackend()) {
+  constructor(
+    private readonly backend: InsForgeBackend = createInsForgeBackend(),
+    options: { nullReadRetryDelaysMs?: number[] } = {},
+  ) {
     super();
+    this.nullReadRetryDelaysMs = options.nullReadRetryDelaysMs ?? [500, 1500];
     for (const name of READ_METHODS) {
       const original = (this as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[
         name
@@ -176,10 +185,8 @@ export class InsForgeStore extends MemoryStore {
    * 統計因此最多延遲一個排程週期。本地記憶體不動，以免跟遠端快照分岔。
    */
   override async createEvent(event: TrackingEvent): Promise<void> {
-    if (this.backend.appendEvent) {
-      this.assertWritable();
-      if (await this.backend.appendEvent(structuredClone(event))) return;
-    }
+    // 收件匣是只新增的獨立表，不碰主資料，所以主資料停寫（freeze）時照樣可以記錄。
+    if (this.backend.appendEvent && (await this.backend.appendEvent(structuredClone(event)))) return;
     await super.createEvent(event);
   }
 
@@ -247,6 +254,11 @@ export class InsForgeStore extends MemoryStore {
       if (Date.now() - this.lastSyncAt < READ_TTL_MS) return;
       try {
         await this.refresh();
+        // 因為「讀到空值」而停寫的實例：這次讀回正常、也通過損毀檢查，就恢復寫入。
+        if (this.integrityError?.details.reason === 'null_read') {
+          logger.warn('InsForge 快照讀取恢復正常，這個實例恢復寫入', { error: this.integrityError.message });
+          this.integrityError = null;
+        }
       } catch (error) {
         if (error instanceof SnapshotIntegrityError) {
           this.freeze(error);
@@ -290,12 +302,21 @@ export class InsForgeStore extends MemoryStore {
   }
 
   private async loadRemote(where: string): Promise<VersionedSnapshot | null> {
-    const payload = (await this.backend.loadSnapshot()) as VersionedSnapshot | null;
+    let payload = (await this.backend.loadSnapshot()) as VersionedSnapshot | null;
+    const hasData = () => this.version > 0 || !isDeepStrictEqual(this.shadow, EMPTY);
+    // 已經有資料的實例讀到 null：多半是資料庫介面重啟的空檔，先隔一下再讀。
+    for (const delay of this.nullReadRetryDelaysMs) {
+      if (payload || !hasData()) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      payload = (await this.backend.loadSnapshot()) as VersionedSnapshot | null;
+      if (payload) logger.warn('InsForge 快照讀到空值，重讀後恢復', { where, localVersion: this.version });
+    }
     if (!payload) {
-      // 已經有資料的實例讀到 null：一定是讀取異常或資料列被刪，不能當成「遠端是空的」。
-      if (this.version > 0 || !isDeepStrictEqual(this.shadow, EMPTY)) {
+      // 重讀還是 null：一定是讀取異常或資料列被刪，不能當成「遠端是空的」。
+      if (hasData()) {
         throw new SnapshotIntegrityError(`${where}：遠端快照讀到空值，拒絕合併與寫入`, {
           localVersion: this.version,
+          reason: 'null_read',
         });
       }
       return null;
