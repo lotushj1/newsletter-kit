@@ -356,6 +356,8 @@ export interface Store {
   deleteDeliveries(campaignId: string): Promise<void>;
 
   createEvent(event: TrackingEvent): Promise<void>;
+  /** 有追蹤事件收件匣的 store（InsForge）：把收件匣裡的事件併回主資料，回傳併入幾筆。 */
+  foldEventInbox?(limit?: number): Promise<number>;
   listTrackingEvents(query?: { campaignId?: string; type?: 'open' | 'click'; since?: string }): Promise<TrackingEvent[]>;
   campaignTrackingStats(campaignId: string): Promise<TrackingStats>;
   periodStats(query?: PeriodQuery): Promise<PeriodStats>;
