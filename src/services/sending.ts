@@ -117,8 +117,10 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
       const delivered = new Set(
         all.filter((d) => d.status === 'sent' || d.status === 'sending').map((d) => normalizeEmail(d.email)),
       );
+      // 寄信服務已經收下、事後才回報失敗的（退信、拒收名單，有 providerMessageId）不重寄：
+      // 對方信箱收不到，重寄只會再失敗，也避免同一封信送給寄信服務兩次。
       const updates = all
-        .filter((d) => d.status === 'failed' || d.status === 'pending')
+        .filter((d) => d.status === 'pending' || (d.status === 'failed' && !d.providerMessageId))
         .map((d) =>
           delivered.has(normalizeEmail(d.email))
             ? { id: d.id, patch: { status: 'skipped' as const, error: '同一個地址已有寄出或待確認的紀錄' } }
