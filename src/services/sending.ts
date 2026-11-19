@@ -110,8 +110,8 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
   const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
   if (existing.length > 0) {
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
-    if (campaign.status === 'failed') {
-      // 重寄失敗／卡死的電子報：只把 failed 與 pending 重新排入。
+    if (campaign.status === 'failed' || campaign.status === 'sent') {
+      // 重寄失敗／卡死的電子報，或「已寄出但有一部分失敗」的電子報：只把 failed 與 pending 重新排入。
       // sending（已交給供應商、結果未確認）一律不動，要先對帳，避免重複寄。
       const all = await ctx.store.listDeliveries(campaign.id);
       const delivered = new Set(
@@ -348,7 +348,12 @@ export async function startCampaign(
   assertSendingAllowed(ctx);
   const campaign = await getCampaign(ctx, campaignId);
   if (campaign.status === 'sending') throw badRequest('這份電子報正在寄送中');
-  if (campaign.status === 'sent') throw badRequest('這份電子報已經寄過了');
+  if (campaign.status === 'sent') {
+    // 已寄出但有失敗的收件人：允許只重寄失敗的那些（已寄出的地址會被跳過，不會收到兩次）。
+    const stats = await ctx.store.deliveryStats(campaignId);
+    if (stats.unconfirmed) throw badRequest('還有結果不明的寄送紀錄，請先對帳再重寄');
+    if (stats.failed === 0) throw badRequest('這份電子報已經寄過了');
+  }
   if (!campaignHasBody(campaign)) throw badRequest('內文還是空的，不能寄送');
 
   const total = await prepareDeliveries(ctx, campaign);
