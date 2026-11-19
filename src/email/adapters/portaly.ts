@@ -6,6 +6,31 @@ export const DEFAULT_PORTALY_HOST = 'https://portaly.ai';
 
 /** 單一批次最多 100 封（Portaly 的 /batches 上限）。 */
 const BATCH_LIMIT = 100;
+/**
+ * 單一批次請求的大小上限（位元組）。Portaly 對太大的請求回 413 整批拒收：
+ * 每封含追蹤連結約 60 KB 的電子報，100 封一批（約 6 MB）會被拒，20 封一批（約 1.3 MB）寄得出去；上限取 1.2 MB 留餘裕。
+ * 依實際內容大小切批，就不必靠 SEND_BATCH_SIZE 猜。
+ */
+export const BATCH_MAX_BYTES = 1_200_000;
+
+/** 依筆數與大小切批：每批不超過 maxCount 筆、加總不超過 maxBytes（單筆超過上限時自成一批）。 */
+export function chunkBySize<T>(items: T[], sizeOf: (item: T) => number, maxCount: number, maxBytes: number): T[][] {
+  const chunks: T[][] = [];
+  let current: T[] = [];
+  let bytes = 0;
+  for (const item of items) {
+    const size = sizeOf(item);
+    if (current.length > 0 && (current.length >= maxCount || bytes + size > maxBytes)) {
+      chunks.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(item);
+    bytes += size;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 /** 429/503 時最多自動等 Retry-After 重試幾次。 */
 const RATE_LIMIT_RETRIES = 2;
 /** Retry-After 超過這個秒數就不等了，交回外層的重試機制。 */
@@ -297,14 +322,16 @@ export const createPortalyAdapter: EmailAdapterFactory = (context): EmailAdapter
       return [toSendResult(await postJson(input, '/api/email/emails', portalyEmailPayload(only, key), key))];
     }
 
+    const entries = messages.map((message) => {
+      const key = messageKey(message);
+      const payload = portalyEmailPayload(message, key);
+      return { key, payload, bytes: Buffer.byteLength(JSON.stringify(payload), 'utf8') };
+    });
     const results: SendResult[] = [];
-    for (let offset = 0; offset < messages.length; offset += BATCH_LIMIT) {
-      const chunk = messages.slice(offset, offset + BATCH_LIMIT);
-      const keys = chunk.map(messageKey);
+    for (const chunk of chunkBySize(entries, (entry) => entry.bytes, BATCH_LIMIT, BATCH_MAX_BYTES)) {
+      const keys = chunk.map((entry) => entry.key);
       // 批次內不能帶每封的 idempotencyKey，所以 ref tag 照帶、鍵改掛在整個批次上。
-      const body = {
-        emails: chunk.map((message, index) => portalyEmailPayload(message, keys[index]!)),
-      };
+      const body = { emails: chunk.map((entry) => entry.payload) };
       const outcome = await postJson(input, '/api/email/batches', body, batchIdempotencyKey(keys));
       if (!outcome.ok) {
         const failure = toSendResult(outcome) as { ok: false; error: string; retryable?: boolean };
