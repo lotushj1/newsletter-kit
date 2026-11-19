@@ -12,7 +12,7 @@ import {
   snapshotCounts,
   type Tombstones,
 } from './snapshot-guard.js';
-import type { DeliveryClaim } from './types.js';
+import type { DeliveryClaim, TrackingEvent } from './types.js';
 
 const EMPTY: MemorySnapshot = {
   subscribers: [],
@@ -170,9 +170,53 @@ export class InsForgeStore extends MemoryStore {
     await this.queue;
   }
 
+  /**
+   * 追蹤事件（開信、點擊）一次會湧入很多筆，每筆都重寫整份快照會跟寄送搶版本、互相卡住。
+   * 有收件匣時只寫進收件匣（小請求），由排程呼叫 foldEventInbox 批次併回快照；
+   * 統計因此最多延遲一個排程週期。本地記憶體不動，以免跟遠端快照分岔。
+   */
+  override async createEvent(event: TrackingEvent): Promise<void> {
+    if (this.backend.appendEvent) {
+      this.assertWritable();
+      if (await this.backend.appendEvent(structuredClone(event))) return;
+    }
+    await super.createEvent(event);
+  }
+
+  /** 收件匣裡的事件依時間先後併回快照（同 id 只算一次），再從收件匣刪掉。 */
+  async foldEventInbox(limit = 2000): Promise<number> {
+    if (!this.backend.listInboxEvents || !this.backend.deleteInboxEvents) return 0;
+    const events = await this.backend.listInboxEvents(limit);
+    if (events.length === 0) return 0;
+    this.assertWritable();
+    await this.enqueue(() =>
+      this.writeWithRetry(() => {
+        for (const event of events) {
+          if (!this.events.has(event.id)) this.events.set(event.id, structuredClone(event));
+        }
+      }),
+    );
+    // 刪除失敗也沒關係：下次再併同一批，同 id 不會重複計算。
+    await this.backend.deleteInboxEvents(events.map((event) => event.id));
+    return events.length;
+  }
+
+  /**
+   * 已排隊、還沒開始的整份寫入。這段期間再有修改就搭同一班，不再各寫一次；
+   * 開信、點擊這類一次湧入很多筆的寫入，才不會每筆都把整份快照讀寫一遍。
+   */
+  private pendingPersist: Promise<void> | null = null;
+
   protected override async persist(): Promise<void> {
     this.assertWritable();
-    await this.enqueue(() => this.writeWithRetry(() => undefined));
+    if (this.pendingPersist) return this.pendingPersist;
+    const run = this.enqueue(() => {
+      // 一開始寫就關閉這一班：writeWithRetry 會同步取下目前的本地狀態，之後的修改排下一班。
+      this.pendingPersist = null;
+      return this.writeWithRetry(() => undefined);
+    });
+    this.pendingPersist = run;
+    return run;
   }
 
   /**

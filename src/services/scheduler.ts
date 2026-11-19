@@ -75,6 +75,13 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
       } catch (error) {
         logger.error('Notion 名單同步失敗', { error: (error as Error).message });
       }
+      // 開信、點擊先進收件匣，這裡批次併回主資料（統計最多延遲一個排程週期）。
+      try {
+        const folded = (await ctx.store.foldEventInbox?.()) ?? 0;
+        if (folded > 0) logger.info('追蹤事件已併回', { count: folded });
+      } catch (error) {
+        logger.error('追蹤事件併回失敗', { error: (error as Error).message });
+      }
     } catch (error) {
       logger.error('排程器執行失敗', { error: (error as Error).message });
       summary.error = (error as Error).message;
