@@ -91,7 +91,8 @@ describe('資料層寫入檢查', () => {
     expect((await ctx.store.getCampaign(due.id))?.status).toBe('scheduled');
   });
 
-  it('InsForge 逐表：schema 版本不符或少了資料表時擋下寄送，運作狀態列出缺什麼', async () => {
+  // PGlite 建庫在整套測試平行跑時較慢，跟其他逐表測試一樣放寬時間。
+  it('InsForge 逐表：schema 版本不符或少了資料表時擋下寄送，運作狀態列出缺什麼', { timeout: 60_000 }, async () => {
     const { ctx, db } = await tablesContext();
     expect((await checkStoreReadiness(ctx, { full: true })).ok).toBe(true);
 

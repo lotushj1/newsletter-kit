@@ -1,9 +1,10 @@
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
-import { EMPTY_SCHEDULER_STATE, readSchedulerState, type SchedulerState } from './scheduler-state.js';
+import type { ReadinessAlert, ReadinessReport, SchedulerState } from './readiness-types.js';
+import { EMPTY_SCHEDULER_STATE, readSchedulerState } from './scheduler-state.js';
 import { isSendingNow } from './send-state.js';
 import { sendingBlockedReason } from './sending.js';
-import { checkStoreReadiness, type StoreReadiness } from './store-readiness.js';
+import { checkStoreReadiness } from './store-readiness.js';
 
 /** 上次成功跑完 tick 超過這麼久就提醒（外部 cron 每 1～5 分鐘打一次）。 */
 export const TICK_STALE_MS = 15 * 60 * 1000;
@@ -16,63 +17,7 @@ export const PAUSED_LONG_MS = 24 * 60 * 60 * 1000;
 /** 掃描結果未確認的寄送紀錄時，只看最近這麼多封電子報。 */
 const RECENT_CAMPAIGNS = 50;
 
-export interface ReadinessAlert {
-  code:
-    | 'store_unavailable'
-    | 'scheduler_never_ran'
-    | 'scheduler_stale'
-    | 'scheduled_overdue'
-    | 'sending_stalled'
-    | 'deliveries_unconfirmed'
-    | 'send_paused_long'
-    | 'scheduler_disabled_long';
-  message: string;
-}
-
-export interface ReadinessReport {
-  /** ready 且沒有任何提醒；uptime 監控看這個（/api/cron/readiness 不是 true 就回 503）。 */
-  ok: boolean;
-  /** 資料庫可讀寫、schema 正確，可以受理訂閱與寄送。 */
-  ready: boolean;
-  checkedAt: string;
-  store: StoreReadiness;
-  sending: {
-    provider: string;
-    /** dry_run 只寫紀錄、不會真的寄出。 */
-    dryRun: boolean;
-    /** SEND_PAUSED=true：全面寄送暫停（手動、排程、序列信都不寄）。 */
-    paused: boolean;
-    pausedSince: string | null;
-    /** SCHEDULER_ENABLED=false：排程寄送暫停（排程電子報與序列信不會自動寄，手動寄送照常）。 */
-    schedulerEnabled: boolean;
-    schedulerDisabledSince: string | null;
-    autoResume: boolean;
-    blockedReason: string | null;
-  };
-  /** 投遞回執（退信、檢舉）對帳：兩種暫停都不會停掉它。 */
-  receipts: {
-    mode: 'portaly_sync' | 'webhook' | 'none';
-    /** Portaly 回查最後一次跑的時間；其他模式為 null。 */
-    lastRunAt: string | null;
-  };
-  scheduler: SchedulerState & { lastSuccessAgeMs: number | null };
-  backlog: {
-    /** 排程時間已到、還沒開始寄的電子報。 */
-    dueCampaigns: number;
-    overdueCampaigns: number;
-    /** 狀態是「寄送中」的電子報。 */
-    sendingCampaigns: number;
-    /** 「寄送中」但超過門檻沒有進度、這個程序也沒在寄的。 */
-    stalledCampaigns: number;
-    /** 最近電子報裡，停在「已交給寄信服務、結果未確認」的寄送紀錄。 */
-    unconfirmedDeliveries: number;
-    /** 其中超過門檻還沒確認的。 */
-    stuckDeliveries: number;
-    oldestUnconfirmedAt: string | null;
-  };
-  thresholds: { tickStaleMs: number; scheduleOverdueMs: number; sendingStuckMs: number; pausedLongMs: number };
-  alerts: ReadinessAlert[];
-}
+export type { ReadinessAlert, ReadinessReport } from './readiness-types.js';
 
 const minutes = (ms: number): number => Math.max(1, Math.round(ms / 60_000));
 

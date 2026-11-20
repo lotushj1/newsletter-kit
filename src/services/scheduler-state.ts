@@ -1,34 +1,15 @@
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
+import type { SchedulerState } from './readiness-types.js';
 import type { TickSummary } from './scheduler.js';
+
+export type { SchedulerState } from './readiness-types.js';
 
 /**
  * 排程器每次 tick 的紀錄，存在 settings（serverless 每次請求可能是新實例，記憶體留不住）。
  * 後台「運作狀態」與 /api/cron/readiness 讀這份判斷排程有沒有在跑、是否落後。
  */
 export const SCHEDULER_STATE_KEY = 'scheduler_state';
-
-export interface SchedulerState {
-  /** 最近一次 tick 開始的時間（不論有沒有跑完）。 */
-  lastStartedAt: string | null;
-  /** 最近一次 tick 結束的時間（成功或失敗）。 */
-  lastFinishedAt: string | null;
-  /** 最近一次「成功跑完」的時間。 */
-  lastCompletedAt: string | null;
-  lastDurationMs: number | null;
-  /** 這次 tick 開始寄的排程電子報，比預定時間晚了多久（取最大值；沒有就是 0）。 */
-  lastLagMs: number | null;
-  /** 距離上一次 tick 開始隔了多久。 */
-  lastIntervalMs: number | null;
-  lastError: string | null;
-  lastSkippedReason: string | null;
-  /** tick 結束時還沒處理完的量。 */
-  backlog: { dueCampaigns: number; sendingCampaigns: number } | null;
-  /** SEND_PAUSED=true 從哪一次 tick 開始被看到；解除後清空。 */
-  sendPausedSince: string | null;
-  /** SCHEDULER_ENABLED=false 從哪一次 tick 開始被看到；開啟後清空。 */
-  schedulerDisabledSince: string | null;
-}
 
 export const EMPTY_SCHEDULER_STATE: SchedulerState = {
   lastStartedAt: null,

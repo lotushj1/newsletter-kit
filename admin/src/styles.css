@@ -318,6 +318,8 @@ button.pill.active { background: var(--primary); color: var(--primary-foreground
 .pill.failed, .pill.canceled { background: color-mix(in oklch, var(--destructive) 12%, white); }
 
 table.data { width: 100%; border-collapse: collapse; }
+/* 寄送確認視窗：左欄是欄位名稱，不要折行。 */
+table.confirm-table th { width: 1%; white-space: nowrap; vertical-align: top; }
 table.data th, table.data td { text-align: left; padding: 12px 12px; border-bottom: 1px solid var(--border); }
 table.data th { font-size: var(--text-sm); color: var(--muted-foreground); font-weight: 500; }
 table.data th.check, table.data td.check { width: 36px; }

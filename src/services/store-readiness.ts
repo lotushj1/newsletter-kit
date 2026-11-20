@@ -2,6 +2,7 @@ import { AppError } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
 import type { SchemaCheck, Store } from '../store/types.js';
+import type { StoreReadiness } from './readiness-types.js';
 import type { ServiceContext } from './context.js';
 
 /**
@@ -21,18 +22,7 @@ export const STORE_CHECK_TTL_MS = 30_000;
 /** 公開訂閱被擋下時的錯誤代碼（API 回應的 code）。 */
 export const STORE_UNAVAILABLE = 'store_unavailable';
 
-export interface StoreReadiness {
-  ok: boolean;
-  driver: string;
-  checkedAt: string;
-  /** null＝沒有做寫入探測（整份快照的 store 看完整性檢查）。 */
-  writable: boolean | null;
-  /** null＝這個 store 沒有完整性檢查。 */
-  integrity: 'ok' | 'frozen' | null;
-  /** null＝schema 由程式自己建立，不需要檢查。 */
-  schema: SchemaCheck | null;
-  problems: string[];
-}
+export type { StoreReadiness } from './readiness-types.js';
 
 const cache = new WeakMap<Store, { result: StoreReadiness; at: number }>();
 
