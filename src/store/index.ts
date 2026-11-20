@@ -1,11 +1,14 @@
 import type { StoreDriver } from '../config.js';
+import { createInsForgeTableDb } from '../core/insforge-table-db.js';
 import { InsForgeStore } from './insforge-store.js';
+import { InsForgeTableStore } from './insforge-table-store.js';
 import { JsonStore } from './json-store.js';
 import { MemoryStore } from './memory-store.js';
 import { SqliteStore } from './sqlite-store.js';
 import type { Store } from './types.js';
 
 export { InsForgeStore } from './insforge-store.js';
+export { InsForgeTableStore } from './insforge-table-store.js';
 export { JsonStore } from './json-store.js';
 export { MemoryStore } from './memory-store.js';
 export { SqliteStore } from './sqlite-store.js';
@@ -21,6 +24,8 @@ export function createStore(driver: StoreDriver, path: string): Store {
       return new MemoryStore();
     case 'insforge':
       return new InsForgeStore();
+    case 'insforge-tables':
+      return new InsForgeTableStore(createInsForgeTableDb());
     default: {
       const exhaustive: never = driver;
       throw new Error(`未知的 STORE_DRIVER：${String(exhaustive)}`);

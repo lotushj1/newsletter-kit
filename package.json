@@ -29,6 +29,7 @@
     "build:vercel": "node scripts/vercel-build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:tables": "NK_TEST_STORE=tables vitest run --testTimeout=60000 --hookTimeout=60000",
     "test:watch": "vitest",
     "mcp": "tsx src/mcp/cli.ts"
   },
@@ -62,6 +63,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.11",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.6",
     "@types/node": "^22.13.0",

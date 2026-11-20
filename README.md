@@ -378,7 +378,7 @@ NEWSLETTER_URL=https://your-newsletter.example npm run mcp
 | `AI_MODEL` | 依服務 | 沒填時用該服務的預設模型 |
 | `AI_BASE_URL` | 依服務 | 已知服務可留空。Ollama、LM Studio 才要改 |
 | `MAIL_FROM` | — | 寄件人，要是你在供應商驗證過的網域 |
-| `STORE_DRIVER` | `sqlite` | `sqlite` / `json` / `memory` / `insforge` |
+| `STORE_DRIVER` | `sqlite` | `sqlite` / `json` / `memory` / `insforge` / `insforge-tables` |
 | `DOUBLE_OPT_IN` | `true` | 關掉就跳過確認信 |
 | `CORS_ORIGINS` | `*` | 允許打公開 API 與 Agent 端點的網域，正式環境請收斂 |
 | `TRACKING_ENABLED` | `true` | 關掉則不注入 pixel／轉址 |
@@ -401,6 +401,7 @@ NEWSLETTER_URL=https://your-newsletter.example npm run mcp
 預設 SQLite 單檔（`./data/newsletter.db`），部署時記得掛持久磁碟。
 `STORE_DRIVER=json` 是零原生依賴的單檔版本，適合小名單試跑。
 `STORE_DRIVER=insforge` 把同一份 JSON 存進你自己的 InsForge 專案，適合沒有持久硬碟的試跑。
+`STORE_DRIVER=insforge-tables` 改成每種資料一張 InsForge（Postgres）資料表、逐列讀寫，名單變大也不會變慢；要先套用 `migrations/`，從 `insforge` 搬過來見 [InsForge 逐表 store](docs/insforge-tables.md)。
 
 要換成自己的資料庫就實作 `src/store/types.ts` 的 `Store` 介面，
 服務層完全不用改：

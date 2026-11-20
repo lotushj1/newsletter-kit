@@ -3,7 +3,7 @@ import { normalizeTrackedUrl } from '../core/tracking.js';
 import type { AudienceCondition, Campaign, Subscriber, TrackingEvent } from '../store/types.js';
 import { audienceFromCampaign } from '../store/types.js';
 import type { ServiceContext } from './context.js';
-import { isSuppressed } from './suppression.js';
+import { suppressedEmails } from './suppression.js';
 
 export function parseAudienceCondition(value: unknown, depth = 0, budget = { remaining: 100 }): AudienceCondition | undefined {
   if (value === undefined || value === null) return undefined;
@@ -68,7 +68,8 @@ function engagements(condition: AudienceCondition): Extract<AudienceCondition, {
 
 export async function selectAudience(ctx: ServiceContext, campaign: Pick<Campaign, 'audienceTags' | 'audienceFolderId' | 'audienceCondition'>): Promise<Subscriber[]> {
   const subscribers = await ctx.store.listAudience(audienceFromCampaign(campaign));
-  const eligible = (await Promise.all(subscribers.map(async (s) => !s.meta?.suppressedReason && !(await isSuppressed(ctx, s.email)) ? s : null))).filter((s): s is Subscriber => Boolean(s));
+  const suppressed = await suppressedEmails(ctx, subscribers.map((s) => s.email));
+  const eligible = subscribers.filter((s) => !s.meta?.suppressedReason && !suppressed.has(s.email.trim().toLowerCase()));
   if (eligible.length === 0) return [];
   if (!campaign.audienceCondition) return eligible;
   const needed = engagements(campaign.audienceCondition);

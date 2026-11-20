@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import type { Config } from '../src/config.js';
 import type { EmailAdapter, EmailMessage, SendResult } from '../src/email/types.js';
 import type { ServiceContext } from '../src/services/context.js';
+import { InsForgeTableStore } from '../src/store/insforge-table-store.js';
 import { MemoryStore } from '../src/store/memory-store.js';
+import type { Store } from '../src/store/types.js';
+import { PgliteTableDb } from './support/pglite-table-db.js';
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -82,10 +85,21 @@ export function fakeAdapter(): FakeAdapter {
   return adapter;
 }
 
+/**
+ * 測試用 store。預設 MemoryStore；`NK_TEST_STORE=tables`（npm run test:tables）時
+ * 換成 InsForgeTableStore + PGlite（真的 Postgres、同一份 migration），整套測試跑新 driver。
+ */
+export async function createTestStore(): Promise<Store> {
+  if (process.env.NK_TEST_STORE === 'tables') {
+    return new InsForgeTableStore(await PgliteTableDb.create());
+  }
+  return new MemoryStore();
+}
+
 export async function makeContext(
   overrides: Partial<Config> = {},
-): Promise<{ ctx: ServiceContext; adapter: FakeAdapter; store: MemoryStore }> {
-  const store = new MemoryStore();
+): Promise<{ ctx: ServiceContext; adapter: FakeAdapter; store: Store }> {
+  const store = await createTestStore();
   await store.init();
   const adapter = fakeAdapter();
   return { ctx: { config: testConfig(overrides), store, adapter, ai: null }, adapter, store };

@@ -28,7 +28,7 @@ export function loadEnvFile(file = '.env'): void {
   }
 }
 
-export type StoreDriver = 'sqlite' | 'json' | 'memory' | 'insforge';
+export type StoreDriver = 'sqlite' | 'json' | 'memory' | 'insforge' | 'insforge-tables';
 export type AiProvider = string;
 
 export interface Config {
@@ -157,8 +157,8 @@ export function loadConfig(): Config {
 
   const onVercel = process.env.VERCEL === '1';
   const driver = (optional('STORE_DRIVER') ?? (onVercel ? 'json' : 'sqlite')) as StoreDriver;
-  if (!['sqlite', 'json', 'memory', 'insforge'].includes(driver)) {
-    throw new Error(`STORE_DRIVER 只能是 sqlite / json / memory / insforge，收到：${driver}`);
+  if (!['sqlite', 'json', 'memory', 'insforge', 'insforge-tables'].includes(driver)) {
+    throw new Error(`STORE_DRIVER 只能是 sqlite / json / memory / insforge / insforge-tables，收到：${driver}`);
   }
   const defaultPath = onVercel
     ? driver === 'memory'
