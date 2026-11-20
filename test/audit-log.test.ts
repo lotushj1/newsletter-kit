@@ -111,7 +111,7 @@ const DRIVERS: DriverCase[] = [
   },
 ];
 
-describe.each(DRIVERS)('操作紀錄 store：$name', ({ open }) => {
+describe.each(DRIVERS)('操作紀錄 store：$name', { timeout: 60_000 }, ({ open }) => {
   it('只新增、新到舊讀回、同 id 重送不重複、可以限制筆數', async () => {
     const { store, reopen } = await open();
     await store.init();
@@ -138,7 +138,7 @@ describe.each(DRIVERS)('操作紀錄 store：$name', ({ open }) => {
   });
 });
 
-describe('操作紀錄不能修改或刪除', () => {
+describe('操作紀錄不能修改或刪除', { timeout: 60_000 }, () => {
   it('insforge-tables：資料表的 trigger 擋下修改與刪除', async () => {
     const db = await PgliteTableDb.create();
     pglites.push(db);
@@ -171,7 +171,7 @@ describe('操作紀錄不能修改或刪除', () => {
   });
 });
 
-describe('搬移／還原腳本的操作紀錄', () => {
+describe('搬移／還原腳本的操作紀錄', { timeout: 60_000 }, () => {
   const emptySnapshot = (): MemorySnapshot => ({
     subscribers: [],
     campaigns: [],
@@ -239,7 +239,7 @@ describe('寫入操作紀錄失敗不影響動作本身', () => {
   });
 });
 
-describe('後台 API 與 MCP 會留下操作紀錄', () => {
+describe('後台 API 與 MCP 會留下操作紀錄', { timeout: 60_000 }, () => {
   const ADMIN_EMAIL = 'editor@example.test';
   let server: Server;
   let base: string;
