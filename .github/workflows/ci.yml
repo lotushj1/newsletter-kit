@@ -1,0 +1,62 @@
+name: ci
+
+# PR 與 main 的檢查：型別、測試、建置、Vercel 建置、正式相依套件的安全稽核。
+# 只用測試資料：dry_run 寄信、記憶體／PGlite store，不設定任何 secret、不部署、不打正式環境。
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # package.json engines 寫 >=20.11，但 better-sqlite3 13 需要 Node >=22、vitest 5 需要 ^22.12，
+  # 所以用 22（符合 engines，也符合相依套件）。
+  NODE_VERSION: '22'
+  EMAIL_PROVIDER: dry_run
+  STORE_DRIVER: memory
+  SCHEDULER_ENABLED: 'false'
+  SEND_PAUSED: 'true'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Build (Vercel)
+        # scripts/vercel-build.mjs 只建後台並複製到 public/admin；VERCEL 沒設成 1 時不刪任何檔案，也不需要金鑰。
+        run: npm run build:vercel
+
+  audit:
+    # 獨立一個 job：稽核失敗不會蓋掉上面的測試結果。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit（正式相依套件，high 以上就失敗）
+        run: npm audit --omit=dev --audit-level=high

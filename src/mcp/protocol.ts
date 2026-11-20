@@ -44,7 +44,12 @@ function errorCode(error: unknown): number {
   return -32603;
 }
 
-async function handleOne(ctx: ServiceContext, raw: unknown): Promise<McpHandleResult> {
+export interface McpCallOptions {
+  /** 寫進操作紀錄的人；預設 admin-token。 */
+  actor?: string | undefined;
+}
+
+async function handleOne(ctx: ServiceContext, raw: unknown, options: McpCallOptions): Promise<McpHandleResult> {
   if (!isRecord(raw) || typeof raw.method !== 'string') {
     return { kind: 'body', json: rpcError(null, -32600, '無效的 JSON-RPC 請求') };
   }
@@ -77,7 +82,7 @@ async function handleOne(ctx: ServiceContext, raw: unknown): Promise<McpHandleRe
         const name = typeof params.name === 'string' ? params.name : '';
         const args = isRecord(params.arguments) ? params.arguments : {};
         if (!name) return { kind: 'body', json: rpcError(id, -32602, '缺少 tool 名稱') };
-        const result = await callTool(ctx, name, args);
+        const result = await callTool(ctx, name, args, options.actor);
         return {
           kind: 'body',
           json: rpcResult(id, {
@@ -97,17 +102,21 @@ async function handleOne(ctx: ServiceContext, raw: unknown): Promise<McpHandleRe
   }
 }
 
-export async function handleMcpMessage(ctx: ServiceContext, raw: unknown): Promise<McpHandleResult> {
+export async function handleMcpMessage(
+  ctx: ServiceContext,
+  raw: unknown,
+  options: McpCallOptions = {},
+): Promise<McpHandleResult> {
   if (Array.isArray(raw)) {
     if (raw.length === 0) {
       return { kind: 'body', json: rpcError(null, -32600, '空的 JSON-RPC 批次') };
     }
-    const parts = await Promise.all(raw.map((item) => handleOne(ctx, item)));
+    const parts = await Promise.all(raw.map((item) => handleOne(ctx, item, options)));
     const messages = parts.filter((part) => part.kind === 'body').map((part) => part.json);
     if (messages.length === 0) return { kind: 'empty' };
     return { kind: 'body', json: messages };
   }
-  return handleOne(ctx, raw);
+  return handleOne(ctx, raw, options);
 }
 
 export function encodeMcpBody(json: unknown): string {

@@ -94,6 +94,23 @@ export type AudienceCondition =
  */
 export type DeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
 
+/**
+ * 寄信服務對這封信的回報，跟 status 分開記：status 決定寄送流程與重寄規則，
+ * receipt 只記「服務商說了什麼」。accepted＝服務商已收下（還沒有送達回報），
+ * delivered＝服務商回報已送達，bounced＝退信，complained＝收件人檢舉為垃圾信，
+ * failed＝服務商收下後回報沒寄出（例如抑制名單、額度不足）。開信與點擊不算送達證據。
+ */
+export type DeliveryReceipt = 'accepted' | 'delivered' | 'bounced' | 'complained' | 'failed';
+
+/** 對帳紀錄：誰在什麼時候查過、查到什麼、為什麼。 */
+export interface DeliveryReconcile {
+  at: string;
+  by: string;
+  /** confirmed＝服務商查得到；not_found＝查不到；unsupported＝服務商沒有查詢 API；lookup_failed＝查詢本身失敗。 */
+  result: 'confirmed' | 'not_found' | 'unsupported' | 'lookup_failed';
+  note: string;
+}
+
 export interface Delivery {
   id: string;
   campaignId: string;
@@ -107,6 +124,12 @@ export interface Delivery {
   /** 領走這筆的寄送批次 id 與時間（防止多個實例同時寄同一筆）。 */
   claimId?: string | undefined;
   claimedAt?: string | undefined;
+  /** 服務商回報（見 DeliveryReceipt）；舊資料沒有這欄，已寄出的視為 accepted。 */
+  receipt?: DeliveryReceipt | null | undefined;
+  /** 收到這份回報的時間。 */
+  receiptAt?: string | null | undefined;
+  /** 最近一次對帳的結果與原因。 */
+  reconcile?: DeliveryReconcile | null | undefined;
 }
 
 export interface DeliveryClaim {
@@ -264,6 +287,27 @@ export interface SequenceEnrollment {
   createdAt: string;
 }
 
+/**
+ * 後台操作紀錄（誰在什麼時候寄送、排程、取消、匯出匯入、刪除、改設定、還原）。只新增，不修改、不刪除。
+ * summary 只放簡短說明（筆數、欄位名稱、時間），不放訂閱者 email、金鑰或信件內文。
+ */
+export interface AuditEntry {
+  id: string;
+  /** ISO 時間。 */
+  at: string;
+  /** Google 登入的 email；用 ADMIN_TOKEN 登入時是 `admin-token`。 */
+  actor: string;
+  /** 例如 `campaign.send`、`subscriber.delete`；完整清單見 services/audit.ts。 */
+  action: string;
+  targetId?: string | undefined;
+  summary: string;
+}
+
+export interface AuditQuery {
+  /** 預設 100，最多 500。 */
+  limit?: number | undefined;
+}
+
 export interface Paged<T> {
   items: T[];
   total: number;
@@ -295,6 +339,17 @@ export interface CampaignQuery {
   offset?: number | undefined;
 }
 
+/** 外部資料庫的 schema 檢查結果（給後台「運作狀態」）。 */
+export interface SchemaCheck {
+  /** 資料庫回報的版本；讀不到為 null。 */
+  version: number | null;
+  expectedVersion: number;
+  /** 讀不到（不存在或無法連線）的資料表與資料庫函式。 */
+  missing: string[];
+  /** 版本讀取失敗時的錯誤訊息。 */
+  error?: string | undefined;
+}
+
 /**
  * 換資料庫只要實作這個介面（Postgres、MySQL、Airtable、你家的 BaaS 都行），
  * 再在 store/index.ts 或啟動程式裡注入即可，服務層不需要改。
@@ -303,6 +358,11 @@ export interface Store {
   readonly driver: string;
   init(): Promise<void>;
   close(): Promise<void>;
+  /**
+   * schema 由外部 migration 管理的 store（InsForge 逐表）才需要：
+   * full=false 只查版本；full=true 再逐一確認資料表與寄送用的資料庫函式都在。
+   */
+  checkSchema?(options?: { full?: boolean }): Promise<SchemaCheck>;
 
   createSubscriber(subscriber: Subscriber): Promise<Subscriber>;
   updateSubscriber(id: string, patch: Partial<Subscriber>): Promise<Subscriber | null>;
@@ -348,13 +408,19 @@ export interface Store {
   claimDeliveries(ids: string[], claim: DeliveryClaim): Promise<string[]>;
   /** 一次寫回多筆寄送結果；回傳實際套用的筆數（找不到的紀錄不算）。 */
   updateDeliveries(updates: DeliveryUpdate[]): Promise<number>;
+  /** 用 id 讀一筆寄送紀錄（序列信用固定 id 判斷這一步寄過沒有）。 */
+  getDelivery(id: string): Promise<Delivery | null>;
   /** 用供應商回傳的訊息 id 反查寄送紀錄（Portaly 投遞狀態回查用）。 */
   findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null>;
   listDeliveries(
     campaignId: string,
     options?: { status?: DeliveryStatus | undefined; limit?: number | undefined },
   ): Promise<Delivery[]>;
+  /** 跨電子報列出某個狀態的寄送紀錄（待對帳清單用：status=sending），依寫入順序。 */
+  listDeliveriesByStatus(status: DeliveryStatus, options?: { limit?: number | undefined }): Promise<Delivery[]>;
   deliveryStats(campaignId: string): Promise<CampaignStats>;
+  /** 單一訂閱者的寄送紀錄與開信點擊（個人資料匯出用）。 */
+  listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }>;
   deleteDeliveries(campaignId: string): Promise<void>;
 
   createEvent(event: TrackingEvent): Promise<void>;
@@ -393,6 +459,27 @@ export interface Store {
   getCampaignStarter(id: string): Promise<CampaignStarter | null>;
   listCampaignStarters(): Promise<CampaignStarter[]>;
   deleteCampaignStarter(id: string): Promise<boolean>;
+
+  /** 操作紀錄只新增；同一個 id 重送（逾時重試）不會重複。沒有修改或刪除的方法。 */
+  appendAuditEntry(entry: AuditEntry): Promise<void>;
+  /** 最近的操作紀錄，新到舊。 */
+  listAuditEntries(query?: AuditQuery): Promise<AuditEntry[]>;
+}
+
+/** 操作紀錄一次最多讀幾筆。 */
+export const AUDIT_LIST_MAX = 500;
+
+export function auditListLimit(query: AuditQuery = {}): number {
+  const limit = Math.trunc(query.limit ?? 100);
+  return Number.isFinite(limit) ? Math.min(Math.max(limit, 1), AUDIT_LIST_MAX) : 100;
+}
+
+/** 新到舊；同一毫秒的依寫入順序（後寫的在前）。 */
+export function newestAuditFirst(entries: AuditEntry[]): AuditEntry[] {
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => (a.entry.at === b.entry.at ? b.index - a.index : a.entry.at < b.entry.at ? 1 : -1))
+    .map(({ entry }) => entry);
 }
 
 export const EMPTY_TRACKING: TrackingStats = {

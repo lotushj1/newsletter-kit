@@ -3,7 +3,7 @@ import { emailHeaders } from '../headers.js';
 
 /**
  * 範例 adapter：把信交給你自己架在 Zeabur（或任何地方）的寄信服務。
- * 預期端點接受 POST JSON { to, from, subject, html, text } 並回 { id }。
+ * 預期端點接受 POST JSON { to, from, subject, html, text, headers, idempotencyKey } 並回 { id }。
  * 你的端點格式不同就改這個檔案，核心不用動。
  */
 export const createZeaburAdapter: EmailAdapterFactory = (context): EmailAdapter => ({
@@ -30,6 +30,8 @@ export const createZeaburAdapter: EmailAdapterFactory = (context): EmailAdapter 
     }
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (context.zeaburToken) headers.authorization = `Bearer ${context.zeaburToken}`;
+    // 寄送紀錄 id：你的寄信服務可以用它去重，重試時不要寄第二封。
+    if (message.idempotencyKey) headers['idempotency-key'] = message.idempotencyKey;
 
     try {
       const response = await fetch(context.zeaburEndpoint, {
@@ -44,6 +46,7 @@ export const createZeaburAdapter: EmailAdapterFactory = (context): EmailAdapter 
           replyTo: message.replyTo,
           unsubscribeUrl: message.unsubscribeUrl,
           headers: emailHeaders(message),
+          idempotencyKey: message.idempotencyKey,
         }),
       });
       if (!response.ok) {

@@ -37,7 +37,7 @@ function cors(
 export function createApp(ctx: ServiceContext, options: { googleFetch?: typeof fetch } = {}): Express {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', true);
+  app.set('trust proxy', ctx.config.trustProxy);
 
   app.use('/api/webhooks', express.raw({ type: '*/*', limit: '2mb' }), providerWebhookRouter(ctx));
 
@@ -77,9 +77,10 @@ export function createApp(ctx: ServiceContext, options: { googleFetch?: typeof f
   app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
     const status = error instanceof AppError ? error.status : 500;
     if (status >= 500) logger.error('未預期的錯誤', { path: req.path, error: error.message });
-    const message = status >= 500 ? '伺服器發生錯誤' : error.message;
+    // AppError 是刻意給使用者看的訊息（含 503「資料層無法寫入」這類），照原文回；其他一律藏起來。
+    const message = error instanceof AppError ? error.message : '伺服器發生錯誤';
     if (req.path.startsWith('/api/') || req.headers.accept?.includes('application/json')) {
-      res.status(status).json({ error: message });
+      res.status(status).json(error instanceof AppError ? { error: message, code: error.code } : { error: message });
       return;
     }
     res.status(status).type('html').send(`<h1>${status}</h1><p>${message}</p>`);

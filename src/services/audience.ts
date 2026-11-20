@@ -66,14 +66,36 @@ function engagements(condition: AudienceCondition): Extract<AudienceCondition, {
   return [];
 }
 
-export async function selectAudience(ctx: ServiceContext, campaign: Pick<Campaign, 'audienceTags' | 'audienceFolderId' | 'audienceCondition'>): Promise<Subscriber[]> {
+type AudienceFields = Pick<Campaign, 'audienceTags' | 'audienceFolderId' | 'audienceCondition'>;
+
+/**
+ * 受眾拆成「會寄出」與「符合條件、但因退訂抑制、退信或排除名單而不寄」兩組。
+ * 寄送確認視窗要同時顯示這兩個數字，所以先套條件、再扣排除名單。
+ */
+export async function audienceBreakdown(
+  ctx: ServiceContext,
+  campaign: AudienceFields,
+): Promise<{ recipients: Subscriber[]; excluded: number }> {
   const subscribers = await ctx.store.listAudience(audienceFromCampaign(campaign));
-  const suppressed = await suppressedEmails(ctx, subscribers.map((s) => s.email));
-  const eligible = subscribers.filter((s) => !s.meta?.suppressedReason && !suppressed.has(s.email.trim().toLowerCase()));
-  if (eligible.length === 0) return [];
-  if (!campaign.audienceCondition) return eligible;
-  const needed = engagements(campaign.audienceCondition);
-  if (needed.length === 0) return eligible.filter((s) => matches(campaign.audienceCondition!, s, [], Date.now()));
+  if (subscribers.length === 0) return { recipients: [], excluded: 0 };
+  const matched = await matchCondition(ctx, campaign.audienceCondition, subscribers);
+  const suppressed = await suppressedEmails(ctx, matched.map((s) => s.email));
+  const recipients = matched.filter((s) => !s.meta?.suppressedReason && !suppressed.has(s.email.trim().toLowerCase()));
+  return { recipients, excluded: matched.length - recipients.length };
+}
+
+export async function selectAudience(ctx: ServiceContext, campaign: AudienceFields): Promise<Subscriber[]> {
+  return (await audienceBreakdown(ctx, campaign)).recipients;
+}
+
+async function matchCondition(
+  ctx: ServiceContext,
+  condition: AudienceCondition | undefined,
+  eligible: Subscriber[],
+): Promise<Subscriber[]> {
+  if (!condition) return eligible;
+  const needed = engagements(condition);
+  if (needed.length === 0) return eligible.filter((s) => matches(condition, s, [], Date.now()));
   const now = Date.now();
   const since = needed.every((item) => item.withinDays) ? new Date(now - Math.max(...needed.map((item) => item.withinDays!)) * 86400000).toISOString() : undefined;
   const campaignId = needed.every((item) => item.campaignId && item.campaignId === needed[0]?.campaignId) ? needed[0]?.campaignId : undefined;
@@ -86,5 +108,5 @@ export async function selectAudience(ctx: ServiceContext, campaign: Pick<Campaig
     items.push(event);
     bySubscriber.set(event.subscriberId, items);
   }
-  return eligible.filter((s) => matches(campaign.audienceCondition!, s, bySubscriber.get(s.id) ?? [], now));
+  return eligible.filter((s) => matches(condition, s, bySubscriber.get(s.id) ?? [], now));
 }

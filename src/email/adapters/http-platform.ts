@@ -205,7 +205,10 @@ export function platformRequest(
         Content: {
           From: message.from,
           Subject: message.subject,
-          Body: [{ ContentType: 'HTML', Content: message.html, Charset: 'utf-8' }],
+          Body: [
+            { ContentType: 'HTML', Content: message.html, Charset: 'utf-8' },
+            ...(message.text ? [{ ContentType: 'PlainText', Content: message.text, Charset: 'utf-8' }] : []),
+          ],
           Headers: mailHeaders,
         },
       }),

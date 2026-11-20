@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, formatRate, formatTime, STATUS_LABEL, type Campaign, type OverviewRates } from '../api';
+import {
+  api,
+  formatRate,
+  formatTime,
+  STATUS_LABEL,
+  type Campaign,
+  type OverviewRates,
+  type ReadinessReport,
+} from '../api';
 import { DateRangePicker } from '../components/DateRangePicker';
 
 interface Overview {
@@ -34,6 +42,109 @@ function lastDays(days: number): { from: string; to: string } {
   return { from: toYmd(from), to: toYmd(to) };
 }
 
+/** 多久以前，例如「3 分鐘前」。 */
+function ago(ms: number | null): string {
+  if (ms === null) return '—';
+  if (ms < 60_000) return '不到 1 分鐘前';
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} 分鐘前`;
+  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)} 小時前`;
+  return `${Math.round(ms / 86_400_000)} 天前`;
+}
+
+function sinceText(iso: string | null): string {
+  return iso ? `，${formatTime(iso)} 起` : '';
+}
+
+/** 運作狀態：資料庫、兩種暫停、回執對帳、排程 tick 與待辦分開顯示（提醒放在頁面最上方）。 */
+function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport; onRefresh: () => void; refreshing: boolean }) {
+  const { store, sending, receipts, scheduler, backlog } = report;
+  const schema = store.schema;
+  // 排程關閉時 tick 慢或沒跑不會提醒（只剩回執對帳靠它），用中性顏色。
+  const tickProblem = sending.schedulerEnabled ? 'failed' : 'draft';
+  const tickState = scheduler.lastSuccessAgeMs === null
+    ? { className: tickProblem, label: '還沒跑過' }
+    : scheduler.lastSuccessAgeMs > report.thresholds.tickStaleMs
+      ? { className: tickProblem, label: '太久沒跑' }
+      : { className: 'sent', label: '正常' };
+  const needsAttention = backlog.overdueCampaigns + backlog.stalledCampaigns + backlog.stuckDeliveries;
+  const backlogState = needsAttention > 0
+    ? { className: 'failed', label: `${needsAttention} 項需要處理` }
+    : backlog.dueCampaigns + backlog.sendingCampaigns + backlog.unconfirmedDeliveries > 0
+      ? { className: 'sending', label: '處理中' }
+      : { className: 'sent', label: '沒有待辦' };
+  return (
+    <section aria-label="運作狀態">
+      <div className="dash-period-head">
+        <h2>運作狀態</h2>
+        <button type="button" className="btn ghost" disabled={refreshing} onClick={onRefresh}>
+          {refreshing ? '檢查中…' : `重新檢查（${formatTime(report.checkedAt)}）`}
+        </button>
+      </div>
+      <div className="grid stats" style={{ overflowWrap: 'anywhere' }}>
+        <div className="card">
+          <div className="muted">資料庫</div>
+          <p><span className={`pill ${store.ok ? 'sent' : 'failed'}`}>{store.ok ? '可讀寫' : '無法寫入'}</span></p>
+          <div className="muted">
+            {store.driver}
+            {schema ? `・schema 第 ${schema.version ?? '?'} 版（需要第 ${schema.expectedVersion} 版）` : ''}
+          </div>
+          {!store.ok ? <div className="muted">新的訂閱與寄送都已暫停：{store.problems.join('；')}</div> : null}
+        </div>
+        <div className="card">
+          <div className="muted">全面寄送</div>
+          <p><span className={`pill ${sending.paused ? 'failed' : 'sent'}`}>{sending.paused ? '全面寄送暫停' : '正常'}</span></p>
+          <div className="muted">
+            {sending.paused
+              ? `SEND_PAUSED=true${sinceText(sending.pausedSince)}：手動、排程、序列信都不會寄出`
+              : sending.dryRun
+                ? '寄信管道是 dry_run：只寫紀錄，不會真的寄出'
+                : `寄信管道 ${sending.provider}`}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">排程寄送</div>
+          <p><span className={`pill ${sending.schedulerEnabled ? 'sent' : 'sending'}`}>{sending.schedulerEnabled ? '正常' : '排程寄送暫停'}</span></p>
+          <div className="muted">
+            {sending.schedulerEnabled
+              ? '時間到的排程電子報與序列信會自動寄出'
+              : `SCHEDULER_ENABLED=false${sinceText(sending.schedulerDisabledSince)}：排程電子報與序列信不會自動寄出，手動寄送照常`}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">回執對帳</div>
+          <p><span className={`pill ${receipts.mode === 'none' ? 'draft' : 'sent'}`}>{receipts.mode === 'none' ? '未啟用' : '回執對帳仍啟用'}</span></p>
+          <div className="muted">
+            {receipts.mode === 'portaly_sync'
+              ? `Portaly 投遞狀態每 10 分鐘回查（隨排程 tick 執行），上次 ${formatTime(receipts.lastRunAt)}；不受寄送暫停影響`
+              : receipts.mode === 'webhook'
+                ? '退信與檢舉由寄信服務的 webhook 回報；不受寄送暫停影響'
+                : 'dry_run 沒有投遞回執'}
+          </div>
+        </div>
+        <div className="card">
+          <div className="muted">排程 tick</div>
+          <p><span className={`pill ${tickState.className}`}>{tickState.label}</span></p>
+          <div className="muted">
+            上次成功 {ago(scheduler.lastSuccessAgeMs)}・上次開始 {formatTime(scheduler.lastStartedAt)}
+            {scheduler.lastDurationMs !== null ? `・耗時 ${(scheduler.lastDurationMs / 1000).toFixed(1)} 秒` : ''}
+            {scheduler.lastLagMs ? `・比預定晚 ${Math.round(scheduler.lastLagMs / 60_000)} 分鐘` : ''}
+          </div>
+          {scheduler.lastError ? <div className="muted">上次錯誤：{scheduler.lastError}</div> : null}
+        </div>
+        <div className="card">
+          <div className="muted">待處理</div>
+          <p><span className={`pill ${backlogState.className}`}>{backlogState.label}</span></p>
+          <div className="muted">待寄排程 {backlog.dueCampaigns} 封（逾期 {backlog.overdueCampaigns}）</div>
+          <div className="muted">寄送中 {backlog.sendingCampaigns} 封（沒有進度 {backlog.stalledCampaigns}）</div>
+          <div className="muted">
+            結果未確認 {backlog.unconfirmedDeliveries} 筆（超過 {Math.round(report.thresholds.sendingStuckMs / 60_000)} 分鐘 {backlog.stuckDeliveries}）
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function campaignRate(part: number, sent: number): string {
   return formatRate(sent > 0 ? part / sent : null, sent);
 }
@@ -57,6 +168,21 @@ export function Dashboard() {
   const [to, setTo] = useState(initial.to);
   const [approving, setApproving] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
+  const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
+  const [readinessError, setReadinessError] = useState('');
+  const [checking, setChecking] = useState(false);
+
+  const loadReadiness = () => {
+    setChecking(true);
+    setReadinessError('');
+    void api
+      .get<ReadinessReport>('/readiness')
+      .then(setReadiness)
+      .catch((err: Error) => setReadinessError(`運作狀態讀取失敗：${err.message}`))
+      .finally(() => setChecking(false));
+  };
+
+  useEffect(loadReadiness, []);
 
   const approveUnsubscribes = async (count: number) => {
     if (!window.confirm(`確定要把這 ${count} 位訂閱者改成已退訂？之後的電子報不會再寄給他們。`)) return;
@@ -121,6 +247,14 @@ export function Dashboard() {
         </div>
       ) : null}
       {syncMessage ? <div className="notice">{syncMessage}</div> : null}
+      {readinessError ? <div className="notice error">{readinessError}</div> : null}
+      {readiness && readiness.alerts.length > 0 ? (
+        <div className="notice error notice-stack" role="alert">
+          {readiness.alerts.map((alert) => (
+            <p key={alert.code}>{alert.message}</p>
+          ))}
+        </div>
+      ) : null}
       <div className="dash-total">
         <div className="muted">訂閱數</div>
         <div className="dash-total-value">{data.counts.subscribed ?? 0}</div>
@@ -170,6 +304,7 @@ export function Dashboard() {
           <div className="dash-stat">{rates.unsubscribes}</div>
         </div>
       </div>
+      {readiness ? <OpsStatus report={readiness} onRefresh={loadReadiness} refreshing={checking} /> : null}
       <div className="dash-period-head">
         <h2>最近電子報</h2>
         <Link to="/campaigns" className="dash-more">

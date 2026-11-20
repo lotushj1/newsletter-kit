@@ -1,4 +1,5 @@
 import type {
+  AuditEntry,
   Campaign,
   CampaignStarter,
   ContentTemplate,
@@ -87,6 +88,10 @@ const CAMPAIGNS: EntitySpec = {
   ],
 };
 
+/**
+ * receipt／receiptAt／reconcile（服務商回報與對帳紀錄）刻意不開正式欄位，存在 extra jsonb：
+ * 不用新 migration，也不需要拿來查詢或排序。要改成正式欄位時必須另寫 migration。
+ */
 const DELIVERIES: EntitySpec = {
   table: 'nk_deliveries',
   key: 'id',
@@ -197,6 +202,19 @@ const STARTERS: EntitySpec = {
   ],
 };
 
+const AUDIT_LOG: EntitySpec = {
+  table: 'nk_audit_log',
+  key: 'id',
+  columns: [
+    { field: 'id', column: 'id' },
+    { field: 'at', column: 'at' },
+    { field: 'actor', column: 'actor' },
+    { field: 'action', column: 'action' },
+    { field: 'targetId', column: 'target_id' },
+    { field: 'summary', column: 'summary', writeDefault: '', readDefault: '' },
+  ],
+};
+
 export const SPECS = {
   subscribers: SUBSCRIBERS,
   campaigns: CAMPAIGNS,
@@ -208,6 +226,7 @@ export const SPECS = {
   folders: FOLDERS,
   templates: TEMPLATES,
   campaignStarters: STARTERS,
+  auditLog: AUDIT_LOG,
 } as const;
 
 export const SETTINGS_TABLE = 'nk_settings';
@@ -224,6 +243,7 @@ export interface EntityTypes {
   folders: Folder;
   templates: ContentTemplate;
   campaignStarters: CampaignStarter;
+  auditLog: AuditEntry;
 }
 
 function encode(spec: ColumnSpec, value: unknown): unknown {

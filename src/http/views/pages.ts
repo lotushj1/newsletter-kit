@@ -974,6 +974,16 @@ export function archiveItemPage(
   });
 }
 
+function disclosureHtml(lines: string[], privacyUrl?: string): string {
+  if (lines.length === 0 && !privacyUrl) return '';
+  const privacy = privacyUrl
+    ? `<li><a href="${escapeHtml(privacyUrl)}" rel="noopener">隱私權政策</a></li>`
+    : '';
+  return `<ul class="join-notes muted" style="margin:16px 0 0;padding-left:18px;font-size:13px;line-height:1.7">${lines
+    .map((line) => `<li>${escapeHtml(line)}</li>`)
+    .join('')}${privacy}</ul>`;
+}
+
 export function joinPage(
   siteName: string,
   options: {
@@ -982,32 +992,75 @@ export function joinPage(
     tags: string[];
     message?: string | undefined;
     ok?: boolean | undefined;
+    disclosure?: string[] | undefined;
+    privacyUrl?: string | undefined;
+    email?: string | undefined;
+    name?: string | undefined;
   },
 ): string {
   const headline = options.headline ?? `訂閱 ${siteName}`;
   const description =
     options.description ?? '留下 Email，之後的電子報會寄到這個信箱。不想收了，每封信底部都可以退訂。';
+  const isError = Boolean(options.message) && !options.ok;
+  // 讀屏工具：成功用 status、錯誤用 alert，送出後的結果會被唸出來。
   const notice = options.message
-    ? `<div class="notice ${options.ok ? '' : 'error'}">${escapeHtml(options.message)}</div>`
+    ? `<div id="join-notice" class="notice ${options.ok ? '' : 'error'}" role="${isError ? 'alert' : 'status'}" aria-live="${isError ? 'assertive' : 'polite'}">${escapeHtml(options.message)}</div>`
     : '';
+  const describedBy = isError ? ' aria-describedby="join-notice" aria-invalid="true"' : '';
   return publicPage(
     siteName,
     headline,
     `<h1 style="text-align:center">${escapeHtml(headline)}</h1>
 <p class="lede" style="text-align:center">${escapeHtml(description)}</p>
 ${notice}
-<form method="post" action="/join">
+<form method="post" action="/join" onsubmit="var b=this.querySelector('button[type=submit]');if(b){b.disabled=true;b.textContent='送出中…';}">
   ${options.tags.map((t) => `<input type="hidden" name="tags" value="${escapeHtml(t)}" />`).join('')}
   <div class="ad-form-item">
     <label for="join-email">Email</label>
-    <input id="join-email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" />
+    <input id="join-email" name="email" type="email" required autocomplete="email" inputmode="email" placeholder="you@example.com"${describedBy}${options.email ? ` value="${escapeHtml(options.email)}"` : ''} />
   </div>
   <div class="ad-form-item">
     <label for="join-name">怎麼稱呼（選填）</label>
-    <input id="join-name" name="name" type="text" autocomplete="name" />
+    <input id="join-name" name="name" type="text" autocomplete="name"${options.name ? ` value="${escapeHtml(options.name)}"` : ''} />
   </div>
   <button type="submit" style="width:100%;margin-top:8px">訂閱</button>
-</form>`,
+</form>
+${disclosureHtml(options.disclosure ?? [], options.privacyUrl)}`,
+  );
+}
+
+/** 公開首頁：說明誰在發、寫什麼、多久一封，導到訂閱頁與封存。 */
+export function homePage(
+  siteName: string,
+  options: {
+    publisher: string;
+    description?: string | undefined;
+    frequency?: string | undefined;
+    disclosure: string[];
+    privacyUrl?: string | undefined;
+    recent: Campaign[];
+  },
+): string {
+  const recent =
+    options.recent.length === 0
+      ? ''
+      : `<h2 style="font-size:16px;margin:24px 0 8px">最近幾期</h2><ul style="padding-left:18px;margin:0">${options.recent
+          .map(
+            (c) =>
+              `<li style="margin:0 0 6px"><a href="/archive/${encodeURIComponent(c.slug)}">${escapeHtml(c.title)}</a>${c.sentAt ? ` <span class="muted">· ${formatTime(c.sentAt)}</span>` : ''}</li>`,
+          )
+          .join('')}</ul><p style="margin:8px 0 0"><a href="/archive">看全部封存</a></p>`;
+  const frequency = options.frequency ? `<p class="muted" style="text-align:center;margin:0 0 16px">寄送頻率：${escapeHtml(options.frequency)}</p>` : '';
+  return publicPage(
+    siteName,
+    siteName,
+    `<h1 style="text-align:center">${escapeHtml(siteName)}</h1>
+<p class="lede" style="text-align:center">${escapeHtml(options.description ?? `${options.publisher} 發行的電子報。`)}</p>
+${frequency}
+<p style="text-align:center;margin:0"><a class="btn" href="/join" style="display:flex;width:100%">訂閱電子報</a></p>
+${recent}
+${disclosureHtml(options.disclosure, options.privacyUrl)}`,
+    { siteLabel: false },
   );
 }
 

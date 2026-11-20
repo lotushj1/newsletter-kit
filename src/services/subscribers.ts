@@ -8,11 +8,21 @@ import { confirmEmailContentHtml } from '../core/system-emails.js';
 import { createToken, verifyToken } from '../core/tokens.js';
 import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.js';
 import { syncSubscriberToNotion } from './notion-sync.js';
-import { clearUnsubscribeSuppression, recordUnsubscribeWithoutSubscriber } from './suppression.js';
+import {
+  clearUnsubscribeSuppression,
+  recordBounce,
+  recordUnsubscribe,
+  statusForSuppression,
+  suppressedEmails,
+  suppressionReasonFor,
+} from './suppression.js';
+import { MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS } from '../core/spreadsheet.js';
+import { currentDisclosure, withConsent } from './consent.js';
 import type { Paged, Subscriber, SubscriberQuery, SubscriberStatus } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { getBrand } from './brand.js';
 import { enrollSubscriber } from './enroll.js';
+import { assertAcceptingSubscriptions } from './store-readiness.js';
 import { resolveFolderId } from './folders.js';
 
 const CONFIRM_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
@@ -82,9 +92,16 @@ export async function subscribe(
   const name = optionalString(input.name, '名稱', 120);
   const tags = normalizeTags(input.tags);
   const source = optionalString(input.source, '來源', 120);
+  // 資料庫寫不進去就明確回 503，不能讓訪客看到「訂閱成功」卻沒有留下資料。
+  await assertAcceptingSubscriptions(ctx);
   const existing = await ctx.store.getSubscriberByEmail(email);
+  const suppressed = await suppressionReasonFor(ctx, email);
+  // 退訂過（或被刪除前退訂過）的人要重新訂閱，一律要本人點確認信，單次同意的來源也一樣。
+  const previouslyUnsubscribed = existing?.status === 'unsubscribed' || suppressed === 'unsubscribe';
   const doubleOptIn =
-    ctx.config.doubleOptIn && !(source && (ctx.config.singleOptInSources ?? []).includes(source.toLowerCase()));
+    previouslyUnsubscribed ||
+    (ctx.config.doubleOptIn && !(source && (ctx.config.singleOptInSources ?? []).includes(source.toLowerCase())));
+  const { textVersion } = await currentDisclosure(ctx);
 
   if (existing) {
     if (existing.status === 'subscribed') {
@@ -102,6 +119,7 @@ export async function subscribe(
         name: name ?? existing.name,
         tags: merged,
         unsubscribedAt: undefined,
+        meta: { ...existing.meta, consentRequest: { source: source ?? existing.source ?? 'public_form', at: nowIso(), textVersion } },
       }))!;
       syncSubscriberToNotion(updated.email, updated.status);
       await sendConfirmEmail(ctx, updated);
@@ -114,6 +132,7 @@ export async function subscribe(
       tags: merged,
       confirmedAt: nowIso(),
       unsubscribedAt: undefined,
+      meta: withConsent(existing.meta, { method: 'single_opt_in', source: source ?? 'public_form', textVersion }),
     }))!;
     syncSubscriberToNotion(updated.email, updated.status);
     await enrollSubscriber(ctx, updated, { type: 'subscribe' });
@@ -132,6 +151,10 @@ export async function subscribe(
     source: source ?? 'public_form',
     createdAt: nowIso(),
     confirmedAt: status === 'subscribed' ? nowIso() : undefined,
+    meta:
+      status === 'subscribed'
+        ? withConsent(undefined, { method: 'single_opt_in', source: source ?? 'public_form', textVersion })
+        : { consentRequest: { source: source ?? 'public_form', at: nowIso(), textVersion } },
   });
   syncSubscriberToNotion(created.email, created.status);
 
@@ -154,12 +177,25 @@ export async function confirmSubscription(
   const subscriber = await ctx.store.getSubscriberByEmail(verified.email);
   if (!subscriber) return { ok: false, message: '找不到對應的訂閱資料，請重新訂閱。' };
   if (subscriber.status === 'subscribed') return { ok: true, message: '你已經完成訂閱了。' };
+  // 只有「等待確認」的人能用確認連結完成訂閱。確認連結 14 天內有效，
+  // 期間退訂（或退信）的人點到舊連結，不能因此被加回名單。
+  if (subscriber.status !== 'pending') {
+    return { ok: false, message: '這個確認連結已經失效。如果想重新訂閱，請再填一次訂閱表單。' };
+  }
 
   await clearUnsubscribeSuppression(ctx, subscriber.email);
+  const request = subscriber.meta?.consentRequest as { source?: string; at?: string; textVersion?: string } | undefined;
+  const { consentRequest: _request, ...restMeta } = subscriber.meta ?? {};
   const confirmed = (await ctx.store.updateSubscriber(subscriber.id, {
     status: 'subscribed',
     confirmedAt: nowIso(),
     unsubscribedAt: undefined,
+    meta: withConsent(restMeta, {
+      method: 'double_opt_in',
+      source: request?.source ?? subscriber.source ?? 'public_form',
+      textVersion: request?.textVersion,
+      requestedAt: request?.at,
+    }),
   }))!;
   syncSubscriberToNotion(confirmed.email, confirmed.status);
   await enrollSubscriber(ctx, confirmed, { type: 'subscribe' });
@@ -190,9 +226,11 @@ export async function unsubscribeByEmail(
   const subscriber = await ctx.store.getSubscriberByEmail(email.toLowerCase());
   if (!subscriber) {
     // 名單裡找不到（可能是資料遺失期間）也要留下退訂紀錄，不能只回成功。
-    await recordUnsubscribeWithoutSubscriber(ctx, email);
+    await recordUnsubscribe(ctx, email);
     return { ok: true, message: '已退訂，之後不會再寄信到這個地址。' };
   }
+  // 名單裡的人退訂也要記進排除名單；之後被刪除再匯入、或從舊備份還原，也不會再寄給他。
+  await recordUnsubscribe(ctx, subscriber.email);
   if (subscriber.status === 'unsubscribed') return { ok: true, message: '你已經退訂了。' };
   const updated = await ctx.store.updateSubscriber(subscriber.id, {
     status: 'unsubscribed',
@@ -235,12 +273,27 @@ function parseStatus(value: unknown, fallback: SubscriberStatus): SubscriberStat
 }
 
 /** 後台手動新增：預設直接算已訂閱（管理者自己負責取得同意）。 */
+/**
+ * 退訂、退信、檢舉過的地址不能由後台或上游直接改回「已訂閱」，要本人重新訂閱並點確認信。
+ * 寄送時本來就會跳過排除名單，這裡擋下來是為了不讓名單上出現「已訂閱但永遠收不到」的人。
+ */
+async function assertNotSuppressed(ctx: ServiceContext, email: string, current?: Subscriber): Promise<void> {
+  const reason = await suppressionReasonFor(ctx, email);
+  const blockedStatus = current && (current.status === 'unsubscribed' || current.status === 'bounced');
+  if (!reason && !blockedStatus) return;
+  const what = reason === 'bounce' || current?.status === 'bounced' ? '退信' : reason === 'complaint' ? '檢舉' : '退訂';
+  throw conflict(`這個地址先前${what}過，不能直接改回已訂閱；請本人重新填寫訂閱表單並點確認信。`);
+}
+
 export async function createSubscriber(
   ctx: ServiceContext,
   input: AdminSubscriberInput,
+  options?: { consentMethod?: 'admin' | 'ingest' },
 ): Promise<Subscriber> {
   const email = normalizeEmail(input.email);
   const status = parseStatus(input.status, 'subscribed');
+  const source = optionalString(input.source, '來源', 120) ?? 'admin';
+  if (status === 'subscribed') await assertNotSuppressed(ctx, email);
   const created = await ctx.store.createSubscriber({
     id: newId('sub'),
     email,
@@ -248,10 +301,15 @@ export async function createSubscriber(
     status,
     tags: normalizeTags(input.tags),
     folderId: await resolveFolderId(ctx, input.folderId),
-    source: optionalString(input.source, '來源', 120) ?? 'admin',
+    source,
     createdAt: nowIso(),
-    confirmedAt: status === 'subscribed' ? nowIso() : undefined,
+    meta:
+      status === 'subscribed'
+        ? withConsent(undefined, { method: options?.consentMethod ?? 'admin', source })
+        : undefined,
   });
+  if (status === 'unsubscribed') await recordUnsubscribe(ctx, email);
+  if (status === 'bounced') await recordBounce(ctx, email);
   syncSubscriberToNotion(created.email, created.status);
   if (created.status === 'subscribed') {
     await enrollSubscriber(ctx, created, { type: 'subscribe' });
@@ -283,12 +341,17 @@ export async function updateSubscriber(
   if (input.folderId !== undefined) patch.folderId = await resolveFolderId(ctx, input.folderId);
   if (input.status !== undefined) {
     const status = parseStatus(input.status, current.status);
+    if (status === 'subscribed' && current.status !== 'subscribed') {
+      await assertNotSuppressed(ctx, patch.email ?? current.email, current);
+      patch.meta = withConsent(current.meta, { method: 'admin', source: current.source ?? 'admin' });
+    }
     patch.status = status;
-    if (status === 'subscribed' && !current.confirmedAt) patch.confirmedAt = nowIso();
-    if (status === 'unsubscribed') patch.unsubscribedAt = nowIso();
+    if (status === 'unsubscribed' && current.status !== 'unsubscribed') patch.unsubscribedAt = nowIso();
   }
   const updated = await ctx.store.updateSubscriber(id, patch);
   if (!updated) throw notFound('找不到這位訂閱者');
+  if (updated.status === 'unsubscribed' && current.status !== 'unsubscribed') await recordUnsubscribe(ctx, updated.email);
+  if (updated.status === 'bounced' && current.status !== 'bounced') await recordBounce(ctx, updated.email);
   if (updated.status !== current.status || updated.email !== current.email) {
     syncSubscriberToNotion(updated.email, updated.status);
   }
@@ -308,6 +371,12 @@ export async function updateSubscriber(
 }
 
 export async function deleteSubscriber(ctx: ServiceContext, id: string): Promise<void> {
+  const current = await ctx.store.getSubscriber(id);
+  if (!current) throw notFound('找不到這位訂閱者');
+  // 刪掉退訂或退信的人之前，先把排除紀錄留下來（舊資料可能還沒有）；
+  // 否則之後重新匯入，他會以「已訂閱」回到名單。排除名單只存 Email 的雜湊。
+  if (current.status === 'unsubscribed') await recordUnsubscribe(ctx, current.email);
+  if (current.status === 'bounced') await recordBounce(ctx, current.email);
   const deleted = await ctx.store.deleteSubscriber(id);
   if (!deleted) throw notFound('找不到這位訂閱者');
 }
@@ -327,37 +396,130 @@ export interface ImportResult {
   created: number;
   updated: number;
   skipped: number;
+  /** 新加入名單、但先前退訂／退信／檢舉過的人：照樣建檔，狀態維持不寄送。 */
+  suppressed: number;
+  /** 檔案裡重複出現的地址（只算第一次） */
+  duplicates: number;
+  /** 檔案裡的資料列數（不含表頭） */
+  total: number;
   errors: string[];
+  /** true＝只預覽，名單沒有任何變動 */
+  dryRun?: boolean;
+}
+
+const EMAIL_HEADERS = ['email', 'e-mail', 'mail', '電子郵件', '信箱', '電子信箱'];
+
+interface ImportRow {
+  lineNo: number;
+  emailCell: string;
+  email: string | null;
+  name: string | undefined;
+  tags: string[];
+  status: SubscriberStatus;
+  folderName: string | undefined;
+}
+
+/** 解析並檢查匯入檔：表頭、筆數與欄數上限、Email 格式、檔案內重複。不碰資料庫。 */
+function parseImportRows(csvText: string, defaultTags: string[]): { rows: ImportRow[]; total: number } {
+  const raw = parseCsv(csvText);
+  if (raw.length === 0) throw badRequest('CSV 沒有可匯入的資料');
+  if (raw.length > MAX_IMPORT_ROWS + 1) throw badRequest(`一次最多匯入 ${MAX_IMPORT_ROWS.toLocaleString('en-US')} 筆，請拆成幾個檔案`);
+  if (raw.some((row) => row.length > MAX_IMPORT_COLUMNS)) throw badRequest(`欄位太多（上限 ${MAX_IMPORT_COLUMNS} 欄），請只留下 email、name、tags、status、folder`);
+
+  const first = raw[0]!.map((cell) => cell.trim().toLowerCase());
+  const emailHeader = first.findIndex((cell) => EMAIL_HEADERS.includes(cell));
+  const hasHeader = emailHeader >= 0;
+  if (!hasHeader && !first.some((cell) => cell.includes('@'))) {
+    throw badRequest('找不到 email 欄位：第一列請放「email」欄名，或第一欄直接放 Email');
+  }
+  const header = hasHeader
+    ? first.map((cell, index) => (index === emailHeader ? 'email' : cell))
+    : ['email', 'name', 'tags', 'status', 'folder'];
+  const dataRows = hasHeader ? raw.slice(1) : raw;
+  if (dataRows.length === 0) throw badRequest('CSV 只有表頭，沒有可匯入的資料');
+  const columnOf = (field: string): number => header.indexOf(field);
+  const emailCol = columnOf('email') === -1 ? 0 : columnOf('email');
+  const nameCol = columnOf('name');
+  const tagsCol = columnOf('tags');
+  const statusCol = columnOf('status');
+  const folderCol = columnOf('folder');
+
+  const rows = dataRows.map((row, index): ImportRow => {
+    const emailCell = row[emailCol] ?? '';
+    let email: string | null = null;
+    try {
+      email = normalizeEmail(emailCell);
+    } catch {
+      email = null;
+    }
+    let status: SubscriberStatus = 'subscribed';
+    if (statusCol >= 0) {
+      try {
+        status = parseStatus(row[statusCol]?.trim(), 'subscribed');
+      } catch {
+        status = 'subscribed';
+      }
+    }
+    return {
+      lineNo: index + (hasHeader ? 2 : 1),
+      emailCell,
+      email,
+      name: nameCol >= 0 ? (row[nameCol]?.trim() || undefined) : undefined,
+      tags: normalizeTags([...defaultTags, ...(tagsCol >= 0 ? (row[tagsCol] ?? '').split(/[|;]/) : [])]),
+      status,
+      folderName: folderCol >= 0 ? row[folderCol] : undefined,
+    };
+  });
+  return { rows, total: dataRows.length };
+}
+
+function suppressionLabel(reason: string): string {
+  return reason === 'bounce' ? '退信' : reason === 'complaint' ? '檢舉' : '退訂';
 }
 
 /**
- * CSV 匯入。第一列若含 email 欄名就當表頭，否則視為無表頭、第一欄是 email。
+ * CSV 匯入。第一列若含 email 欄名（email、電子郵件、信箱…）就當表頭，否則視為無表頭、第一欄是 email。
  * 支援欄位：email、name、tags（用 `|` 或 `;` 分隔）、status、folder。
+ *
+ * dryRun：只預覽，回傳會新增、更新、略過、維持不寄送的筆數與錯誤列，名單與資料夾都不會變動。
+ * 後台先預覽、確認後才正式寫入。
  */
 export async function importSubscribersCsv(
   ctx: ServiceContext,
   csvText: string,
   defaultTags: string[] = [],
   defaultFolderId?: string,
+  options: { dryRun?: boolean } = {},
 ): Promise<ImportResult> {
-  const rows = parseCsv(csvText);
-  if (rows.length === 0) throw badRequest('CSV 沒有可匯入的資料');
+  const { rows, total } = parseImportRows(csvText, defaultTags);
+  const dryRun = Boolean(options.dryRun);
+  const result: ImportResult = { created: 0, updated: 0, skipped: 0, suppressed: 0, duplicates: 0, total, errors: [], ...(dryRun ? { dryRun } : {}) };
+  const note = (message: string) => {
+    if (result.errors.length < 50) result.errors.push(message);
+  };
 
-  const first = rows[0]!.map((cell) => cell.trim().toLowerCase());
-  const hasHeader = first.includes('email');
-  const header = hasHeader ? first : ['email', 'name', 'tags', 'status', 'folder'];
-  const dataRows = hasHeader ? rows.slice(1) : rows;
-  const columnOf = (field: string): number => header.indexOf(field);
+  // 預覽：一次讀完名單與排除名單，不必每列各查一次。
+  let existingEmails: Set<string> | null = null;
+  let suppressedSet: Set<string> | null = null;
+  if (dryRun) {
+    existingEmails = new Set<string>();
+    for (let offset = 0; ; offset += 1000) {
+      const page = await ctx.store.listSubscribers({ limit: 1000, offset });
+      for (const subscriber of page.items) existingEmails.add(subscriber.email);
+      if (page.items.length < 1000) break;
+    }
+    suppressedSet = await suppressedEmails(ctx, rows.flatMap((row) => (row.email ? [row.email] : [])));
+  }
+
   const folderByName = new Map(
     (await ctx.store.listFolders()).map((folder) => [folder.name.toLowerCase(), folder.id]),
   );
   const resolvedDefault = defaultFolderId ? await resolveFolderId(ctx, defaultFolderId) : undefined;
-
   const folderIdFor = async (name: string | undefined): Promise<string | undefined> => {
     const trimmed = name?.trim();
     if (!trimmed) return resolvedDefault;
     const existing = folderByName.get(trimmed.toLowerCase());
-    if (existing) return existing;
+    if (existing || dryRun) return existing;
     const created = await ctx.store.createFolder({
       id: newId('fld'),
       name: trimmed.slice(0, 40),
@@ -368,43 +530,42 @@ export async function importSubscribersCsv(
     return created.id;
   };
 
-  const result: ImportResult = { created: 0, updated: 0, skipped: 0, errors: [] };
-
-  for (const [index, row] of dataRows.entries()) {
-    const emailCell = row[columnOf('email') === -1 ? 0 : columnOf('email')] ?? '';
-    const lineNo = index + (hasHeader ? 2 : 1);
-    let email: string;
-    try {
-      email = normalizeEmail(emailCell);
-    } catch {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (!row.email) {
       result.skipped += 1;
-      if (result.errors.length < 20) result.errors.push(`第 ${lineNo} 行：Email 無效（${emailCell}）`);
+      note(`第 ${row.lineNo} 行：Email 無效（${row.emailCell}）`);
+      continue;
+    }
+    const email = row.email;
+    if (seen.has(email)) {
+      result.skipped += 1;
+      result.duplicates += 1;
+      note(`第 ${row.lineNo} 行：${email} 在檔案裡重複，只匯入第一次出現的那列`);
+      continue;
+    }
+    seen.add(email);
+
+    if (dryRun) {
+      if (existingEmails!.has(email)) {
+        result.updated += 1;
+        continue;
+      }
+      result.created += 1;
+      if (row.status === 'subscribed' && suppressedSet!.has(email)) {
+        result.suppressed += 1;
+        note(`第 ${row.lineNo} 行：這個地址先前退訂或退信過，會加入名單但不會寄送`);
+      }
       continue;
     }
 
-    const nameCol = columnOf('name');
-    const tagsCol = columnOf('tags');
-    const statusCol = columnOf('status');
-    const folderCol = columnOf('folder');
-    const name = nameCol >= 0 ? (row[nameCol]?.trim() || undefined) : undefined;
-    const rowTags = tagsCol >= 0 ? (row[tagsCol] ?? '').split(/[|;]/) : [];
-    const tags = normalizeTags([...defaultTags, ...rowTags]);
-    const folderId = await folderIdFor(folderCol >= 0 ? row[folderCol] : undefined);
-    let status: SubscriberStatus = 'subscribed';
-    if (statusCol >= 0) {
-      try {
-        status = parseStatus(row[statusCol]?.trim(), 'subscribed');
-      } catch {
-        status = 'subscribed';
-      }
-    }
-
+    const folderId = await folderIdFor(row.folderName);
     const existing = await ctx.store.getSubscriberByEmail(email);
     if (existing) {
-      const merged = [...new Set([...existing.tags, ...tags])];
+      const merged = [...new Set([...existing.tags, ...row.tags])];
       const added = merged.filter((t) => !existing.tags.includes(t));
       const updated = (await ctx.store.updateSubscriber(existing.id, {
-        name: name ?? existing.name,
+        name: row.name ?? existing.name,
         tags: merged,
         folderId: folderId ?? existing.folderId,
       }))!;
@@ -415,25 +576,59 @@ export async function importSubscribersCsv(
       result.updated += 1;
       continue;
     }
+
+    let status = row.status;
+    const suppressedReason = await suppressionReasonFor(ctx, email);
+    if (suppressedReason && status === 'subscribed') {
+      status = statusForSuppression(suppressedReason);
+      result.suppressed += 1;
+      note(`第 ${row.lineNo} 行：這個地址先前${suppressionLabel(suppressedReason)}過，已加入名單但不會寄送`);
+    }
+    // 匯入的人沒有點過確認信，不填 confirmedAt；同意由匯入者負責取得，記在 meta.consent。
     const created = await ctx.store.createSubscriber({
       id: newId('sub'),
       email,
-      name,
+      name: row.name,
       status,
-      tags,
+      tags: row.tags,
       folderId,
       source: 'import',
       createdAt: nowIso(),
-      confirmedAt: status === 'subscribed' ? nowIso() : undefined,
+      meta: status === 'subscribed' ? withConsent(undefined, { method: 'import', source: 'import' }) : undefined,
     });
+    if (status === 'unsubscribed') await recordUnsubscribe(ctx, email);
+    if (status === 'bounced') await recordBounce(ctx, email);
     if (status === 'subscribed') {
-      if (tags.length > 0) await enrollSubscriber(ctx, created, { type: 'tag', tags });
+      if (row.tags.length > 0) await enrollSubscriber(ctx, created, { type: 'tag', tags: row.tags });
       if (folderId) await enrollSubscriber(ctx, created, { type: 'folder', folderId });
     }
     result.created += 1;
   }
 
   return result;
+}
+
+/**
+ * 單一訂閱者的個人資料匯出（本人來信要求查詢時用）：訂閱資料、同意紀錄、排除名單狀態、
+ * 每一封的寄送狀態與開信點擊。不含信件內容與確認／退訂 token。
+ */
+export async function exportSubscriberData(ctx: ServiceContext, id: string): Promise<Record<string, unknown>> {
+  const subscriber = await ctx.store.getSubscriber(id);
+  if (!subscriber) throw notFound('找不到這位訂閱者');
+  const { deliveries, events } = await ctx.store.listSubscriberActivity(id);
+  return {
+    exportedAt: nowIso(),
+    subscriber,
+    suppression: await suppressionReasonFor(ctx, subscriber.email),
+    deliveries: deliveries.map((d) => ({
+      id: d.id,
+      campaignId: d.campaignId,
+      status: d.status,
+      sentAt: d.sentAt,
+      error: d.error,
+    })),
+    events: events.map((e) => ({ type: e.type, campaignId: e.campaignId, url: e.url, createdAt: e.createdAt })),
+  };
 }
 
 export async function exportSubscribersCsv(ctx: ServiceContext): Promise<string> {

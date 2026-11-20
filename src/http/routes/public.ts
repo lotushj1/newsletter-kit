@@ -5,6 +5,9 @@ import { SIG_ICON_FILE, sigIconBuffer } from '../../core/sig-icons.js';
 import { resolvePublicUpload } from '../../core/uploads.js';
 import { normalizeTags } from '../../core/validate.js';
 import { publicSubject, renderPublicCampaign } from '../../services/campaigns.js';
+import { emailBrandName } from '../../core/brand-signature.js';
+import { getBrand } from '../../services/brand.js';
+import { currentDisclosure } from '../../services/consent.js';
 import type { ServiceContext } from '../../services/context.js';
 import {
   ingestEvent,
@@ -24,6 +27,7 @@ import {
   archiveNotFoundPage,
   confirmResultPage,
   joinPage,
+  homePage,
   unsubscribeConfirmPage,
   unsubscribeResultPage,
 } from '../views/pages.js';
@@ -79,22 +83,50 @@ export function publicRouter(ctx: ServiceContext): Router {
     res.type(file.mime).sendFile(file.absolute);
   });
 
-  router.get('/join', (req, res) => {
-    const queryTags = normalizeTags(req.query.tags);
-    res.type('html').send(
-      joinPage(ctx.config.siteName, {
-        headline: ctx.config.join.headline,
-        description: ctx.config.join.description,
-        tags: queryTags.length > 0 ? queryTags : ctx.config.join.tags,
-      }),
-    );
-  });
+  router.get(
+    '/',
+    asyncRoute(async (_req, res) => {
+      const [{ lines, privacyUrl }, brand, recent] = await Promise.all([
+        currentDisclosure(ctx),
+        getBrand(ctx),
+        ctx.store.listCampaigns({ status: 'sent', limit: 5 }),
+      ]);
+      res.type('html').send(
+        homePage(ctx.config.siteName, {
+          publisher: emailBrandName(brand, ctx.config.siteName) || ctx.config.siteName,
+          description: ctx.config.join.description,
+          frequency: ctx.config.join.frequency,
+          disclosure: lines,
+          privacyUrl,
+          recent: recent.items,
+        }),
+      );
+    }),
+  );
+
+  router.get(
+    '/join',
+    asyncRoute(async (req, res) => {
+      const queryTags = normalizeTags(req.query.tags);
+      const { lines, privacyUrl } = await currentDisclosure(ctx);
+      res.type('html').send(
+        joinPage(ctx.config.siteName, {
+          headline: ctx.config.join.headline,
+          description: ctx.config.join.description,
+          tags: queryTags.length > 0 ? queryTags : ctx.config.join.tags,
+          disclosure: lines,
+          privacyUrl,
+        }),
+      );
+    }),
+  );
 
   router.post(
     '/join',
     limiter,
     asyncRoute(async (req, res) => {
       const tags = normalizeTags(req.body?.tags ?? ctx.config.join.tags);
+      const { lines, privacyUrl } = await currentDisclosure(ctx);
       try {
         const outcome = await subscribe(ctx, {
           email: req.body?.email,
@@ -109,6 +141,8 @@ export function publicRouter(ctx: ServiceContext): Router {
             tags,
             ok: true,
             message: outcome.message,
+            disclosure: lines,
+            privacyUrl,
           }),
         );
       } catch (error) {
@@ -119,6 +153,10 @@ export function publicRouter(ctx: ServiceContext): Router {
             tags,
             ok: false,
             message: error instanceof Error ? error.message : '訂閱失敗',
+            disclosure: lines,
+            privacyUrl,
+            email: typeof req.body?.email === 'string' ? req.body.email.slice(0, 254) : undefined,
+            name: typeof req.body?.name === 'string' ? req.body.name.slice(0, 120) : undefined,
           }),
         );
       }

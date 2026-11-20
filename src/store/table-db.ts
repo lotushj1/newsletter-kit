@@ -73,6 +73,13 @@ export function isUniqueViolation(error: unknown): boolean {
   return false;
 }
 
+/** 資料表不存在（migration 還沒套用）。Postgres 42P01；PostgREST 12 以後是 PGRST205。 */
+export function isMissingTable(error: unknown): boolean {
+  if (!(error instanceof TableDbError)) return false;
+  if (error.code === '42P01' || error.code === 'PGRST205') return true;
+  return /does not exist|could not find the table/i.test(error.message);
+}
+
 /** 使用者輸入當成字面字串做「包含」比對：跳脫 LIKE 的 % _ \。 */
 export function likeContains(text: string): string {
   return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;

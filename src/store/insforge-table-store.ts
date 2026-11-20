@@ -22,6 +22,8 @@ import {
 } from './table-mapping.js';
 import type {
   AudienceQuery,
+  AuditEntry,
+  AuditQuery,
   Campaign,
   CampaignQuery,
   CampaignStarter,
@@ -36,6 +38,7 @@ import type {
   Paged,
   PeriodQuery,
   PeriodStats,
+  SchemaCheck,
   Sequence,
   SequenceEnrollment,
   SequenceStep,
@@ -46,6 +49,7 @@ import type {
   TrackingEvent,
   TrackingStats,
 } from './types.js';
+import { auditListLimit } from './types.js';
 
 /** 跟 migrations/20261120090000_create-nk-entity-tables.sql 的 nk_tables_schema_version() 對齊。 */
 export const TABLES_SCHEMA_VERSION = 1;
@@ -140,6 +144,57 @@ export class InsForgeTableStore implements Store {
   }
 
   async close(): Promise<void> {}
+
+  /**
+   * 啟動之後 schema 仍可能被改（回退 migration、誤刪表）。版本用一個 RPC 查；
+   * full 時再對每張表讀 1 列、對寄送必用的函式送空參數（不會改到任何資料），讀不到的列進 missing。
+   */
+  async checkSchema(options: { full?: boolean } = {}): Promise<SchemaCheck> {
+    const result: SchemaCheck = { version: null, expectedVersion: TABLES_SCHEMA_VERSION, missing: [] };
+    const probes: Promise<void>[] = [
+      this.db.rpc('nk_tables_schema_version').then(
+        (version) => {
+          result.version = Number.isFinite(Number(version)) ? Number(version) : null;
+        },
+        (error: Error) => {
+          result.error = error.message;
+          result.missing.push('nk_tables_schema_version()');
+        },
+      ),
+    ];
+    if (options.full) {
+      const tables = [...new Set([...Object.values(SPECS).map((spec) => spec.table), SETTINGS_TABLE])];
+      for (const table of tables) {
+        probes.push(
+          this.db.select(table, { limit: 1 }).then(
+            () => undefined,
+            () => {
+              result.missing.push(table);
+            },
+          ),
+        );
+      }
+      const now = new Date().toISOString();
+      const functions: [string, Record<string, unknown>][] = [
+        ['nk_claim_deliveries', { p_ids: [], p_claim_id: 'readiness_probe', p_claimed_at: now }],
+        ['nk_update_deliveries', { p_updates: [] }],
+        ['nk_campaign_stats', { p_campaign_ids: [] }],
+      ];
+      for (const [fn, args] of functions) {
+        probes.push(
+          this.db.rpc(fn, args).then(
+            () => undefined,
+            () => {
+              result.missing.push(`${fn}()`);
+            },
+          ),
+        );
+      }
+    }
+    await Promise.all(probes);
+    result.missing.sort();
+    return result;
+  }
 
   // ── 共用 ────────────────────────────────────────────────
   private async findOne<T>(spec: EntitySpec, filters: Filter[]): Promise<T | null> {
@@ -531,6 +586,10 @@ export class InsForgeTableStore implements Store {
     return updates.filter((u) => found.has(u.id)).length;
   }
 
+  getDelivery(id: string): Promise<Delivery | null> {
+    return this.findOne<Delivery>(SPECS.deliveries, [eq('id', id)]);
+  }
+
   findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
     return this.findOne<Delivery>(SPECS.deliveries, [eq('provider_message_id', providerMessageId)]);
   }
@@ -542,6 +601,18 @@ export class InsForgeTableStore implements Store {
     const filters: Filter[] = [eq('campaign_id', campaignId)];
     if (options.status) filters.push(eq('status', options.status));
     return this.findAll<Delivery>(SPECS.deliveries, filters, options.limit || undefined);
+  }
+
+  async listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }> {
+    const [deliveries, events] = await Promise.all([
+      this.findAll<Delivery>(SPECS.deliveries, [eq('subscriber_id', subscriberId)]),
+      this.findAll<TrackingEvent>(SPECS.events, [eq('subscriber_id', subscriberId)]),
+    ]);
+    return { deliveries, events };
+  }
+
+  listDeliveriesByStatus(status: DeliveryStatus, options: { limit?: number | undefined } = {}): Promise<Delivery[]> {
+    return this.findAll<Delivery>(SPECS.deliveries, [eq('status', status)], options.limit || undefined);
   }
 
   async deliveryStats(campaignId: string): Promise<CampaignStats> {
@@ -749,6 +820,26 @@ export class InsForgeTableStore implements Store {
 
   async deleteCampaignStarter(id: string): Promise<boolean> {
     return (await this.db.delete(SPECS.campaignStarters.table, [eq('id', id)])) > 0;
+  }
+
+  // ── 操作紀錄 ────────────────────────────────────────────
+  /**
+   * 只新增；同 id 重送略過。nk_audit_log 由 migrations/20261120230000_create-nk-audit-log.sql 建立，
+   * 不在 TABLES_SCHEMA_VERSION 裡：還沒套用時只有寫入／讀取操作紀錄會失敗，其他功能照常。
+   */
+  async appendAuditEntry(entry: AuditEntry): Promise<void> {
+    await this.db.insert(SPECS.auditLog.table, [toRow(SPECS.auditLog, entry)], { ignoreDuplicates: true });
+  }
+
+  async listAuditEntries(query: AuditQuery = {}): Promise<AuditEntry[]> {
+    const rows = await this.db.select<Row>(SPECS.auditLog.table, {
+      order: [
+        { col: 'at', ascending: false },
+        { col: 'seq', ascending: false },
+      ],
+      limit: auditListLimit(query),
+    });
+    return rows.map((row) => fromRow<AuditEntry>(SPECS.auditLog, row));
   }
 }
 

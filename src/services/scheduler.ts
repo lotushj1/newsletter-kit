@@ -3,8 +3,10 @@ import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
 import { maybeSyncPortalyDeliveries } from './portaly-sync.js';
 import { maybeSyncFromNotion, type NotionInboundSummary } from './notion-inbound-sync.js';
+import { recordTickEnd, recordTickStart, type SchedulerState } from './scheduler-state.js';
 import { processDueEnrollments } from './sequences.js';
 import { isFreshTimeBudgetPause, isSending, processCampaign, sendingBlockedReason, startCampaign } from './sending.js';
+import { checkStoreReadiness } from './store-readiness.js';
 
 export interface TickSummary {
   resumed: number;
@@ -36,7 +38,18 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
     const summary: TickSummary = { resumed: 0, started: 0, sequenced: 0, skippedReason: undefined };
     if (running) return { ...summary, skippedReason: 'already_running' };
     running = true;
+    const startedAt = Date.now();
+    let lagMs = 0;
+    // 每次 tick 都留紀錄（開始、成功跑完、耗時、落後），後台與 uptime 監控靠它判斷排程有沒有在跑。
+    let previous: SchedulerState | null = null;
     try {
+      previous = await recordTickStart(ctx, new Date(startedAt).toISOString());
+    } catch (error) {
+      logger.warn('排程狀態寫入失敗', { error: (error as Error).message });
+    }
+    try {
+      // 先確認資料庫寫得進去；寫不進去時 sendingBlockedReason 會擋下這次的寄送。
+      await checkStoreReadiness(ctx);
       const blocked = sendingBlockedReason(ctx);
       // 外部 cron（Cloudflare Worker、GitHub Actions）也會打進來，所以開關一定要在這裡判斷，
       // 不能只靠「沒有啟動 setInterval」。後台顯示「自動排程關閉」時就真的不會寄。
@@ -57,6 +70,8 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
           summary.resumed += 1;
         }
         for (const campaign of await ctx.store.findDueCampaigns(nowIso())) {
+          const scheduledAt = campaign.scheduledAt ? Date.parse(campaign.scheduledAt) : NaN;
+          if (Number.isFinite(scheduledAt)) lagMs = Math.max(lagMs, startedAt - scheduledAt);
           logger.info('排程時間到，開始寄送', { campaignId: campaign.id, slug: campaign.slug });
           await startCampaign(ctx, campaign.id);
           summary.started += 1;
@@ -87,6 +102,13 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
       summary.error = (error as Error).message;
     } finally {
       running = false;
+    }
+    if (previous) {
+      try {
+        await recordTickEnd(ctx, { previous, startedAt, lagMs, summary });
+      } catch (error) {
+        logger.warn('排程狀態寫入失敗', { error: (error as Error).message });
+      }
     }
     return summary;
   }

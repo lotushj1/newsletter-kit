@@ -128,10 +128,12 @@ Portaly Email 目前是**邀請制 beta**：只有 Portaly 開通的帳號能用
   名稱 3–32 字（英數與 `._-`），不能含 `portaly`，也不能用 `noreply`、`support` 這類保留字。
 - kit 自己管名單、模板與退訂（Portaly 還沒有這些 API）；每封信會自動帶
   `List-Unsubscribe` / `List-Unsubscribe-Post` 一鍵退訂 header。
-- 每封信都帶冪等鍵（delivery id），重試不會寄兩次；大量寄送走 Portaly 的批次 API
-  （一次最多 100 封），由 Portaly 背景投遞。
-- Portaly 還沒有 webhook：排程器每 10 分鐘回查一次投遞狀態（往回看 7 天），
+- 單封信帶冪等鍵（delivery id），重試不會寄兩次；大量寄送走 Portaly 的批次 API
+  （一次最多 100 封），由 Portaly 背景投遞。批次 API 不收每封各自的鍵，整批共用一把，
+  結果不明的整批停在待對帳、不自動重寄。
+- Portaly 還沒有 webhook：排程 tick 有在跑時，最多每 10 分鐘回查一次投遞狀態（往回看 7 天），
   硬退信與被抑制的地址會標成 `bounced`、被檢舉的視同退訂，之後不再寄給他們。
+  等多久、回報沒來時怎麼查，見 [寄信管道能力表](docs/providers.md)。
 - 額度不足（`SEND_QUOTA_EXCEEDED`）與帳號未開通（`403 FORBIDDEN`）會直接判定失敗並寫清楚原因，
   不會傻傻重試；短暫限流（429）會依 `Retry-After` 自動緩退。
 
@@ -239,7 +241,7 @@ X-Newsletter-Signature: sha256=<HMAC-SHA256 of raw body>
 | Elastic Email | `/api/webhooks/elasticemail?token=<ELASTICEMAIL_WEBHOOK_TOKEN>`（GET） | `ELASTICEMAIL_WEBHOOK_TOKEN` |
 | 自訂 webhook／Zeabur relay | `/api/webhooks/generic` | `GENERIC_WEBHOOK_SECRET` |
 
-完整網址為 `PUBLIC_BASE_URL` 加上表中路徑。Portaly 沿用每 10 分鐘回查；其他未列供應商的驗證限制見上方文件。
+完整網址為 `PUBLIC_BASE_URL` 加上表中路徑。Portaly 沿用定期回查（最多每 10 分鐘）；各管道能做到什麼（批次、冪等鍵、退信、檢舉、對帳、標頭與純文字）見 [寄信管道能力表](docs/providers.md)。
 
 ### 4. 封存頁（選用）
 
@@ -325,7 +327,7 @@ GET /api/public/campaigns/:slug
 | `GET` | `/campaigns/:id/deliveries` | 寄送紀錄 |
 | `GET` | `/campaigns/:id/stats` | 寄送 + 開信／點擊 |
 | `GET` | `/campaigns/:id/links` | 各連結總點擊與不重複點擊 |
-| `POST` | `/campaigns/:id/audience-count` | 預覽條件樹受眾人數 |
+| `POST` | `/campaigns/:id/audience-count` | 預覽實際收件人數與排除人數（`{ count, excluded, mode }`） |
 | `POST` | `/campaigns/:id/copy` | 複製成新草稿 |
 | `POST` | `/campaigns/:id/template` | 把這封電子報存成自訂模板 |
 | `GET` `POST` | `/sequences` | 序列列表 / 新增 |
@@ -337,6 +339,8 @@ GET /api/public/campaigns/:slug
 | `GET` `PATCH` `DELETE` | `/campaign-templates/:id` | 讀取 / 更新 / 刪除自訂模板 |
 | `POST` | `/campaign-templates/:id/copy` | 複製內建或自訂模板 |
 | `GET` | `/email/verify` | 檢查目前 adapter 設定 |
+| `GET` | `/audit-log` | 操作紀錄（誰在什麼時候寄送、排程、匯出匯入、刪除、改設定、還原；新到舊，`limit` 最多 500；唯讀） |
+| `GET` | `/readiness` | 運作狀態：資料庫讀寫、schema、寄送暫停、排程 tick 與待辦；`?strict=1` 有問題回 503 |
 
 Agent 請用 Bearer token，不要走後台 cookie。
 
@@ -378,7 +382,8 @@ NEWSLETTER_URL=https://your-newsletter.example npm run mcp
 | `AI_MODEL` | 依服務 | 沒填時用該服務的預設模型 |
 | `AI_BASE_URL` | 依服務 | 已知服務可留空。Ollama、LM Studio 才要改 |
 | `MAIL_FROM` | — | 寄件人，要是你在供應商驗證過的網域 |
-| `STORE_DRIVER` | `sqlite` | `sqlite` / `json` / `memory` / `insforge` / `insforge-tables` |
+| `STORE_DRIVER` | `sqlite` | `sqlite` / `json` / `memory` / `insforge` / `insforge-tables`。正式環境（`NODE_ENV=production` 或 Vercel）必須明確設定，見 [docs/hosting.md](docs/hosting.md) |
+| `ALLOW_EPHEMERAL_STORAGE` | `false` | 只在試跑時打開：允許正式環境把資料或圖片放在 `/tmp`、記憶體 |
 | `DOUBLE_OPT_IN` | `true` | 關掉就跳過確認信 |
 | `CORS_ORIGINS` | `*` | 允許打公開 API 與 Agent 端點的網域，正式環境請收斂 |
 | `TRACKING_ENABLED` | `true` | 關掉則不注入 pixel／轉址 |
@@ -392,7 +397,7 @@ NEWSLETTER_URL=https://your-newsletter.example npm run mcp
 | `SEND_BATCH_DELAY_MS` | `1000` | 批次間隔，配合供應商的速率限制 |
 | `SCHEDULER_ENABLED` | `true` | 多台機器時只開一台 |
 
-`NODE_ENV=production` 時若沒設 `APP_SECRET` 或 `ADMIN_TOKEN` 會直接啟動失敗。
+`NODE_ENV=production` 時若沒設 `APP_SECRET` 或 `ADMIN_TOKEN` 會直接啟動失敗；沒有明確指定持久的 `STORE_DRIVER` 也一樣。
 
 站內 AI 只產生建議：寫信、整理名單、把一句話變成篩選、起草自動化。套用才寫進現有的草稿或名單。它不會寄信、刪人、改訂閱狀態，也不會把自動化打開。後台選服務，或貼上認得出的金鑰。改完 `.env` 要重啟。
 
@@ -419,15 +424,16 @@ class PostgresStore implements Store { /* … */ }
 ```bash
 npm ci
 npm run build
-NODE_ENV=production npm start
+NODE_ENV=production STORE_DRIVER=sqlite STORE_PATH=/var/lib/newsletter/newsletter.db npm start
 ```
 
-規模與供應商怎麼選見 [docs/hosting.md](docs/hosting.md)。
+規模與供應商怎麼選、正式寄送前的上線步驟見 [docs/hosting.md](docs/hosting.md)；備份與還原見 [docs/backup-restore.md](docs/backup-restore.md)；個人資料的查看、更正、刪除與保留見 [docs/data-handling.md](docs/data-handling.md)。
 多台機器時，只讓其中一台設 `SCHEDULER_ENABLED=true`，否則排程的電子報會被重複寄出。
 或者全部關掉排程器，改用外部 cron 定時觸發：設定 `CRON_SECRET`，
 定時以 `Authorization: Bearer $CRON_SECRET` 打 `POST /api/cron/tick`。
 Vercel 上沒有長駐程序（`SCHEDULER_ENABLED` 預設關閉），Hobby 方案的 Vercel Cron 一天只能跑一次，
-所以 repo 內附 `.github/workflows/scheduler-tick.yml` 每 5 分鐘打一次（需設 repo secret `CRON_SECRET`）。
+所以 repo 內附 `deploy/cloudflare-tick`（每分鐘）與 `.github/workflows/scheduler-tick.yml`（每 5 分鐘，
+需設 repo variable `TICK_URL` 與 repo secret `CRON_SECRET`）。排程有沒有在跑、要怎麼接 uptime 監控見 [docs/hosting.md](docs/hosting.md)。
 
 ## 開發
 
@@ -438,6 +444,8 @@ npm test           # vitest
 npm run build
 npm run mcp        # MCP stdio server
 ```
+
+PR 與 `main` 的 push 由 `.github/workflows/ci.yml` 跑型別、測試、建置、Vercel 建置與 `npm audit --omit=dev --audit-level=high`，只用測試資料，不設定任何 secret。
 
 ```
 src/

@@ -4,7 +4,18 @@ import { PreviewDialog } from '../components/PreviewDialog';
 import { TiptapEditor } from '../components/TiptapEditor';
 import { AiWriteNotice } from '../components/AiWriteNotice';
 import { Modal } from '../components/Modal';
-import { api, formatTime, STATUS_LABEL, type Campaign, type Folder, type Session } from '../api';
+import { DeliveryReceipts } from '../components/DeliveryReceipts';
+import {
+  api,
+  formatTime,
+  STATUS_LABEL,
+  type Campaign,
+  type Folder,
+  type RecipientPreview,
+  type ReconcileSummary,
+  type Session,
+} from '../api';
+import { describeSendTime, isoToLocalInput, localInputToIso, timeZoneLabel } from '../schedule-time';
 import type { AudienceCondition } from '../../../src/store/types';
 
 const LOCKED = ['sending', 'sent'];
@@ -22,6 +33,82 @@ function AudienceBuilder({ value, onChange, disabled, folders }: {
     {value ? <><AudienceNode value={value} onChange={onChange} disabled={disabled} folders={folders} /><button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange(undefined)}>清除進階條件</button></> :
       <button type="button" className="btn" disabled={disabled} onClick={() => onChange({ op: 'and', children: [DEFAULT_CONDITION] })}>新增條件</button>}
   </div>;
+}
+
+interface SendConfirm {
+  kind: 'send' | 'schedule';
+  /** 排程時的 ISO 時間；立刻寄送為 undefined。 */
+  scheduledAt?: string;
+  session?: Session;
+  preview?: RecipientPreview;
+  error?: string;
+}
+
+/** 真的寄出或排程前的確認：寄件人、主旨、實際收件人數、排除人數、寄出時間與寄信管道。 */
+function SendConfirmDialog({ confirm, subject, busy, onCancel, onConfirm }: {
+  confirm: SendConfirm;
+  subject: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { session, preview } = confirm;
+  const ready = Boolean(session && preview);
+  const empty = preview ? preview.count === 0 : false;
+  const dryRun = session?.provider === 'dry_run';
+  const when = confirm.scheduledAt ?? new Date().toISOString();
+  return (
+    <Modal title={confirm.kind === 'send' ? '確認立刻寄送' : '確認排程寄送'} onClose={onCancel}>
+      {confirm.error ? <div className="notice error">{confirm.error}</div> : null}
+      {!ready && !confirm.error ? <p className="muted">正在計算收件人…</p> : null}
+      {ready && session && preview ? (
+        <>
+          <table className="data confirm-table">
+            <tbody>
+              <tr><th scope="row">寄件人</th><td>{session.from}</td></tr>
+              <tr><th scope="row">主旨</th><td>{subject || '（沒有主旨）'}</td></tr>
+              <tr>
+                <th scope="row">收件人</th>
+                <td>
+                  {preview.mode === 'resend'
+                    ? `只補寄先前失敗與還沒寄出的 ${preview.count} 位（已寄出的人不會再收到）`
+                    : `${preview.count} 位`}
+                  <div className="muted">排除 {preview.excluded} 位（退訂、退信或在排除名單上，不會寄）</div>
+                  {confirm.kind === 'schedule' ? <div className="muted">實際名單以寄出當下為準</div> : null}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">寄出時間</th>
+                <td>{confirm.kind === 'send' ? `立刻寄出（${describeSendTime(when)}）` : describeSendTime(when)}</td>
+              </tr>
+              <tr>
+                <th scope="row">寄信管道</th>
+                <td>{dryRun ? 'dry_run：不會真的寄出，只寫入紀錄' : `${session.provider}：會真的寄出`}</td>
+              </tr>
+            </tbody>
+          </table>
+          {empty ? (
+            <div className={confirm.kind === 'send' ? 'notice error' : 'notice warn'}>
+              {confirm.kind === 'send'
+                ? '目前沒有符合條件的收件人，不能寄送。'
+                : '目前沒有符合條件的收件人；排程時間到時若仍沒有人，這封信不會寄出。'}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+        <button type="button" className="btn" onClick={onCancel}>取消</button>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={!ready || busy || (empty && confirm.kind === 'send')}
+          onClick={onConfirm}
+        >
+          {busy ? '處理中…' : confirm.kind === 'send' ? `確定寄出${preview ? ` ${preview.count} 封` : ''}` : '確定排程'}
+        </button>
+      </div>
+    </Modal>
+  );
 }
 
 function AudienceNode({ value, onChange, disabled, folders }: {
@@ -69,7 +156,8 @@ export function CampaignEditor() {
   const [folderId, setFolderId] = useState('');
   const [audienceTags, setAudienceTags] = useState<string[]>([]);
   const [audienceCondition, setAudienceCondition] = useState<AudienceCondition | undefined>();
-  const [audienceCount, setAudienceCount] = useState<number | null>(null);
+  const [audienceCount, setAudienceCount] = useState<RecipientPreview | null>(null);
+  const [confirm, setConfirm] = useState<SendConfirm | null>(null);
   const [links, setLinks] = useState<{ url: string; clicks: number; uniqueClicks: number }[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [saveStatus, setSaveStatus] = useState('尚未儲存');
@@ -103,7 +191,8 @@ export function CampaignEditor() {
       setFolderId(c.audienceFolderId ?? '');
       setAudienceTags(c.audienceTags ?? []);
       setAudienceCondition(c.audienceCondition);
-      if (c.scheduledAt) setScheduleAt(c.scheduledAt.slice(0, 16));
+      // scheduledAt 是 UTC；輸入框要顯示這台電腦時區的時間（不能直接切字串，會差好幾小時）。
+      if (c.scheduledAt) setScheduleAt(isoToLocalInput(c.scheduledAt));
       loaded.current = true;
     });
     void api.get<{ items: Folder[] }>('/folders').then((data) => setFolders(data.items));
@@ -153,6 +242,44 @@ export function CampaignEditor() {
   }, [save]);
 
   if (!campaign) return <p className="muted" style={{ padding: 24 }}>載入中…</p>;
+
+  const scheduleIso = localInputToIso(scheduleAt);
+
+  /** 先存檔，再讀最新的寄件設定與實際收件人數，給確認視窗顯示。 */
+  const openConfirm = (kind: SendConfirm['kind'], scheduledAt?: string) => {
+    setConfirm({ kind, scheduledAt });
+    void save()
+      .then(() =>
+        Promise.all([
+          api.get<Session>('/session'),
+          api.post<RecipientPreview>(`/campaigns/${id}/audience-count`, {
+            audienceTags,
+            audienceFolderId: folderId,
+            audienceCondition: audienceCondition ?? null,
+          }),
+        ]),
+      )
+      .then(([fresh, preview]) => setConfirm((current) => (current ? { ...current, session: fresh, preview } : current)))
+      .catch((err: Error) => setConfirm((current) => (current ? { ...current, error: err.message } : current)));
+  };
+
+  const runConfirmed = () => {
+    if (!confirm) return;
+    setSending(true);
+    const work = confirm.kind === 'send'
+      ? api.post(`/campaigns/${id}/send`).then(() => {
+        setMessage('開始寄送');
+        setCampaign({ ...campaign, status: 'sending' });
+      })
+      : api.post<Campaign>(`/campaigns/${id}/schedule`, { scheduledAt: confirm.scheduledAt }).then((c) => {
+        setCampaign(c);
+        setMessage(`已排程：${describeSendTime(c.scheduledAt ?? confirm.scheduledAt ?? '')}`);
+      });
+    void work
+      .then(() => setConfirm(null))
+      .catch((err: Error) => setConfirm((current) => (current ? { ...current, error: err.message } : current)))
+      .finally(() => setSending(false));
+  };
 
   const runAi = async (work: () => Promise<void>) => {
     setAiError('');
@@ -253,15 +380,14 @@ export function CampaignEditor() {
                 className="btn"
                 onClick={() => {
                   void api
-                    .post<{ confirmed: number; stillUnknown: number; supported: boolean }>(`/campaigns/${id}/reconcile`)
-                    .then((r) => setMessage(r.supported
-                      ? `對帳完成：確認已寄出 ${r.confirmed} 筆，仍不明 ${r.stillUnknown} 筆`
-                      : '這個寄信服務不支援自動對帳，請到服務商後台確認'))
+                    .post<ReconcileSummary>(`/campaigns/${id}/reconcile`)
+                    .then((r) => setMessage(r.reason))
                     .catch((err: Error) => setMessage(err.message));
                 }}
               >
                 向寄信服務對帳
               </button>
+              <Link to="/deliveries" style={{ marginLeft: 8 }}>查看待對帳清單</Link>
             </div>
           </div>
         )}
@@ -276,8 +402,13 @@ export function CampaignEditor() {
           <label htmlFor="audience-tags">舊版標籤篩選（任一標籤）</label>
           <input id="audience-tags" value={audienceTags.join(', ')} disabled={!editable} onChange={(event) => setAudienceTags(event.target.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))} placeholder="標籤，以逗號分隔" />
           <AudienceBuilder value={audienceCondition} onChange={setAudienceCondition} disabled={!editable} folders={folders} />
-          <button type="button" className="btn" onClick={() => { void api.post<{ count: number }>(`/campaigns/${id}/audience-count`, { audienceTags, audienceFolderId: folderId, audienceCondition: audienceCondition ?? null }).then((result) => setAudienceCount(result.count)).catch((error: Error) => setMessage(error.message)); }}>預覽收件人數</button>
-          {audienceCount !== null && <p className="muted">符合條件：{audienceCount} 位</p>}
+          <button type="button" className="btn" onClick={() => { void api.post<RecipientPreview>(`/campaigns/${id}/audience-count`, { audienceTags, audienceFolderId: folderId, audienceCondition: audienceCondition ?? null }).then(setAudienceCount).catch((error: Error) => setMessage(error.message)); }}>預覽收件人數</button>
+          {audienceCount !== null && (
+            <p className="muted">
+              {audienceCount.mode === 'resend' ? `重寄時只會補寄：${audienceCount.count} 位` : `會寄出：${audienceCount.count} 位`}
+              {audienceCount.excluded > 0 ? `（另有 ${audienceCount.excluded} 位因退訂、退信或排除名單不寄）` : ''}
+            </p>
+          )}
         </div>
         {campaign.status === 'sent' && (
           <div className="card">
@@ -288,6 +419,12 @@ export function CampaignEditor() {
             <h3>連結點擊</h3>
             <table><thead><tr><th>連結</th><th>點擊</th><th>不重複</th></tr></thead><tbody>{links.map((link) => <tr key={link.url}><td style={{ overflowWrap: 'anywhere' }}><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a></td><td>{link.clicks}</td><td>{link.uniqueClicks}</td></tr>)}</tbody></table>
           </div>
+        )}
+        {campaign.stats.total > 0 && (
+          <DeliveryReceipts
+            campaignId={id}
+            refreshKey={`${campaign.status}:${campaign.stats.sent}:${campaign.stats.failed}:${campaign.stats.unconfirmed ?? 0}`}
+          />
         )}
         <button
           type="button"
@@ -335,17 +472,23 @@ export function CampaignEditor() {
         {editable && (
           <>
             <div>
-              <label>排程</label>
-              <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+              <label htmlFor="editor-schedule">排程</label>
+              <input id="editor-schedule" type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+              <p className="muted" style={{ margin: '6px 0 0' }}>
+                時區：{timeZoneLabel(scheduleIso ? new Date(scheduleIso) : new Date())}
+                {scheduleIso ? <><br />將於 {describeSendTime(scheduleIso)} 寄出</> : null}
+              </p>
               <button
                 type="button"
                 className="btn"
                 style={{ marginTop: 8, width: '100%' }}
+                disabled={sending}
                 onClick={() => {
-                  void save()
-                    .then(() => api.post(`/campaigns/${id}/schedule`, { scheduledAt: new Date(scheduleAt).toISOString() }))
-                    .then((c) => { setCampaign(c as Campaign); setMessage('已排程'); })
-                    .catch((err: Error) => setMessage(err.message));
+                  if (!scheduleIso) {
+                    setMessage('請先選擇排程時間');
+                    return;
+                  }
+                  openConfirm('schedule', scheduleIso);
                 }}
               >
                 排程寄送
@@ -366,15 +509,7 @@ export function CampaignEditor() {
               type="button"
               className="btn primary"
               disabled={sending}
-              onClick={() => {
-                if (!window.confirm('確定立刻寄給符合條件的訂閱者？')) return;
-                setSending(true);
-                void save()
-                  .then(() => api.post(`/campaigns/${id}/send`))
-                  .then(() => { setMessage('開始寄送'); setCampaign({ ...campaign, status: 'sending' }); })
-                  .catch((err: Error) => setMessage(err.message))
-                  .finally(() => setSending(false));
-              }}
+              onClick={() => openConfirm('send')}
             >
               立刻寄送
             </button>
@@ -384,6 +519,15 @@ export function CampaignEditor() {
         </>
         )}
       </aside>
+      {confirm && (
+        <SendConfirmDialog
+          confirm={confirm}
+          subject={title}
+          busy={sending}
+          onCancel={() => { if (!sending) setConfirm(null); }}
+          onConfirm={runConfirmed}
+        />
+      )}
       <PreviewDialog
         open={previewOpen}
         html={previewHtml}

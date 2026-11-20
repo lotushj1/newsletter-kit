@@ -4,7 +4,9 @@ import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.
 import type { Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { enrollSubscriber } from './enroll.js';
+import { assertAcceptingSubscriptions } from './store-readiness.js';
 import { createSubscriber } from './subscribers.js';
+import { statusForSuppression, suppressionReasonFor } from './suppression.js';
 
 export function verifyIngestSignature(
   secret: string | undefined,
@@ -43,6 +45,7 @@ export async function ingestSubscriber(
   const name = optionalString(input.name, '名稱', 120);
   const tags = normalizeTags(input.tags);
   const source = optionalString(input.source, '來源', 120) ?? 'ingest';
+  await assertAcceptingSubscriptions(ctx);
   const existing = await ctx.store.getSubscriberByEmail(email);
 
   if (existing) {
@@ -57,13 +60,14 @@ export async function ingestSubscriber(
     return { action: 'updated', subscriber: updated };
   }
 
-  const created = await createSubscriber(ctx, {
-    email,
-    name,
-    tags,
-    status: 'subscribed',
-    source,
-  });
+  // 先前退訂、退信或檢舉過（之後被刪除）的地址：照樣建檔，但維持不寄送的狀態。
+  const suppressed = await suppressionReasonFor(ctx, email);
+  const created = await createSubscriber(
+    ctx,
+    { email, name, tags, status: suppressed ? statusForSuppression(suppressed) : 'subscribed', source },
+    { consentMethod: 'ingest' },
+  );
+  if (created.status !== 'subscribed') return { action: 'created', subscriber: created };
   await enrollSubscriber(ctx, created, { type: 'subscribe' });
   if (tags.length > 0) await enrollSubscriber(ctx, created, { type: 'tag', tags });
   return { action: 'created', subscriber: created };

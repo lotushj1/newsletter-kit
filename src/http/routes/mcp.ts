@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { ServiceContext } from '../../services/context.js';
-import { requireAdmin } from '../auth.js';
+import { adminActor, requireAdmin } from '../auth.js';
 import { asyncRoute } from '../helpers.js';
 import { handleMcpMessage, MCP_PROTOCOL_VERSION } from '../../mcp/protocol.js';
 
@@ -24,7 +24,7 @@ export function mcpRouter(ctx: ServiceContext): Router {
   router.post(
     '/',
     asyncRoute(async (req, res) => {
-      const result = await handleMcpMessage(ctx, req.body);
+      const result = await handleMcpMessage(ctx, req.body, { actor: adminActor(ctx.config, req) });
       applyMcpHeaders(res);
       if (result.kind === 'empty') {
         res.status(202).end();

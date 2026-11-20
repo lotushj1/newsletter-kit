@@ -1,9 +1,10 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { MemorySnapshot } from './memory-store.js';
 import { assertSnapshotShape } from './snapshot-guard.js';
-import { MAX_ROWS_PER_REQUEST, chunk, selectAllBySeq, type TableDb } from './table-db.js';
+import { logger } from '../core/logger.js';
+import { MAX_ROWS_PER_REQUEST, chunk, isMissingTable, selectAllBySeq, type TableDb } from './table-db.js';
 import { SETTINGS_TABLE, SPECS, fromRow, toRow, type EntitySpec, type Row } from './table-mapping.js';
-import type { Campaign, Subscriber } from './types.js';
+import type { AuditEntry, Campaign, Subscriber } from './types.js';
 
 /**
  * nk_snapshots（整份一列 JSON）→ 逐表的一次性搬移。
@@ -29,6 +30,7 @@ export const COLLECTIONS: CollectionKey[] = [
   'enrollments',
   'templates',
   'campaignStarters',
+  'auditLog',
 ];
 
 const REQUIRED: Record<CollectionKey, string[]> = {
@@ -42,6 +44,7 @@ const REQUIRED: Record<CollectionKey, string[]> = {
   folders: ['id', 'name', 'createdAt'],
   templates: ['id', 'name', 'createdAt', 'updatedAt'],
   campaignStarters: ['id', 'name', 'createdAt', 'updatedAt'],
+  auditLog: ['id', 'at', 'actor', 'action'],
 };
 
 const WRITE_CHUNK = MAX_ROWS_PER_REQUEST;
@@ -110,8 +113,21 @@ export interface MigrationReport {
   unsubscribesSynced: number;
 }
 
+/**
+ * nk_audit_log 由較新的 migration 建立；還沒套用時當成空表，匯出、核對照常進行
+ * （寫入操作紀錄時才會失敗）。其他資料表不存在一律照錯誤處理。
+ */
+async function readRows(db: TableDb, spec: EntitySpec): Promise<Row[]> {
+  try {
+    return await selectAllBySeq<Row>(db, spec.table);
+  } catch (error) {
+    if (spec === SPECS.auditLog && isMissingTable(error)) return [];
+    throw error;
+  }
+}
+
 async function readKeys(db: TableDb, spec: EntitySpec): Promise<Map<string, Row>> {
-  const rows = await selectAllBySeq<Row>(db, spec.table);
+  const rows = await readRows(db, spec);
   return new Map(rows.map((row) => [String(row[spec.key]), row]));
 }
 
@@ -177,7 +193,12 @@ export async function verifyMigration(db: TableDb, snapshot: MemorySnapshot): Pr
 export async function migrateSnapshot(
   db: TableDb,
   snapshot: unknown,
-  options: { apply: boolean; overwrite?: boolean },
+  options: {
+    apply: boolean;
+    overwrite?: boolean;
+    /** 寫入後在操作紀錄留一筆（誰、什麼時候、寫入方式）；只在 apply 成功時寫。 */
+    audit?: Pick<AuditEntry, 'id' | 'at' | 'actor'> | undefined;
+  },
 ): Promise<MigrationReport> {
   const problems = preflight(snapshot);
   const data = snapshot as MemorySnapshot;
@@ -188,8 +209,10 @@ export async function migrateSnapshot(
   for (const key of COLLECTIONS) {
     const spec = SPECS[key];
     const rows = items(data, key).map((item) => toRow(spec, item));
+    // 操作紀錄只新增：overwrite 也不改既有的紀錄（資料表的 trigger 也會擋下修改）。
+    const ignoreDuplicates = !options.overwrite || key === 'auditLog';
     for (const part of chunk(rows, WRITE_CHUNK)) {
-      await db.upsert(spec.table, part, { onConflict: spec.key, ignoreDuplicates: !options.overwrite });
+      await db.upsert(spec.table, part, { onConflict: spec.key, ignoreDuplicates });
     }
   }
   const settingRows = Object.entries(data.settings ?? {}).map(([key, value]) => ({ key, value }));
@@ -198,7 +221,23 @@ export async function migrateSnapshot(
   }
 
   const unsubscribesSynced = await syncUnsubscribes(db, data.subscribers);
-  return { applied: true, problems, tables: await verifyMigration(db, data), unsubscribesSynced };
+  const tables = await verifyMigration(db, data);
+  if (options.audit) {
+    const written = COLLECTIONS.reduce((sum, key) => sum + items(data, key).length, 0);
+    const entry: AuditEntry = {
+      ...options.audit,
+      action: 'data.restore',
+      summary: `從快照寫入逐表資料（${options.overwrite ? '覆寫既有列' : '只新增'}），快照共 ${written} 筆，同步退訂 ${unsubscribesSynced} 筆`,
+    };
+    try {
+      await db.insert(SPECS.auditLog.table, [toRow(SPECS.auditLog, entry)], { ignoreDuplicates: true });
+    } catch (error) {
+      // 資料已寫入；只是操作紀錄表還沒建立。不讓整次寫入被當成失敗。
+      if (!isMissingTable(error)) throw error;
+      logger.warn('nk_audit_log 尚未建立，這次寫入沒有留下操作紀錄', { error: (error as Error).message });
+    }
+  }
+  return { applied: true, problems, tables, unsubscribesSynced };
 }
 
 /** 快照已退訂／退信、新表仍可寄的人：改成快照的狀態（只往不寄的方向）。 */
@@ -223,7 +262,7 @@ async function syncUnsubscribes(db: TableDb, subscribers: Subscriber[]): Promise
 /** 回退用：把新表整份讀成快照格式（寫成檔案，由人決定要不要放回 nk_snapshots）。 */
 export async function exportTablesToSnapshot(db: TableDb): Promise<MemorySnapshot> {
   const read = async <T>(key: CollectionKey): Promise<T[]> =>
-    (await selectAllBySeq<Row>(db, SPECS[key].table)).map((row) => fromRow<T>(SPECS[key], row));
+    (await readRows(db, SPECS[key])).map((row) => fromRow<T>(SPECS[key], row));
   const campaigns = await read<Campaign>('campaigns');
   return {
     subscribers: await read('subscribers'),
@@ -242,5 +281,6 @@ export async function exportTablesToSnapshot(db: TableDb): Promise<MemorySnapsho
     templates: await read('templates'),
     settings: Object.fromEntries(await readSettings(db)),
     campaignStarters: await read('campaignStarters'),
+    auditLog: await read('auditLog'),
   };
 }

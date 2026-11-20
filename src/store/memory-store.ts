@@ -2,6 +2,8 @@ import { conflict } from '../core/errors.js';
 import { campaignMatchesQuery } from './query.js';
 import type {
   AudienceQuery,
+  AuditEntry,
+  AuditQuery,
   Campaign,
   CampaignQuery,
   CampaignStats,
@@ -26,7 +28,7 @@ import type {
   TrackingEvent,
   TrackingStats,
 } from './types.js';
-import { EMPTY_TRACKING } from './types.js';
+import { EMPTY_TRACKING, auditListLimit, newestAuditFirst } from './types.js';
 
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -48,7 +50,15 @@ export interface MemorySnapshot {
   templates: ContentTemplate[];
   settings: Record<string, string>;
   campaignStarters: CampaignStarter[];
+  /** 舊版快照沒有這個欄位。 */
+  auditLog?: AuditEntry[] | undefined;
 }
+
+/**
+ * 記憶體／json／insforge（單列 JSON）只保留最近這麼多筆操作紀錄，避免整份快照越長越大。
+ * 要完整保留請用 sqlite 或 insforge-tables。
+ */
+export const AUDIT_SNAPSHOT_KEEP = 500;
 
 /** 測試與 json driver 的共用底座。資料全在記憶體，不會自己持久化。 */
 export class MemoryStore implements Store {
@@ -65,6 +75,7 @@ export class MemoryStore implements Store {
   protected templates = new Map<string, ContentTemplate>();
   protected settings = new Map<string, string>();
   protected campaignStarters = new Map<string, CampaignStarter>();
+  protected auditLog: AuditEntry[] = [];
 
   async init(): Promise<void> {}
 
@@ -90,6 +101,7 @@ export class MemoryStore implements Store {
     this.templates = new Map((snapshot.templates ?? []).map((t) => [t.id, t]));
     this.settings = new Map(Object.entries(snapshot.settings ?? {}));
     this.campaignStarters = new Map((snapshot.campaignStarters ?? []).map((t) => [t.id, t]));
+    this.auditLog = [...(snapshot.auditLog ?? [])];
   }
 
   protected snapshot(): MemorySnapshot {
@@ -105,6 +117,7 @@ export class MemoryStore implements Store {
       templates: [...this.templates.values()],
       settings: Object.fromEntries(this.settings),
       campaignStarters: [...this.campaignStarters.values()],
+      auditLog: [...this.auditLog],
     };
   }
 
@@ -417,6 +430,11 @@ export class MemoryStore implements Store {
     return applied;
   }
 
+  async getDelivery(id: string): Promise<Delivery | null> {
+    const delivery = this.deliveries.get(id);
+    return delivery ? clone(delivery) : null;
+  }
+
   async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
     for (const delivery of this.deliveries.values()) {
       if (delivery.providerMessageId === providerMessageId) return clone(delivery);
@@ -431,6 +449,21 @@ export class MemoryStore implements Store {
     const items = [...this.deliveries.values()]
       .filter((d) => d.campaignId === campaignId)
       .filter((d) => (options.status ? d.status === options.status : true));
+    return (options.limit ? items.slice(0, options.limit) : items).map(clone);
+  }
+
+  async listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }> {
+    return {
+      deliveries: [...this.deliveries.values()].filter((d) => d.subscriberId === subscriberId).map(clone),
+      events: [...this.events.values()].filter((e) => e.subscriberId === subscriberId).map(clone),
+    };
+  }
+
+  async listDeliveriesByStatus(
+    status: DeliveryStatus,
+    options: { limit?: number | undefined } = {},
+  ): Promise<Delivery[]> {
+    const items = [...this.deliveries.values()].filter((d) => d.status === status);
     return (options.limit ? items.slice(0, options.limit) : items).map(clone);
   }
 
@@ -764,5 +797,19 @@ export class MemoryStore implements Store {
     return [...this.campaignStarters.values()].find(
       (item) => item.name.toLowerCase() === target && item.id !== exceptId,
     );
+  }
+
+  // ── 操作紀錄 ────────────────────────────────────────────
+  async appendAuditEntry(entry: AuditEntry): Promise<void> {
+    if (this.auditLog.some((item) => item.id === entry.id)) return;
+    this.auditLog.push(clone(entry));
+    if (this.auditLog.length > AUDIT_SNAPSHOT_KEEP) {
+      this.auditLog = newestAuditFirst(this.auditLog).slice(0, AUDIT_SNAPSHOT_KEEP).reverse();
+    }
+    await this.persist();
+  }
+
+  async listAuditEntries(query: AuditQuery = {}): Promise<AuditEntry[]> {
+    return newestAuditFirst(this.auditLog).slice(0, auditListLimit(query)).map(clone);
   }
 }

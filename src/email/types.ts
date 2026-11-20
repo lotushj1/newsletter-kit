@@ -10,8 +10,8 @@ export interface EmailMessage {
   unsubscribeMailto?: string | undefined;
   headers?: Record<string, string> | undefined;
   /**
-   * 安全重試用的冪等鍵（例如 delivery id）。支援的供應商（如 Portaly）
-   * 會帶給 API，同一個鍵重試不會寄出第二封；其他 adapter 可忽略。
+   * 安全重試用的冪等鍵（寄送紀錄 id）。支援的供應商會帶給 API，同一個鍵重試不會寄出第二封：
+   * Portaly 單封、Resend；Webhook／Zeabur 會轉給你的端點自行去重。其他 adapter 忽略（見 docs/providers.md）。
    */
   idempotencyKey?: string | undefined;
 }

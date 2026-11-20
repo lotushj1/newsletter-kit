@@ -14,7 +14,12 @@ export const createInsForgeAdapter: EmailAdapterFactory = (context): EmailAdapte
     if (!context.insforgeUrl || !context.insforgeApiKey) {
       return { ok: false, message: '缺少 INSFORGE_URL 或 INSFORGE_API_KEY。' };
     }
-    return { ok: true, message: '已設定 InsForge。實際能否寄出仍取決於專案方案與寄件網域。' };
+    return {
+      ok: true,
+      message:
+        '已設定 InsForge。實際能否寄出仍取決於專案方案與寄件網域。' +
+        '注意：InsForge 寄信 API 不能帶 List-Unsubscribe 標頭，也沒有純文字版本（信件只有 HTML）。',
+    };
   },
 
   async send(message) {

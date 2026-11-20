@@ -1,8 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { AuditLog } from './pages/AuditLog';
 import { CampaignEditor } from './pages/CampaignEditor';
 import { Campaigns } from './pages/Campaigns';
 import { Dashboard } from './pages/Dashboard';
+import { Reconcile } from './pages/Reconcile';
 import { SequenceEditor } from './pages/SequenceEditor';
 import { Sequences } from './pages/Sequences';
 import { Brand } from './pages/Brand';
@@ -17,12 +19,14 @@ export function App() {
         <Route index element={<Dashboard />} />
         <Route path="campaigns" element={<Campaigns />} />
         <Route path="campaigns/:id" element={<CampaignEditor />} />
+        <Route path="deliveries" element={<Reconcile />} />
         <Route path="subscribers" element={<Subscribers />} />
         <Route path="sequences" element={<Sequences />} />
         <Route path="sequences/:id" element={<SequenceEditor />} />
         <Route path="brand" element={<Brand />} />
         <Route path="brand/templates/:id" element={<StarterEditor />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="audit-log" element={<AuditLog />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

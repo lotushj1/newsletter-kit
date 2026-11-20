@@ -14,6 +14,16 @@ type TagEditor =
   | { mode: 'subscriber'; id: string; selected: string[] }
   | { mode: 'draft'; selected: string[] };
 
+interface ImportSummary {
+  created: number;
+  updated: number;
+  skipped: number;
+  suppressed: number;
+  duplicates: number;
+  total: number;
+  errors: string[];
+}
+
 export function Subscribers() {
   const session = useOutletContext<Session | null>();
   const aiOn = Boolean(session?.ai.configured);
@@ -33,6 +43,7 @@ export function Subscribers() {
   const [addFolder, setAddFolder] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importFolder, setImportFolder] = useState('');
+  const [importPreview, setImportPreview] = useState<ImportSummary | null>(null);
   const [dialog, setDialog] = useState<null | 'add' | 'import' | 'edit'>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -167,6 +178,7 @@ export function Subscribers() {
   const openDialog = (next: 'add' | 'import') => {
     setDialogError('');
     setSaving(false);
+    setImportPreview(null);
     setTagEditor(null);
     setMenuId(null);
     setEditingId(null);
@@ -221,7 +233,7 @@ export function Subscribers() {
     }
   };
 
-  const importCsv = async () => {
+  const importCsv = async (dryRun: boolean) => {
     if (!importFile) {
       setDialogError('請先選擇 CSV 或 Excel 檔案');
       return;
@@ -229,13 +241,28 @@ export function Subscribers() {
     setDialogError('');
     setSaving(true);
     try {
-      const result = await api.post<{ created: number; updated: number }>('/subscribers/import', {
+      const result = await api.post<ImportSummary>('/subscribers/import', {
         fileName: importFile.name,
         fileBase64: await fileToBase64(importFile),
         folderId: importFolder || undefined,
+        dryRun,
       });
+      if (dryRun) {
+        // 先預覽：名單還沒有任何變動，確認後才正式寫入。
+        setImportPreview(result);
+        setSaving(false);
+        return;
+      }
       setDialog(null);
-      setMessage(`匯入完成：新增 ${result.created}、更新 ${result.updated}`);
+      setImportPreview(null);
+      const extras = [
+        result.suppressed ? `先前退訂或退信、維持不寄送 ${result.suppressed}` : '',
+        result.skipped ? `略過 ${result.skipped}` : '',
+      ].filter(Boolean);
+      setMessage(
+        `匯入完成：新增 ${result.created}、更新 ${result.updated}${extras.length ? `；${extras.join('、')}` : ''}` +
+          (result.errors?.length ? `\n${result.errors.join('\n')}` : ''),
+      );
       refresh();
     } catch (err) {
       setDialogError(err instanceof Error ? err.message : '匯入失敗');
@@ -367,7 +394,7 @@ export function Subscribers() {
 
   return (
     <div>
-        {message && <div className="notice">{message}</div>}
+        {message && <div className="notice" style={{ whiteSpace: 'pre-line' }}>{message}</div>}
         <div className="page-head">
           <h1>名單</h1>
           <div className="row">
@@ -558,7 +585,7 @@ export function Subscribers() {
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                void importCsv();
+                void importCsv(!importPreview);
               }}
             >
               {dialogError && <div className="notice error">{dialogError}</div>}
@@ -567,27 +594,42 @@ export function Subscribers() {
                   id="subscriber-file"
                   type="file"
                   accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    setImportFile(event.target.files?.[0] ?? null);
+                    setImportPreview(null);
+                  }}
                 />
                 <Upload className="file-drop-icon" size={24} strokeWidth={1.75} aria-hidden />
                 {importFile && <span className="file-drop-name">{importFile.name}</span>}
-                <span className="muted">支援 CSV、XLS、XLSX</span>
+                <span className="muted">支援 CSV（UTF-8）、XLS、XLSX，檔案 1.5 MB、2 萬筆以內；Excel 只讀第一個工作表</span>
                 <span className="muted">第一列請依照 email、name、tags 建立</span>
               </label>
               <label htmlFor="subscriber-import-folder">資料夾</label>
               <select
                 id="subscriber-import-folder"
                 value={importFolder}
-                onChange={(event) => setImportFolder(event.target.value)}
+                onChange={(event) => {
+                  setImportFolder(event.target.value);
+                  setImportPreview(null);
+                }}
               >
                 <option value="">未分類</option>
                 {folders.map((folder) => (
                   <option key={folder.id} value={folder.id}>{folder.name}</option>
                 ))}
               </select>
+              {importPreview && (
+                <div className="notice" role="status" style={{ whiteSpace: 'pre-line' }}>
+                  {`預覽（名單還沒有變動）：檔案共 ${importPreview.total} 筆\n` +
+                    `新增 ${importPreview.created}、更新 ${importPreview.updated}、略過 ${importPreview.skipped}` +
+                    (importPreview.duplicates ? `（其中重複 ${importPreview.duplicates}）` : '') +
+                    (importPreview.suppressed ? `\n先前退訂或退信、會加入但不寄送 ${importPreview.suppressed}` : '') +
+                    (importPreview.errors.length ? `\n${importPreview.errors.join('\n')}` : '')}
+                </div>
+              )}
               <div className="row" style={{ justifyContent: 'flex-end' }}>
                 <button className="btn primary" type="submit" disabled={saving || !importFile}>
-                  {saving ? '匯入中…' : '匯入'}
+                  {saving ? (importPreview ? '匯入中…' : '檢查中…') : importPreview ? '確認匯入' : '預覽'}
                 </button>
               </div>
             </form>
@@ -685,6 +727,15 @@ export function Subscribers() {
                           onClick={() => openEdit(s)}
                         >
                           編輯
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            window.location.href = `/api/admin/subscribers/${encodeURIComponent(s.id)}/export.json`;
+                          }}
+                        >
+                          匯出個人資料
                         </button>
                         <button
                           type="button"

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { resolve, sep } from 'node:path';
 import { getAiService, isKnownAiProvider } from './ai/providers.js';
 import { DEFAULT_SITE_NAME } from './store/types.js';
 
@@ -45,6 +46,8 @@ export interface Config {
   };
   store: { driver: StoreDriver; path: string };
   uploadsPath: string;
+  /** 有值＝不能把上傳圖片存在 uploadsPath（正式環境的暫存目錄）；上傳時回這段說明。 */
+  uploadsBlockedReason?: string | undefined;
   email: {
     provider: string;
     from: string;
@@ -74,12 +77,22 @@ export interface Config {
   singleOptInSources: string[];
   corsOrigins: string[];
   publicRateLimitPerMin: number;
+  /** Express 的 trust proxy：決定 req.ip（限流用）要信任哪些反向代理。 */
+  trustProxy: boolean | number | string;
   trackingEnabled: boolean;
   ingestSecret: string | undefined;
   webhookSecrets: Record<string, string | undefined>;
   physicalAddress?: string | undefined;
   privacyUrl?: string | undefined;
-  join: { headline: string | undefined; description: string | undefined; tags: string[] };
+  join: {
+    headline: string | undefined;
+    description: string | undefined;
+    tags: string[];
+    /** 訂閱頁上說明的寄送頻率，例如「每週一封」 */
+    frequency?: string | undefined;
+    /** 訂閱頁上的聯絡信箱；沒設就用 MAIL_REPLY_TO，再沒有就用寄件地址 */
+    contactEmail?: string | undefined;
+  };
   send: {
     batchSize: number;
     batchDelayMs: number;
@@ -133,6 +146,31 @@ function bool(key: string, fallback: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
 }
 
+/** 路徑在系統暫存目錄（/tmp、os.tmpdir()）底下：重開機、重新部署或冷啟動後可能消失。 */
+export function isTempPath(path: string): boolean {
+  if (path === ':memory:') return true;
+  const absolute = resolve(path);
+  return [...new Set(['/tmp', '/private/tmp', resolve(tmpdir())])].some(
+    (dir) => absolute === dir || absolute.startsWith(dir.endsWith(sep) ? dir : `${dir}${sep}`),
+  );
+}
+
+/** 正式環境的資料會不會隨時消失；回傳原因，沒問題回 null。 */
+function ephemeralStoreProblem(input: {
+  explicit: boolean;
+  driver: StoreDriver;
+  path: string;
+  onVercel: boolean;
+}): string | null {
+  if (!input.explicit) return '沒有設定 STORE_DRIVER';
+  if (input.driver === 'memory') return 'STORE_DRIVER=memory 只把資料放在記憶體，重啟就消失';
+  if (input.driver === 'sqlite' || input.driver === 'json') {
+    if (input.onVercel) return `Vercel 上的 STORE_DRIVER=${input.driver} 只能寫在 /tmp，重新部署或冷啟動就消失`;
+    if (isTempPath(input.path)) return `STORE_PATH 在暫存目錄（${input.path}），重開機後可能消失`;
+  }
+  return null;
+}
+
 function defaultPublicBaseUrl(port: number): string {
   const host = optional('VERCEL_PROJECT_PRODUCTION_URL') ?? optional('VERCEL_URL');
   if (host) return `https://${host.replace(/^https?:\/\//, '')}`;
@@ -156,7 +194,12 @@ export function loadConfig(): Config {
   }
 
   const onVercel = process.env.VERCEL === '1';
-  const driver = (optional('STORE_DRIVER') ?? (onVercel ? 'json' : 'sqlite')) as StoreDriver;
+  // 正式環境（NODE_ENV=production 或 Vercel）：資料一定要放在明確指定、不會消失的地方。
+  const hosted = isProduction || onVercel;
+  // 試跑用的逃生口：明知資料可能隨時消失，仍要在正式環境用暫存目錄或記憶體。
+  const allowEphemeral = bool('ALLOW_EPHEMERAL_STORAGE', false);
+  const explicitDriver = optional('STORE_DRIVER');
+  const driver = (explicitDriver ?? (onVercel ? 'json' : 'sqlite')) as StoreDriver;
   if (!['sqlite', 'json', 'memory', 'insforge', 'insforge-tables'].includes(driver)) {
     throw new Error(`STORE_DRIVER 只能是 sqlite / json / memory / insforge / insforge-tables，收到：${driver}`);
   }
@@ -166,9 +209,37 @@ export function loadConfig(): Config {
       : driver === 'json'
         ? '/tmp/newsletter.json'
         : '/tmp/newsletter.db'
-    : driver === 'json'
-      ? './data/newsletter.json'
-      : './data/newsletter.db';
+    : driver === 'memory'
+      ? ':memory:'
+      : driver === 'json'
+        ? './data/newsletter.json'
+        : './data/newsletter.db';
+  const storePath = str('STORE_PATH', defaultPath);
+  if (hosted) {
+    const problem = ephemeralStoreProblem({ explicit: Boolean(explicitDriver), driver, path: storePath, onVercel });
+    if (problem && !allowEphemeral) {
+      throw new Error(
+        `正式環境（NODE_ENV=production 或 Vercel）拒絕啟動：${problem}。` +
+          '請設定 STORE_DRIVER=insforge-tables（或 insforge）；自架主機可用 STORE_DRIVER=sqlite 並把 STORE_PATH 放在持久磁碟。' +
+          '只是試跑、可以接受資料隨時消失，才設 ALLOW_EPHEMERAL_STORAGE=true。',
+      );
+    }
+    if (problem) warnings.push(`ALLOW_EPHEMERAL_STORAGE=true：${problem}，資料可能隨時消失，只適合試跑。`);
+  }
+
+  // InsForge 兩種 store 的圖片放 InsForge Storage；其他 driver 才寫本機的 UPLOADS_PATH。
+  const uploadsPath = str('UPLOADS_PATH', onVercel ? '/tmp/newsletter-uploads' : './data/uploads');
+  let uploadsBlockedReason: string | undefined;
+  if (hosted && driver !== 'insforge' && driver !== 'insforge-tables' && (onVercel || isTempPath(uploadsPath))) {
+    if (allowEphemeral) {
+      warnings.push(`ALLOW_EPHEMERAL_STORAGE=true：上傳的圖片存在暫存目錄（${uploadsPath}），重新部署或重啟後會消失。`);
+    } else {
+      uploadsBlockedReason =
+        `圖片上傳已停用：正式環境不能把圖片存在暫存目錄（${uploadsPath}），重新部署或重啟後圖片會消失。` +
+        '請改用 STORE_DRIVER=insforge-tables（圖片存 InsForge Storage），或把 UPLOADS_PATH 設在持久磁碟上。';
+      warnings.push(uploadsBlockedReason);
+    }
+  }
 
   const port = num('PORT', 4400);
   const publicBaseUrl = str('PUBLIC_BASE_URL', defaultPublicBaseUrl(port)).replace(/\/+$/, '');
@@ -199,8 +270,9 @@ export function loadConfig(): Config {
       adminEmails: googleEmails,
       redirectUri: optional('GOOGLE_REDIRECT_URI')?.trim() || `${publicBaseUrl}/admin/auth/google/callback`,
     },
-    store: { driver, path: str('STORE_PATH', defaultPath) },
-    uploadsPath: str('UPLOADS_PATH', onVercel ? '/tmp/newsletter-uploads' : './data/uploads'),
+    store: { driver, path: storePath },
+    uploadsPath,
+    uploadsBlockedReason,
     email: {
       provider: str('EMAIL_PROVIDER', 'dry_run'),
       from: str('MAIL_FROM', 'Newsletter <newsletter@example.com>'),
@@ -229,6 +301,7 @@ export function loadConfig(): Config {
     singleOptInSources: (optional('SINGLE_OPT_IN_SOURCES') ?? '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean),
     corsOrigins: corsRaw === '*' ? ['*'] : corsRaw.split(',').map((o) => o.trim()).filter(Boolean),
     publicRateLimitPerMin: num('PUBLIC_RATE_LIMIT_PER_MIN', 20),
+    trustProxy: parseTrustProxy(optional('TRUST_PROXY'), process.env.VERCEL === '1'),
     trackingEnabled: bool('TRACKING_ENABLED', true),
     ingestSecret: optional('INGEST_SECRET'),
     webhookSecrets: {
@@ -251,6 +324,12 @@ export function loadConfig(): Config {
     join: {
       headline: optional('JOIN_HEADLINE'),
       description: optional('JOIN_DESCRIPTION'),
+      frequency: optional('JOIN_FREQUENCY'),
+      contactEmail:
+        optional('JOIN_CONTACT_EMAIL') ??
+        optional('MAIL_REPLY_TO') ??
+        /<([^>]+)>/.exec(str('MAIL_FROM', ''))?.[1] ??
+        (str('MAIL_FROM', '').includes('@') ? str('MAIL_FROM', '').trim() : undefined),
       tags: str('JOIN_TAGS', '')
         .split(',')
         .map((t) => t.trim().toLowerCase())
@@ -272,4 +351,18 @@ export function loadConfig(): Config {
     isProduction,
     warnings,
   };
+}
+
+/**
+ * Vercel 會覆寫 X-Forwarded-For，不轉送外部帶進來的 IP（官方文件說明是為了防止偽造），
+ * 所以在 Vercel 上信任它。自架時預設只信任本機與內網的代理（nginx、Caddy 這類），
+ * 避免任何人自己帶 X-Forwarded-For 就能換 IP 繞過限流。代理在別台機器時設 TRUST_PROXY。
+ */
+export function parseTrustProxy(value: string | undefined, onVercel: boolean): boolean | number | string {
+  if (value === undefined || value.trim() === '') return onVercel ? true : 'loopback, linklocal, uniquelocal';
+  const trimmed = value.trim();
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
 }

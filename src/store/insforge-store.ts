@@ -26,6 +26,7 @@ const EMPTY: MemorySnapshot = {
   templates: [],
   settings: {},
   campaignStarters: [],
+  auditLog: [],
 };
 
 /**
@@ -65,6 +66,8 @@ const READ_METHODS = [
   'findDueCampaigns',
   'findSendingCampaigns',
   'listDeliveries',
+  'listDeliveriesByStatus',
+  'getDelivery',
   'deliveryStats',
   'findDeliveryByProviderMessageId',
   'campaignTrackingStats',
@@ -82,6 +85,7 @@ const READ_METHODS = [
   'getSettings',
   'getCampaignStarter',
   'listCampaignStarters',
+  'listAuditEntries',
 ] as const;
 
 /**

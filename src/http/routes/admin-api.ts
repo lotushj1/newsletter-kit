@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { badRequest } from '../../core/errors.js';
 import { saveCampaignImage } from '../../core/uploads.js';
 import { decodeImportFile, spreadsheetToCsv } from '../../core/spreadsheet.js';
@@ -40,13 +40,17 @@ import {
   listSequencesWithSteps,
   updateSequence,
 } from '../../services/sequences.js';
+import { readinessReport } from '../../services/readiness.js';
 import {
   cancelSending,
+  listReconcileQueue,
+  previewRecipients,
   reconcileUnconfirmed,
   resumeCampaign,
   sendTestEmail,
   startCampaign,
 } from '../../services/sending.js';
+import { campaignReceiptStats, deliveryState } from '../../services/delivery-receipts.js';
 import {
   createFolder,
   deleteFolder,
@@ -79,22 +83,48 @@ import {
 import {
   createSubscriber,
   deleteSubscriber,
+  exportSubscriberData,
   exportSubscribersCsv,
   importSubscribersCsv,
   listSubscribers,
   listSubscriberTags,
   updateSubscriber,
 } from '../../services/subscribers.js';
-import { audienceFromCampaign, type Campaign, type CampaignStatus, type SubscriberStatus } from '../../store/types.js';
-import { requireAdmin } from '../auth.js';
+import {
+  audienceFromCampaign,
+  type Campaign,
+  type CampaignStatus,
+  type DeliveryStatus,
+  type SubscriberStatus,
+} from '../../store/types.js';
+import {
+  aiIntegrationSummary,
+  brandSummary,
+  emailIntegrationSummary,
+  importSummary,
+  listAuditLog,
+  reconcileSummary,
+  recordAudit,
+  sendAction,
+  sendSummary,
+  subscriberUpdateSummary,
+  type AuditAction,
+  type AuditDetails,
+} from '../../services/audit.js';
+import { adminActor, requireAdmin } from '../auth.js';
 import { asyncRoute, intParam, pathParam } from '../helpers.js';
 
 const str = (value: unknown): string | undefined =>
   typeof value === 'string' && value !== '' ? value : undefined;
 
+const DELIVERY_STATUSES: readonly DeliveryStatus[] = ['pending', 'sending', 'sent', 'failed', 'skipped'];
+
 export function adminApiRouter(ctx: ServiceContext): Router {
   const router = Router();
   router.use(requireAdmin(ctx.config));
+  /** 動作完成後記一筆操作紀錄（actor：Google 登入的 email，或 admin-token）。 */
+  const audit = (req: Request, action: AuditAction, details?: AuditDetails) =>
+    recordAudit(ctx, adminActor(ctx.config, req), action, details);
 
   router.get('/session', (_req, res) => {
     res.json(publicSession(ctx));
@@ -107,14 +137,18 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.patch(
     '/integrations/email',
     asyncRoute(async (req, res) => {
-      res.json(await updateEmailIntegration(ctx, req.body ?? {}));
+      const view = await updateEmailIntegration(ctx, req.body ?? {});
+      await audit(req, 'settings.email', { summary: emailIntegrationSummary(req.body, view.email.provider) });
+      res.json(view);
     }),
   );
 
   router.patch(
     '/integrations/ai',
     asyncRoute(async (req, res) => {
-      res.json(await updateAiIntegration(ctx, req.body ?? {}));
+      const view = await updateAiIntegration(ctx, req.body ?? {});
+      await audit(req, 'settings.ai', { summary: aiIntegrationSummary(req.body, view.ai) });
+      res.json(view);
     }),
   );
 
@@ -125,7 +159,11 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       if (!fileBase64.trim()) throw badRequest('請選擇圖片');
       res.status(201).json(
         await saveCampaignImage(
-          { driver: ctx.config.store.driver, uploadsPath: ctx.config.uploadsPath },
+          {
+            driver: ctx.config.store.driver,
+            uploadsPath: ctx.config.uploadsPath,
+            uploadsBlockedReason: ctx.config.uploadsBlockedReason,
+          },
           fileBase64,
         ),
       );
@@ -148,6 +186,15 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     }),
   );
 
+  // 運作狀態：資料庫讀寫、schema、兩種暫停、排程 tick 與待辦。strict=1 時有任何問題就回 503（給監控用）。
+  router.get(
+    '/readiness',
+    asyncRoute(async (req, res) => {
+      const report = await readinessReport(ctx);
+      res.status(req.query.strict === '1' && !report.ok ? 503 : 200).json(report);
+    }),
+  );
+
   router.get(
     '/notion-sync',
     asyncRoute(async (_req, res) => {
@@ -158,10 +205,11 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   // Notion 一次退訂太多人而暫停時，由後台確認後套用。
   router.post(
     '/notion-sync/approve-unsubscribes',
-    asyncRoute(async (_req, res) => {
+    asyncRoute(async (req, res) => {
       const summary = await approveHeldUnsubscribes(ctx);
       if (summary.reason === 'nothing_held') throw badRequest('目前沒有暫停中的退訂');
       if (!summary.ran) throw badRequest('Notion 名單同步沒有啟用，無法套用');
+      await audit(req, 'subscribers.approve_unsubscribes', { summary: `套用退訂 ${summary.unsubscribed} 筆` });
       res.json({ summary, status: await getNotionInboundStatus(ctx) });
     }),
   );
@@ -245,10 +293,12 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   // ── 訂閱者 ────────────────────────────────────────────────
   router.get(
     '/subscribers/export.csv',
-    asyncRoute(async (_req, res) => {
+    asyncRoute(async (req, res) => {
+      const csv = await exportSubscribersCsv(ctx);
+      await audit(req, 'subscribers.export', { summary: '匯出全部訂閱者（CSV）' });
       res.setHeader('content-type', 'text/csv; charset=utf-8');
       res.setHeader('content-disposition', 'attachment; filename="subscribers.csv"');
-      res.send(await exportSubscribersCsv(ctx));
+      res.send(csv);
     }),
   );
 
@@ -281,17 +331,36 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     }),
   );
 
+  router.get(
+    '/subscribers/:id/export.json',
+    asyncRoute(async (req, res) => {
+      const id = pathParam(req, 'id');
+      const data = await exportSubscriberData(ctx, id);
+      await audit(req, 'subscriber.export', { targetId: id, summary: '匯出單一訂閱者的個人資料（JSON）' });
+      res.setHeader('content-disposition', `attachment; filename="subscriber-${id}.json"`);
+      res.setHeader('cache-control', 'no-store');
+      res.json(data);
+    }),
+  );
+
   router.patch(
     '/subscribers/:id',
     asyncRoute(async (req, res) => {
-      res.json(await updateSubscriber(ctx, pathParam(req, 'id'), req.body ?? {}));
+      const updated = await updateSubscriber(ctx, pathParam(req, 'id'), req.body ?? {});
+      await audit(req, 'subscriber.update', {
+        targetId: updated.id,
+        summary: subscriberUpdateSummary(req.body, updated.status),
+      });
+      res.json(updated);
     }),
   );
 
   router.delete(
     '/subscribers/:id',
     asyncRoute(async (req, res) => {
-      await deleteSubscriber(ctx, pathParam(req, 'id'));
+      const id = pathParam(req, 'id');
+      await deleteSubscriber(ctx, id);
+      await audit(req, 'subscriber.delete', { targetId: id, summary: '刪除訂閱者' });
       res.json({ ok: true });
     }),
   );
@@ -304,14 +373,17 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       const fileBase64 = typeof req.body?.fileBase64 === 'string' ? req.body.fileBase64 : '';
       if (fileBase64) csv = spreadsheetToCsv(decodeImportFile(fileBase64), fileName || 'import.csv');
       if (csv.trim() === '') throw badRequest('請選擇 CSV 或 Excel 檔案');
-      res.json(
-        await importSubscribersCsv(
-          ctx,
-          csv,
-          normalizeTags(req.body?.tags),
-          typeof req.body?.folderId === 'string' ? req.body.folderId : undefined,
-        ),
+      const dryRun = req.body?.dryRun === true;
+      const result = await importSubscribersCsv(
+        ctx,
+        csv,
+        normalizeTags(req.body?.tags),
+        typeof req.body?.folderId === 'string' ? req.body.folderId : undefined,
+        { dryRun },
       );
+      // 預覽沒有改動名單，不記操作紀錄；確認匯入才記。
+      if (!dryRun) await audit(req, 'subscribers.import', { summary: importSummary(result) });
+      res.json(result);
     }),
   );
 
@@ -422,7 +494,12 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       if (ids.length > 100) throw badRequest('一次最多處理 100 封');
       const action = req.body?.action;
       if (action === 'delete') {
-        res.json(await bulkDeleteCampaigns(ctx, ids));
+        const result = await bulkDeleteCampaigns(ctx, ids);
+        const failed = new Set(result.failed.map((item) => item.id));
+        for (const id of ids.filter((item: string) => !failed.has(item))) {
+          await audit(req, 'campaign.delete', { targetId: id, summary: '批次刪除（連同寄送紀錄與追蹤事件）' });
+        }
+        res.json(result);
         return;
       }
       if (action === 'folder') {
@@ -457,7 +534,9 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.delete(
     '/campaigns/:id',
     asyncRoute(async (req, res) => {
-      await deleteCampaign(ctx, pathParam(req, 'id'));
+      const id = pathParam(req, 'id');
+      await deleteCampaign(ctx, id);
+      await audit(req, 'campaign.delete', { targetId: id, summary: '刪除（連同寄送紀錄與追蹤事件）' });
       res.json({ ok: true });
     }),
   );
@@ -498,7 +577,9 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       audienceFolderId: body.audienceFolderId === undefined ? campaign.audienceFolderId : String(body.audienceFolderId || '') || undefined,
       audienceCondition: body.audienceCondition === undefined ? campaign.audienceCondition : parseAudienceCondition(body.audienceCondition),
     };
-    res.json({ count: (await selectAudience(ctx, draft)).length });
+    // 寄送確認視窗也用這支：count 是實際會寄出的人數，excluded 是因退訂、退信或排除名單不寄的人數。
+    const preview = await previewRecipients(ctx, draft);
+    res.json({ count: preview.count, excluded: preview.excluded, mode: preview.mode });
   }));
 
   router.post(
@@ -514,21 +595,28 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.post(
     '/campaigns/:id/schedule',
     asyncRoute(async (req, res) => {
-      res.json(await scheduleCampaign(ctx, pathParam(req, 'id'), req.body?.scheduledAt));
+      const campaign = await scheduleCampaign(ctx, pathParam(req, 'id'), req.body?.scheduledAt);
+      await audit(req, 'campaign.schedule', { targetId: campaign.id, summary: `排程時間 ${campaign.scheduledAt ?? ''}` });
+      res.json(campaign);
     }),
   );
 
   router.post(
     '/campaigns/:id/unschedule',
     asyncRoute(async (req, res) => {
-      res.json(await cancelSchedule(ctx, pathParam(req, 'id')));
+      const campaign = await cancelSchedule(ctx, pathParam(req, 'id'));
+      await audit(req, 'campaign.unschedule', { targetId: campaign.id, summary: '改回草稿' });
+      res.json(campaign);
     }),
   );
 
   router.post(
     '/campaigns/:id/send',
     asyncRoute(async (req, res) => {
-      const result = await startCampaign(ctx, pathParam(req, 'id'), { background: true });
+      const id = pathParam(req, 'id');
+      const action = await sendAction(ctx, id);
+      const result = await startCampaign(ctx, id, { background: true });
+      await audit(req, action, { targetId: id, summary: sendSummary(result.total) });
       res.json({ ok: true, total: result.total });
     }),
   );
@@ -537,23 +625,38 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.post(
     '/campaigns/:id/resume',
     asyncRoute(async (req, res) => {
-      const result = await resumeCampaign(ctx, pathParam(req, 'id'), { background: true });
+      const id = pathParam(req, 'id');
+      const result = await resumeCampaign(ctx, id, { background: true });
+      await audit(req, 'campaign.resume', { targetId: id, summary: '續寄仍在佇列中的收件人' });
       res.json({ ok: true, ...result });
     }),
   );
 
-  // 對帳：把結果不明的寄送紀錄拿去供應商查，查到才標成已寄出。
+  // 對帳：把結果不明的寄送紀錄拿去供應商查，查到才標成已寄出；每筆都記下誰、何時、結果與原因。
   router.post(
     '/campaigns/:id/reconcile',
     asyncRoute(async (req, res) => {
-      res.json(await reconcileUnconfirmed(ctx, pathParam(req, 'id')));
+      const id = pathParam(req, 'id');
+      const result = await reconcileUnconfirmed(ctx, id, adminActor(ctx.config, req));
+      await audit(req, 'campaign.reconcile', { targetId: id, summary: reconcileSummary(result) });
+      res.json(result);
+    }),
+  );
+
+  // 跨電子報的待對帳清單（結果不明的寄送紀錄，最早的排前面）。
+  router.get(
+    '/deliveries/unconfirmed',
+    asyncRoute(async (req, res) => {
+      res.json(await listReconcileQueue(ctx, { limit: intParam(req.query.limit, 500, 5000) }));
     }),
   );
 
   router.post(
     '/campaigns/:id/cancel',
     asyncRoute(async (req, res) => {
-      res.json(await cancelSending(ctx, pathParam(req, 'id')));
+      const campaign = await cancelSending(ctx, pathParam(req, 'id'));
+      await audit(req, 'campaign.cancel', { targetId: campaign.id, summary: '未寄出的收件人改為略過' });
+      res.json(campaign);
     }),
   );
 
@@ -644,7 +747,9 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.patch(
     '/brand',
     asyncRoute(async (req, res) => {
-      res.json(await updateBrand(ctx, req.body ?? {}));
+      const brand = await updateBrand(ctx, req.body ?? {});
+      await audit(req, 'settings.brand', { summary: brandSummary(req.body) });
+      res.json(brand);
     }),
   );
 
@@ -720,13 +825,37 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     }),
   );
 
+  // 操作紀錄（唯讀）：新到舊，預設 100 筆、最多 500 筆。
+  router.get(
+    '/audit-log',
+    asyncRoute(async (req, res) => {
+      res.json({ items: await listAuditLog(ctx, intParam(req.query.limit, 100, 500)) });
+    }),
+  );
+
   router.get(
     '/campaigns/:id/deliveries',
     asyncRoute(async (req, res) => {
+      const status = str(req.query.status);
+      if (status && !DELIVERY_STATUSES.includes(status as DeliveryStatus)) {
+        throw badRequest(`status 只能是 ${DELIVERY_STATUSES.join(' / ')}`);
+      }
       const deliveries = await ctx.store.listDeliveries(pathParam(req, 'id'), {
+        status: status as DeliveryStatus | undefined,
         limit: intParam(req.query.limit, 200, 2000),
       });
-      res.json({ items: deliveries, stats: await ctx.store.deliveryStats(pathParam(req, 'id')) });
+      res.json({
+        items: deliveries.map((delivery) => ({ ...delivery, state: deliveryState(delivery) })),
+        stats: await ctx.store.deliveryStats(pathParam(req, 'id')),
+      });
+    }),
+  );
+
+  // 服務商回報統計：已收下／已送達／退信／檢舉／結果不明…（開信點擊不算送達）。
+  router.get(
+    '/campaigns/:id/receipts',
+    asyncRoute(async (req, res) => {
+      res.json(await campaignReceiptStats(ctx, pathParam(req, 'id')));
     }),
   );
 

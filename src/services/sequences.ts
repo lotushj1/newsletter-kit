@@ -5,7 +5,7 @@ import { logger } from '../core/logger.js';
 import { optionalString, requireString } from '../core/validate.js';
 import type { Sequence, SequenceStep, SequenceTrigger } from '../store/types.js';
 import type { ServiceContext } from './context.js';
-import { sendCampaignToSubscriber } from './sending.js';
+import { sendCampaignToSubscriber, sequenceDeliveryId } from './sending.js';
 
 const TRIGGERS: SequenceTrigger[] = ['subscribe', 'tag', 'event', 'folder', 'unsubscribe', 'open', 'click'];
 const REQUIRES_VALUE: SequenceTrigger[] = ['tag', 'folder', 'event'];
@@ -182,7 +182,11 @@ export async function processDueEnrollments(ctx: ServiceContext): Promise<number
       await ctx.store.updateEnrollment(enrollment.id, { status: 'canceled' });
       continue;
     }
-    const result = await sendCampaignToSubscriber(ctx, campaign, subscriber, { allowUnsubscribed });
+    const result = await sendCampaignToSubscriber(ctx, campaign, subscriber, {
+      allowUnsubscribed,
+      // 固定 id：同一個入隊的同一步就算 tick 重跑或兩個程序同時跑，也只會寄一次。
+      deliveryId: sequenceDeliveryId(enrollment.id, enrollment.stepIndex),
+    });
     if (!result.ok) {
       logger.warn('序列信寄送失敗', {
         enrollmentId: enrollment.id,

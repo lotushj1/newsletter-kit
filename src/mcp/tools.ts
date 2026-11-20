@@ -14,6 +14,17 @@ import { decodeImportFile, spreadsheetToCsv } from '../core/spreadsheet.js';
 import { saveCampaignImage } from '../core/uploads.js';
 import { normalizeEmail, normalizeTags } from '../core/validate.js';
 import { listEmailAdapters } from '../email/registry.js';
+import {
+  ADMIN_TOKEN_ACTOR,
+  aiIntegrationSummary,
+  brandSummary,
+  emailIntegrationSummary,
+  importSummary,
+  recordAudit,
+  sendAction,
+  sendSummary,
+  subscriberUpdateSummary,
+} from '../services/audit.js';
 import { getBrand, updateBrand } from '../services/brand.js';
 import { campaignLinkStats } from '../services/link-stats.js';
 import { parseAudienceCondition, selectAudience } from '../services/audience.js';
@@ -850,11 +861,18 @@ async function importFromArgs(ctx: ServiceContext, args: Record<string, unknown>
   );
 }
 
+/**
+ * actor：寫進操作紀錄的人。HTTP `/mcp` 由路由帶入（Google 登入的 email 或 admin-token）；
+ * 本機 stdio 是 local-mcp。會改資料的寄送、排程、刪除、匯出匯入、設定工具都會留紀錄，摘要前加「MCP」。
+ */
 export async function callTool(
   ctx: ServiceContext,
   name: string,
   args: Record<string, unknown>,
+  actor: string = ADMIN_TOKEN_ACTOR,
 ): Promise<unknown> {
+  const audit = (action: Parameters<typeof recordAudit>[2], targetId?: string, summary?: string) =>
+    recordAudit(ctx, actor, action, { targetId, summary: summary ? `MCP：${summary}` : 'MCP' });
   switch (name) {
     case 'get_session':
       return publicSession(ctx);
@@ -871,8 +889,11 @@ export async function callTool(
     }
     case 'get_brand':
       return getBrand(ctx);
-    case 'update_brand':
-      return updateBrand(ctx, args);
+    case 'update_brand': {
+      const brand = await updateBrand(ctx, args);
+      await audit('settings.brand', undefined, brandSummary(args));
+      return brand;
+    }
     case 'list_campaigns':
       return listCampaigns(ctx, {
         status: typeof args.status === 'string' ? (args.status as CampaignStatus) : undefined,
@@ -891,10 +912,18 @@ export async function callTool(
       const { id, ...rest } = args;
       return updateCampaign(ctx, String(id ?? ''), rest);
     }
-    case 'schedule_campaign':
-      return scheduleCampaign(ctx, String(args.id ?? ''), args.scheduledAt);
-    case 'send_campaign':
-      return startCampaign(ctx, String(args.id ?? ''), { background: true });
+    case 'schedule_campaign': {
+      const campaign = await scheduleCampaign(ctx, String(args.id ?? ''), args.scheduledAt);
+      await audit('campaign.schedule', campaign.id, `排程時間 ${campaign.scheduledAt ?? ''}`);
+      return campaign;
+    }
+    case 'send_campaign': {
+      const id = String(args.id ?? '');
+      const action = await sendAction(ctx, id);
+      const result = await startCampaign(ctx, id, { background: true });
+      await audit(action, id, sendSummary(result.total));
+      return result;
+    }
     case 'copy_campaign':
       return copyCampaign(ctx, String(args.id ?? ''));
     case 'list_subscribers':
@@ -922,25 +951,39 @@ export async function callTool(
       return createFolder(ctx, { name: args.name }, folderKind(args.kind));
     case 'subscribe':
       return subscribe(ctx, { email: args.email, name: args.name, tags: args.tags, source: args.source });
-    case 'import_subscribers':
-      return importFromArgs(ctx, args);
+    case 'import_subscribers': {
+      const result = await importFromArgs(ctx, args);
+      await audit('subscribers.import', undefined, importSummary(result));
+      return result;
+    }
     case 'update_subscriber': {
       const { id, ...rest } = args;
-      return updateSubscriber(ctx, String(id ?? ''), rest);
+      const updated = await updateSubscriber(ctx, String(id ?? ''), rest);
+      await audit('subscriber.update', updated.id, subscriberUpdateSummary(rest, updated.status));
+      return updated;
     }
-    case 'delete_subscriber':
-      await deleteSubscriber(ctx, String(args.id ?? ''));
+    case 'delete_subscriber': {
+      const id = String(args.id ?? '');
+      await deleteSubscriber(ctx, id);
+      await audit('subscriber.delete', id, '刪除訂閱者');
       return { ok: true };
+    }
     case 'list_sequences':
       return { items: await listSequencesWithSteps(ctx) };
     case 'get_sequence':
       return getSequenceWithSteps(ctx, String(args.id ?? ''));
     case 'get_integrations':
       return integrationView(ctx);
-    case 'update_email_integration':
-      return updateEmailIntegration(ctx, args);
-    case 'update_ai_integration':
-      return updateAiIntegration(ctx, args);
+    case 'update_email_integration': {
+      const view = await updateEmailIntegration(ctx, args);
+      await audit('settings.email', undefined, emailIntegrationSummary(args, view.email.provider));
+      return view;
+    }
+    case 'update_ai_integration': {
+      const view = await updateAiIntegration(ctx, args);
+      await audit('settings.ai', undefined, aiIntegrationSummary(args, view.ai));
+      return view;
+    }
     case 'verify_email': {
       const result = await ctx.adapter.verify();
       return { ...result, provider: ctx.adapter.name, available: listEmailAdapters() };
@@ -956,7 +999,11 @@ export async function callTool(
       const fileBase64 = typeof args.fileBase64 === 'string' ? args.fileBase64 : '';
       if (!fileBase64.trim()) throw badRequest('請選擇圖片');
       return saveCampaignImage(
-        { driver: ctx.config.store.driver, uploadsPath: ctx.config.uploadsPath },
+        {
+          driver: ctx.config.store.driver,
+          uploadsPath: ctx.config.uploadsPath,
+          uploadsBlockedReason: ctx.config.uploadsBlockedReason,
+        },
         fileBase64,
       );
     }
@@ -976,8 +1023,11 @@ export async function callTool(
       return draftAutomation(ctx, args);
     case 'apply_automation':
       return applyAutomation(ctx, args);
-    case 'export_subscribers':
-      return { csv: await exportSubscribersCsv(ctx) };
+    case 'export_subscribers': {
+      const csv = await exportSubscribersCsv(ctx);
+      await audit('subscribers.export', undefined, '匯出全部訂閱者（CSV）');
+      return { csv };
+    }
     case 'list_subscriber_tags':
       return { items: await listSubscriberTags(ctx) };
     case 'create_subscriber':
@@ -998,9 +1048,12 @@ export async function callTool(
       await deleteFolder(ctx, folder.id);
       return { ok: true };
     }
-    case 'delete_campaign':
-      await deleteCampaign(ctx, String(args.id ?? ''));
+    case 'delete_campaign': {
+      const id = String(args.id ?? '');
+      await deleteCampaign(ctx, id);
+      await audit('campaign.delete', id, '刪除（連同寄送紀錄與追蹤事件）');
       return { ok: true };
+    }
     case 'preview_campaign':
       return previewDraft(ctx, String(args.id ?? ''), args);
     case 'send_test_email': {
@@ -1009,10 +1062,16 @@ export async function callTool(
       if (!result.ok) throw badRequest(result.message);
       return result;
     }
-    case 'unschedule_campaign':
-      return cancelSchedule(ctx, String(args.id ?? ''));
-    case 'cancel_campaign':
-      return cancelSending(ctx, String(args.id ?? ''));
+    case 'unschedule_campaign': {
+      const campaign = await cancelSchedule(ctx, String(args.id ?? ''));
+      await audit('campaign.unschedule', campaign.id, '改回草稿');
+      return campaign;
+    }
+    case 'cancel_campaign': {
+      const campaign = await cancelSending(ctx, String(args.id ?? ''));
+      await audit('campaign.cancel', campaign.id, '未寄出的收件人改為略過');
+      return campaign;
+    }
     case 'get_campaign_stats': {
       const campaign = await getCampaign(ctx, String(args.id ?? ''));
       return { stats: campaign.stats, tracking: campaign.tracking };
@@ -1043,7 +1102,14 @@ export async function callTool(
       const ids = campaignIds(args.ids);
       if (ids.length === 0) throw badRequest('請先選電子報');
       if (ids.length > 100) throw badRequest('一次最多處理 100 封');
-      if (args.action === 'delete') return bulkDeleteCampaigns(ctx, ids);
+      if (args.action === 'delete') {
+        const result = await bulkDeleteCampaigns(ctx, ids);
+        const failed = new Set(result.failed.map((item) => item.id));
+        for (const id of ids.filter((item) => !failed.has(item))) {
+          await audit('campaign.delete', id, '批次刪除（連同寄送紀錄與追蹤事件）');
+        }
+        return result;
+      }
       if (args.action === 'folder') {
         return { items: await bulkSetCampaignFolder(ctx, ids, args.folderId ?? '') };
       }
