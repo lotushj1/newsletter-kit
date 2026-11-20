@@ -96,20 +96,32 @@ export class SendRecordError extends Error {
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase();
 
+/** 因時間預算暫停後，排程器在這段時間內會自動接續；超過就要人工按「繼續寄送」。 */
+export const AUTO_CONTINUE_WINDOW_MS = 15 * 60 * 1000;
+
+/** 這份寄送是不是「剛因時間預算暫停」：只有這種才會被排程自動接續。 */
+export function isFreshTimeBudgetPause(campaign: Pick<Campaign, 'status' | 'sendPauseReason' | 'sendPausedAt'>, now = Date.now()): boolean {
+  if (campaign.status !== 'sending' || campaign.sendPauseReason !== 'time_budget' || !campaign.sendPausedAt) return false;
+  const pausedAt = Date.parse(campaign.sendPausedAt);
+  return Number.isFinite(pausedAt) && now - pausedAt <= AUTO_CONTINUE_WINDOW_MS;
+}
+
 /** 依受眾撈出收件人並建立 pending deliveries；同一個 email 只會有一筆。 */
 async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promise<number> {
   const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
   if (existing.length > 0) {
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
-    if (campaign.status === 'failed') {
-      // 重寄失敗／卡死的電子報：只把 failed 與 pending 重新排入。
+    if (campaign.status === 'failed' || campaign.status === 'sent') {
+      // 重寄失敗／卡死的電子報，或「已寄出但有一部分失敗」的電子報：只把 failed 與 pending 重新排入。
       // sending（已交給供應商、結果未確認）一律不動，要先對帳，避免重複寄。
       const all = await ctx.store.listDeliveries(campaign.id);
       const delivered = new Set(
         all.filter((d) => d.status === 'sent' || d.status === 'sending').map((d) => normalizeEmail(d.email)),
       );
+      // 寄信服務已經收下、事後才回報失敗的（退信、拒收名單，有 providerMessageId）不重寄：
+      // 對方信箱收不到，重寄只會再失敗，也避免同一封信送給寄信服務兩次。
       const updates = all
-        .filter((d) => d.status === 'failed' || d.status === 'pending')
+        .filter((d) => d.status === 'pending' || (d.status === 'failed' && !d.providerMessageId))
         .map((d) =>
           delivered.has(normalizeEmail(d.email))
             ? { id: d.id, patch: { status: 'skipped' as const, error: '同一個地址已有寄出或待確認的紀錄' } }
@@ -263,6 +275,9 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
   try {
     const campaign = await getCampaign(ctx, campaignId);
     const { batchSize, batchDelayMs, maxAttempts } = ctx.config.send;
+    if (campaign.sendPauseReason) {
+      await ctx.store.updateCampaign(campaignId, { sendPausedAt: null, sendPauseReason: null, updatedAt: nowIso() });
+    }
 
     for (let pass = 0; pass < maxAttempts; pass += 1) {
       for (;;) {
@@ -283,7 +298,11 @@ export async function processCampaign(ctx: ServiceContext, campaignId: string): 
           if (outOfTime()) {
             // 快到函式時間上限：先收手，紀錄都已寫回，留給人工（或 SEND_AUTO_RESUME）續寄。
             logger.warn('單次寄送時間用完，先暫停', { campaignId, elapsedMs: Date.now() - startedAt });
-            await ctx.store.updateCampaign(campaignId, { updatedAt: nowIso() });
+            await ctx.store.updateCampaign(campaignId, {
+              updatedAt: nowIso(),
+              sendPausedAt: nowIso(),
+              sendPauseReason: 'time_budget',
+            });
             const stats = await ctx.store.deliveryStats(campaignId);
             return { campaignId, ...stats, status: 'sending', paused: 'time_budget' };
           }
@@ -338,7 +357,12 @@ export async function startCampaign(
   assertSendingAllowed(ctx);
   const campaign = await getCampaign(ctx, campaignId);
   if (campaign.status === 'sending') throw badRequest('這份電子報正在寄送中');
-  if (campaign.status === 'sent') throw badRequest('這份電子報已經寄過了');
+  if (campaign.status === 'sent') {
+    // 已寄出但有失敗的收件人：允許只重寄失敗的那些（已寄出的地址會被跳過，不會收到兩次）。
+    const stats = await ctx.store.deliveryStats(campaignId);
+    if (stats.unconfirmed) throw badRequest('還有結果不明的寄送紀錄，請先對帳再重寄');
+    if (stats.failed === 0) throw badRequest('這份電子報已經寄過了');
+  }
   if (!campaignHasBody(campaign)) throw badRequest('內文還是空的，不能寄送');
 
   const total = await prepareDeliveries(ctx, campaign);

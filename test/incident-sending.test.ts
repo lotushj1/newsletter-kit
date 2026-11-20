@@ -168,6 +168,42 @@ describe('寄送冪等與續寄保護（模擬寄信服務）', () => {
     expect(provider.calls).toHaveLength(0);
   });
 
+  it('剛因時間預算暫停的寄送，排程會自動接續寄完；超過 15 分鐘的不會', async () => {
+    const provider = mockProvider();
+    const { ctx, store } = await makeContext({
+      scheduler: { enabled: true, pollMs: 1000, cronSecret: undefined },
+    });
+    ctx.adapter = provider.adapter;
+    ctx.config.send.timeBudgetMs = 1;
+    ctx.config.send.batchDelayMs = 5;
+    const campaign = await seed(ctx, 6);
+    const { summary } = await startCampaign(ctx, campaign.id);
+    expect(summary?.paused).toBe('time_budget');
+    const paused = await store.getCampaign(campaign.id);
+    expect(paused?.sendPauseReason).toBe('time_budget');
+
+    // 暫停的寄送不會被「卡死自動標失敗」誤判
+    await store.updateCampaign(campaign.id, { updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() });
+    const { getCampaign } = await import('../src/services/campaigns.js');
+    expect((await getCampaign(ctx, campaign.id)).status).toBe('sending');
+
+    // 超過 15 分鐘的暫停：排程不自動接續
+    await store.updateCampaign(campaign.id, { sendPausedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString() });
+    const before = provider.calls.length;
+    expect((await createScheduler(ctx).tick()).resumed).toBe(0);
+    expect(provider.calls.length).toBe(before);
+
+    // 剛暫停：排程接續到寄完，每人只收到一封
+    await store.updateCampaign(campaign.id, { sendPausedAt: new Date().toISOString() });
+    ctx.config.send.timeBudgetMs = 0;
+    expect((await createScheduler(ctx).tick()).resumed).toBe(1);
+    expect(provider.accepted.size).toBe(6);
+    expect([...perRecipient(provider).values()].every((n) => n === 1)).toBe(true);
+    const done = await store.getCampaign(campaign.id);
+    expect(done?.status).toBe('sent');
+    expect(done?.sendPauseReason ?? null).toBeNull();
+  });
+
   it('時間預算用完就收手，campaign 保持寄送中、剩下的仍在佇列', async () => {
     const provider = mockProvider();
     const { ctx, store } = await makeContext();

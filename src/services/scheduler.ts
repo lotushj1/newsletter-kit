@@ -2,8 +2,9 @@ import { logger } from '../core/logger.js';
 import { nowIso } from '../core/ids.js';
 import type { ServiceContext } from './context.js';
 import { maybeSyncPortalyDeliveries } from './portaly-sync.js';
+import { maybeSyncFromNotion, type NotionInboundSummary } from './notion-inbound-sync.js';
 import { processDueEnrollments } from './sequences.js';
-import { isSending, processCampaign, sendingBlockedReason, startCampaign } from './sending.js';
+import { isFreshTimeBudgetPause, isSending, processCampaign, sendingBlockedReason, startCampaign } from './sending.js';
 
 export interface TickSummary {
   resumed: number;
@@ -12,6 +13,8 @@ export interface TickSummary {
   /** scheduler_disabled：SCHEDULER_ENABLED=false，只做投遞狀態回查，不寄任何信。 */
   skippedReason?: 'scheduler_disabled' | 'sending_blocked' | 'already_running' | undefined;
   error?: string | undefined;
+  /** 這次 tick 從 Notion 拉回名單的結果（節流時 ran=false）。 */
+  notion?: NotionInboundSummary | undefined;
 }
 
 export interface Scheduler {
@@ -44,13 +47,14 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
         logger.warn('排程器跳過寄送', { reason: blocked });
       } else {
         // 「寄送中」預設不自動續寄：部署、重啟、還原資料後都要人工在後台確認再續寄。
-        if (ctx.config.send.autoResume) {
-          for (const campaign of await ctx.store.findSendingCampaigns()) {
-            if (isSending(campaign.id)) continue;
-            logger.info('接續未完成的寄送', { campaignId: campaign.id });
-            await processCampaign(ctx, campaign.id);
-            summary.resumed += 1;
-          }
+        // 例外：15 分鐘內才因時間預算暫停的寄送，是同一次寄送的下一段，自動接續。
+        for (const campaign of await ctx.store.findSendingCampaigns()) {
+          if (isSending(campaign.id)) continue;
+          const fresh = isFreshTimeBudgetPause(campaign);
+          if (!fresh && !ctx.config.send.autoResume) continue;
+          logger.info('接續未完成的寄送', { campaignId: campaign.id, reason: fresh ? 'time_budget' : 'auto_resume' });
+          await processCampaign(ctx, campaign.id);
+          summary.resumed += 1;
         }
         for (const campaign of await ctx.store.findDueCampaigns(nowIso())) {
           logger.info('排程時間到，開始寄送', { campaignId: campaign.id, slug: campaign.slug });
@@ -64,6 +68,19 @@ export function createScheduler(ctx: ServiceContext): Scheduler {
       const portaly = await maybeSyncPortalyDeliveries(ctx);
       if (portaly.updated > 0) {
         logger.info('Portaly 投遞狀態已同步', { checked: portaly.checked, updated: portaly.updated });
+      }
+      // 官網／Portaly 的新訂閱只會進 Notion，從那裡拉回名單（不寄信，所以不受排程開關影響）。
+      try {
+        summary.notion = await maybeSyncFromNotion(ctx);
+      } catch (error) {
+        logger.error('Notion 名單同步失敗', { error: (error as Error).message });
+      }
+      // 開信、點擊先進收件匣，這裡批次併回主資料（統計最多延遲一個排程週期）。
+      try {
+        const folded = (await ctx.store.foldEventInbox?.()) ?? 0;
+        if (folded > 0) logger.info('追蹤事件已併回', { count: folded });
+      } catch (error) {
+        logger.error('追蹤事件併回失敗', { error: (error as Error).message });
       }
     } catch (error) {
       logger.error('排程器執行失敗', { error: (error as Error).message });

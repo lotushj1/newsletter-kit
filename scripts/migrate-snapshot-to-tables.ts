@@ -23,6 +23,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInsForgeBackend, requireCreds } from '../src/core/insforge.js';
 import { createInsForgeTableDb } from '../src/core/insforge-table-db.js';
 import { exportTablesToSnapshot, migrateSnapshot, type TableReport } from '../src/store/snapshot-to-tables.js';
+import type { TrackingEvent } from '../src/store/types.js';
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -67,11 +68,27 @@ async function main(): Promise<void> {
 
   const sourceFile = arg('source-file');
   let snapshot: unknown;
+  let inboxAdded = 0;
   if (sourceFile) {
     snapshot = JSON.parse(readFileSync(sourceFile, 'utf8'));
   } else {
-    snapshot = await createInsForgeBackend().loadSnapshot();
+    const backend = createInsForgeBackend();
+    snapshot = await backend.loadSnapshot();
     if (!snapshot) fail('nk_snapshots 的 default 列讀到空值，停止（不會寫入任何東西）。', 1);
+    // 開信、點擊先進 nk_event_inbox，排程每分鐘才併回快照：還沒併回的也要一起搬。
+    if (backend.listInboxEvents) {
+      const inbox = await backend.listInboxEvents(1000);
+      if (inbox.length >= 1000) fail('nk_event_inbox 積了 1,000 筆以上，先等排程併回快照再搬移。', 1);
+      const events = ((snapshot as { events?: TrackingEvent[] }).events ?? []).slice();
+      const seen = new Set(events.map((event) => event.id));
+      for (const event of inbox) {
+        if (seen.has(event.id)) continue;
+        seen.add(event.id);
+        events.push(event);
+        inboxAdded += 1;
+      }
+      (snapshot as { events?: TrackingEvent[] }).events = events;
+    }
   }
   const { __nk_version: _version, __nk_tombstones: _tombstones, ...pure } = snapshot as Record<string, unknown>;
 
@@ -85,6 +102,7 @@ async function main(): Promise<void> {
   }
   printTables(report.tables);
   if (report.unsubscribesSynced > 0) console.log(`已從快照同步退訂／退信狀態：${report.unsubscribesSynced} 筆`);
+  if (inboxAdded > 0) console.log(`含收件匣裡還沒併回快照的追蹤事件：${inboxAdded} 筆`);
 
   const missing = Object.values(report.tables).reduce((sum, r) => sum + r.missing, 0);
   if (report.problems.length > 0 || (report.applied && missing > 0)) process.exit(1);

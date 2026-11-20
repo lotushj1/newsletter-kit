@@ -6,6 +6,31 @@ export const DEFAULT_PORTALY_HOST = 'https://portaly.ai';
 
 /** 單一批次最多 100 封（Portaly 的 /batches 上限）。 */
 const BATCH_LIMIT = 100;
+/**
+ * 單一批次請求的大小上限（位元組）。Portaly 對太大的請求回 413 整批拒收：
+ * 每封含追蹤連結約 60 KB 的電子報，100 封一批（約 6 MB）會被拒，20 封一批（約 1.3 MB）寄得出去；上限取 1.2 MB 留餘裕。
+ * 依實際內容大小切批，就不必靠 SEND_BATCH_SIZE 猜。
+ */
+export const BATCH_MAX_BYTES = 1_200_000;
+
+/** 依筆數與大小切批：每批不超過 maxCount 筆、加總不超過 maxBytes（單筆超過上限時自成一批）。 */
+export function chunkBySize<T>(items: T[], sizeOf: (item: T) => number, maxCount: number, maxBytes: number): T[][] {
+  const chunks: T[][] = [];
+  let current: T[] = [];
+  let bytes = 0;
+  for (const item of items) {
+    const size = sizeOf(item);
+    if (current.length > 0 && (current.length >= maxCount || bytes + size > maxBytes)) {
+      chunks.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(item);
+    bytes += size;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 /** 429/503 時最多自動等 Retry-After 重試幾次。 */
 const RATE_LIMIT_RETRIES = 2;
 /** Retry-After 超過這個秒數就不等了，交回外層的重試機制。 */
@@ -120,6 +145,21 @@ function describe(error: PortalyError): string {
   }
   const detail = [error.code, error.message].filter(Boolean).join(' ');
   return `Portaly ${error.status}${detail ? `: ${detail}` : ''}`.slice(0, 300);
+}
+
+/**
+ * 批次裡有收件地址格式不合格時，Portaly 回 400 INVALID_BODY，訊息像
+ * 「emails.2.recipients.0.email: Invalid email address」，整批在受理前就被退回、一封都沒寄。
+ * 解析出是哪幾封，只讓那幾封失敗。
+ */
+export function invalidRecipientIndexes(error: { status: number; code?: string | undefined; message: string }, size: number): number[] {
+  if (error.status !== 400 || error.code !== 'INVALID_BODY') return [];
+  const found = new Set<number>();
+  for (const match of error.message.matchAll(/emails\.(\d+)\.recipients\b/g)) {
+    const index = Number(match[1]);
+    if (Number.isInteger(index) && index >= 0 && index < size) found.add(index);
+  }
+  return [...found].sort((a, b) => a - b);
 }
 
 /** 可自動等 Retry-After 的次數內，短暫限流就地重試；其餘交給呼叫端。 */
@@ -297,24 +337,43 @@ export const createPortalyAdapter: EmailAdapterFactory = (context): EmailAdapter
       return [toSendResult(await postJson(input, '/api/email/emails', portalyEmailPayload(only, key), key))];
     }
 
-    const results: SendResult[] = [];
-    for (let offset = 0; offset < messages.length; offset += BATCH_LIMIT) {
-      const chunk = messages.slice(offset, offset + BATCH_LIMIT);
-      const keys = chunk.map(messageKey);
-      // 批次內不能帶每封的 idempotencyKey，所以 ref tag 照帶、鍵改掛在整個批次上。
-      const body = {
-        emails: chunk.map((message, index) => portalyEmailPayload(message, keys[index]!)),
-      };
-      const outcome = await postJson(input, '/api/email/batches', body, batchIdempotencyKey(keys));
-      if (!outcome.ok) {
-        const failure = toSendResult(outcome) as { ok: false; error: string; retryable?: boolean };
-        for (const _ of chunk) results.push({ ...failure });
-        continue;
+    const entries = messages.map((message, position) => {
+      const key = messageKey(message);
+      const payload = portalyEmailPayload(message, key);
+      return { position, key, payload, bytes: Buffer.byteLength(JSON.stringify(payload), 'utf8') };
+    });
+    const results: SendResult[] = new Array(messages.length);
+    for (const chunk of chunkBySize(entries, (entry) => entry.bytes, BATCH_LIMIT, BATCH_MAX_BYTES)) {
+      let current = chunk;
+      // 每輪至少拿掉一封格式不合格的，最多跑 chunk.length 輪。
+      for (let round = 0; current.length > 0 && round <= chunk.length; round += 1) {
+        const keys = current.map((entry) => entry.key);
+        // 批次內不能帶每封的 idempotencyKey，所以 ref tag 照帶、鍵改掛在整個批次上。
+        const body = { emails: current.map((entry) => entry.payload) };
+        const outcome = await postJson(input, '/api/email/batches', body, batchIdempotencyKey(keys));
+        if (outcome.ok) {
+          const ids = (outcome.raw as { data?: { emails?: { id?: string }[] } }).data?.emails ?? [];
+          current.forEach((entry, index) => {
+            results[entry.position] = { ok: true, id: ids[index]?.id };
+          });
+          break;
+        }
+        const bad = invalidRecipientIndexes(outcome.error, current.length);
+        if (bad.length === 0) {
+          const failure = toSendResult(outcome) as { ok: false; error: string; retryable?: boolean };
+          for (const entry of current) results[entry.position] = { ...failure };
+          break;
+        }
+        // 整批在受理前就被退回（一封都沒寄），只讓格式不合格的那幾封失敗，其餘換一組批次冪等鍵重送。
+        for (const index of bad) {
+          results[current[index]!.position] = {
+            ok: false,
+            error: `收件地址格式不正確，Portaly 拒收：${outcome.error.message}`.slice(0, 300),
+            retryable: false,
+          };
+        }
+        current = current.filter((_, index) => !bad.includes(index));
       }
-      const ids = (outcome.raw as { data?: { emails?: { id?: string }[] } }).data?.emails ?? [];
-      chunk.forEach((_, index) => {
-        results.push({ ok: true, id: ids[index]?.id });
-      });
     }
     return results;
   },
