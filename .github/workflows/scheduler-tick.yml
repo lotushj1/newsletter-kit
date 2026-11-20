@@ -1,7 +1,8 @@
 name: scheduler-tick
 
-# Vercel Hobby 的 cron 一天只能跑一次，排程寄送改由這裡每 5 分鐘打一次 tick。
-# 需要 repo secret：CRON_SECRET（與 Vercel 環境變數相同）；可選 variable：TICK_URL。
+# Vercel Hobby 的 cron 一天只能跑一次，排程寄送改由這裡每 5 分鐘打一次 tick（Cloudflare Worker 是主要來源，這裡是備援）。
+# 需要 repo variable：TICK_URL（例如 https://你的網域/api/cron/tick）與 repo secret：CRON_SECRET（與 Vercel 環境變數相同）。
+# 任一個沒設定時，第一步就失敗並寫明缺什麼，不會發出任何請求；不再有寫死的預設網址。
 on:
   schedule:
     - cron: '*/5 * * * *'
@@ -16,9 +17,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
+      - name: Check settings
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TICK_URL: ${{ vars.TICK_URL }}
+        run: |
+          missing=""
+          if [ -z "$TICK_URL" ]; then missing="${missing} TICK_URL（repo variable）"; fi
+          if [ -z "$CRON_SECRET" ]; then missing="${missing} CRON_SECRET（repo secret）"; fi
+          if [ -n "$missing" ]; then
+            echo "::error title=missing setting::缺少設定（missing setting）：${missing}。請到 Settings → Secrets and variables → Actions 補上；這次沒有發出任何請求。"
+            exit 1
+          fi
+          case "$TICK_URL" in
+            https://*) ;;
+            *)
+              echo "::error title=invalid setting::TICK_URL 必須是 https:// 開頭的完整網址；這次沒有發出任何請求。"
+              exit 1
+              ;;
+          esac
       - name: Tick
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          TICK_URL: ${{ vars.TICK_URL || 'https://newsletter-kit-bay.vercel.app/api/cron/tick' }}
+          TICK_URL: ${{ vars.TICK_URL }}
         run: |
           curl -fsS --max-time 320 -X POST -H "Authorization: Bearer ${CRON_SECRET}" "$TICK_URL"
