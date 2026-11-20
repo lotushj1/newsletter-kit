@@ -322,6 +322,7 @@ export function adminApiRouter(ctx: ServiceContext): Router {
           csv,
           normalizeTags(req.body?.tags),
           typeof req.body?.folderId === 'string' ? req.body.folderId : undefined,
+          { dryRun: req.body?.dryRun === true },
         ),
       );
     }),

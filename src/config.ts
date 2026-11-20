@@ -74,6 +74,8 @@ export interface Config {
   singleOptInSources: string[];
   corsOrigins: string[];
   publicRateLimitPerMin: number;
+  /** Express 的 trust proxy：決定 req.ip（限流用）要信任哪些反向代理。 */
+  trustProxy: boolean | number | string;
   trackingEnabled: boolean;
   ingestSecret: string | undefined;
   webhookSecrets: Record<string, string | undefined>;
@@ -237,6 +239,7 @@ export function loadConfig(): Config {
     singleOptInSources: (optional('SINGLE_OPT_IN_SOURCES') ?? '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean),
     corsOrigins: corsRaw === '*' ? ['*'] : corsRaw.split(',').map((o) => o.trim()).filter(Boolean),
     publicRateLimitPerMin: num('PUBLIC_RATE_LIMIT_PER_MIN', 20),
+    trustProxy: parseTrustProxy(optional('TRUST_PROXY'), process.env.VERCEL === '1'),
     trackingEnabled: bool('TRACKING_ENABLED', true),
     ingestSecret: optional('INGEST_SECRET'),
     webhookSecrets: {
@@ -286,4 +289,18 @@ export function loadConfig(): Config {
     isProduction,
     warnings,
   };
+}
+
+/**
+ * Vercel 會覆寫 X-Forwarded-For，不轉送外部帶進來的 IP（官方文件說明是為了防止偽造），
+ * 所以在 Vercel 上信任它。自架時預設只信任本機與內網的代理（nginx、Caddy 這類），
+ * 避免任何人自己帶 X-Forwarded-For 就能換 IP 繞過限流。代理在別台機器時設 TRUST_PROXY。
+ */
+export function parseTrustProxy(value: string | undefined, onVercel: boolean): boolean | number | string {
+  if (value === undefined || value.trim() === '') return onVercel ? true : 'loopback, linklocal, uniquelocal';
+  const trimmed = value.trim();
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
 }

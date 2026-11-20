@@ -48,6 +48,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     ingestSecret: 'ingest-secret',
     webhookSecrets: {},
     join: { headline: undefined, description: undefined, tags: [] },
+    trustProxy: true,
     send: { batchSize: 2, batchDelayMs: 0, maxAttempts: 2 },
     scheduler: { enabled: false, pollMs: 1000, cronSecret: undefined },
     isProduction: false,

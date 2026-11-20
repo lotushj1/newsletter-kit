@@ -37,7 +37,7 @@ function cors(
 export function createApp(ctx: ServiceContext, options: { googleFetch?: typeof fetch } = {}): Express {
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', true);
+  app.set('trust proxy', ctx.config.trustProxy);
 
   app.use('/api/webhooks', express.raw({ type: '*/*', limit: '2mb' }), providerWebhookRouter(ctx));
 
