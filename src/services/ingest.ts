@@ -4,6 +4,7 @@ import { normalizeEmail, normalizeTags, optionalString } from '../core/validate.
 import type { Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { enrollSubscriber } from './enroll.js';
+import { assertAcceptingSubscriptions } from './store-readiness.js';
 import { createSubscriber } from './subscribers.js';
 
 export function verifyIngestSignature(
@@ -43,6 +44,7 @@ export async function ingestSubscriber(
   const name = optionalString(input.name, '名稱', 120);
   const tags = normalizeTags(input.tags);
   const source = optionalString(input.source, '來源', 120) ?? 'ingest';
+  await assertAcceptingSubscriptions(ctx);
   const existing = await ctx.store.getSubscriberByEmail(email);
 
   if (existing) {

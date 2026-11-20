@@ -956,7 +956,11 @@ export async function callTool(
       const fileBase64 = typeof args.fileBase64 === 'string' ? args.fileBase64 : '';
       if (!fileBase64.trim()) throw badRequest('請選擇圖片');
       return saveCampaignImage(
-        { driver: ctx.config.store.driver, uploadsPath: ctx.config.uploadsPath },
+        {
+          driver: ctx.config.store.driver,
+          uploadsPath: ctx.config.uploadsPath,
+          uploadsBlockedReason: ctx.config.uploadsBlockedReason,
+        },
         fileBase64,
       );
     }

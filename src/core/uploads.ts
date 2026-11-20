@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { StoreDriver } from '../config.js';
-import { badRequest } from './errors.js';
+import { AppError, badRequest } from './errors.js';
 import { newId } from './ids.js';
 import { createInsForgeBackend } from './insforge.js';
 import { IMAGE_TOO_LARGE_MESSAGE, MAX_IMAGE_BYTES } from './upload-limits.js';
@@ -69,11 +69,13 @@ export function saveImageUpload(
 }
 
 export async function saveCampaignImage(
-  input: { driver: StoreDriver; uploadsPath: string },
+  input: { driver: StoreDriver; uploadsPath: string; uploadsBlockedReason?: string | undefined },
   fileBase64: string,
 ): Promise<{ fileName: string; url: string; mime: string }> {
   // 兩種 InsForge store 都沒有持久硬碟可用，圖片一律放 InsForge Storage。
   if (input.driver !== 'insforge' && input.driver !== 'insforge-tables') {
+    // 正式環境的暫存目錄：寫得進去但重新部署就消失，寧可明確失敗也不要假裝上傳成功。
+    if (input.uploadsBlockedReason) throw new AppError(input.uploadsBlockedReason, 503, 'uploads_unavailable');
     return saveImageUpload(input.uploadsPath, fileBase64);
   }
   const buf = decodeImageBase64(fileBase64);

@@ -36,6 +36,7 @@ import type {
   Paged,
   PeriodQuery,
   PeriodStats,
+  SchemaCheck,
   Sequence,
   SequenceEnrollment,
   SequenceStep,
@@ -140,6 +141,57 @@ export class InsForgeTableStore implements Store {
   }
 
   async close(): Promise<void> {}
+
+  /**
+   * 啟動之後 schema 仍可能被改（回退 migration、誤刪表）。版本用一個 RPC 查；
+   * full 時再對每張表讀 1 列、對寄送必用的函式送空參數（不會改到任何資料），讀不到的列進 missing。
+   */
+  async checkSchema(options: { full?: boolean } = {}): Promise<SchemaCheck> {
+    const result: SchemaCheck = { version: null, expectedVersion: TABLES_SCHEMA_VERSION, missing: [] };
+    const probes: Promise<void>[] = [
+      this.db.rpc('nk_tables_schema_version').then(
+        (version) => {
+          result.version = Number.isFinite(Number(version)) ? Number(version) : null;
+        },
+        (error: Error) => {
+          result.error = error.message;
+          result.missing.push('nk_tables_schema_version()');
+        },
+      ),
+    ];
+    if (options.full) {
+      const tables = [...new Set([...Object.values(SPECS).map((spec) => spec.table), SETTINGS_TABLE])];
+      for (const table of tables) {
+        probes.push(
+          this.db.select(table, { limit: 1 }).then(
+            () => undefined,
+            () => {
+              result.missing.push(table);
+            },
+          ),
+        );
+      }
+      const now = new Date().toISOString();
+      const functions: [string, Record<string, unknown>][] = [
+        ['nk_claim_deliveries', { p_ids: [], p_claim_id: 'readiness_probe', p_claimed_at: now }],
+        ['nk_update_deliveries', { p_updates: [] }],
+        ['nk_campaign_stats', { p_campaign_ids: [] }],
+      ];
+      for (const [fn, args] of functions) {
+        probes.push(
+          this.db.rpc(fn, args).then(
+            () => undefined,
+            () => {
+              result.missing.push(`${fn}()`);
+            },
+          ),
+        );
+      }
+    }
+    await Promise.all(probes);
+    result.missing.sort();
+    return result;
+  }
 
   // ── 共用 ────────────────────────────────────────────────
   private async findOne<T>(spec: EntitySpec, filters: Filter[]): Promise<T | null> {

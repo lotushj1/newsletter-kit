@@ -40,8 +40,10 @@ import {
   listSequencesWithSteps,
   updateSequence,
 } from '../../services/sequences.js';
+import { readinessReport } from '../../services/readiness.js';
 import {
   cancelSending,
+  previewRecipients,
   reconcileUnconfirmed,
   resumeCampaign,
   sendTestEmail,
@@ -125,7 +127,11 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       if (!fileBase64.trim()) throw badRequest('請選擇圖片');
       res.status(201).json(
         await saveCampaignImage(
-          { driver: ctx.config.store.driver, uploadsPath: ctx.config.uploadsPath },
+          {
+            driver: ctx.config.store.driver,
+            uploadsPath: ctx.config.uploadsPath,
+            uploadsBlockedReason: ctx.config.uploadsBlockedReason,
+          },
           fileBase64,
         ),
       );
@@ -145,6 +151,15 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       const rates = await overviewRates(ctx, { from, to });
       const notionSync = await getNotionInboundStatus(ctx);
       res.json({ counts, campaigns: recent.items, provider: ctx.adapter.name, tags, folders, rates, notionSync });
+    }),
+  );
+
+  // 運作狀態：資料庫讀寫、schema、兩種暫停、排程 tick 與待辦。strict=1 時有任何問題就回 503（給監控用）。
+  router.get(
+    '/readiness',
+    asyncRoute(async (req, res) => {
+      const report = await readinessReport(ctx);
+      res.status(req.query.strict === '1' && !report.ok ? 503 : 200).json(report);
     }),
   );
 
@@ -498,7 +513,9 @@ export function adminApiRouter(ctx: ServiceContext): Router {
       audienceFolderId: body.audienceFolderId === undefined ? campaign.audienceFolderId : String(body.audienceFolderId || '') || undefined,
       audienceCondition: body.audienceCondition === undefined ? campaign.audienceCondition : parseAudienceCondition(body.audienceCondition),
     };
-    res.json({ count: (await selectAudience(ctx, draft)).length });
+    // 寄送確認視窗也用這支：count 是實際會寄出的人數，excluded 是因退訂、退信或排除名單不寄的人數。
+    const preview = await previewRecipients(ctx, draft);
+    res.json({ count: preview.count, excluded: preview.excluded, mode: preview.mode });
   }));
 
   router.post(

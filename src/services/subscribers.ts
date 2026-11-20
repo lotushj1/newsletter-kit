@@ -13,6 +13,7 @@ import type { Paged, Subscriber, SubscriberQuery, SubscriberStatus } from '../st
 import type { ServiceContext } from './context.js';
 import { getBrand } from './brand.js';
 import { enrollSubscriber } from './enroll.js';
+import { assertAcceptingSubscriptions } from './store-readiness.js';
 import { resolveFolderId } from './folders.js';
 
 const CONFIRM_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
@@ -82,6 +83,8 @@ export async function subscribe(
   const name = optionalString(input.name, '名稱', 120);
   const tags = normalizeTags(input.tags);
   const source = optionalString(input.source, '來源', 120);
+  // 資料庫寫不進去就明確回 503，不能讓訪客看到「訂閱成功」卻沒有留下資料。
+  await assertAcceptingSubscriptions(ctx);
   const existing = await ctx.store.getSubscriberByEmail(email);
   const doubleOptIn =
     ctx.config.doubleOptIn && !(source && (ctx.config.singleOptInSources ?? []).includes(source.toLowerCase()));

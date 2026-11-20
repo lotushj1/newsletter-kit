@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppError } from '../src/core/errors.js';
 import { absolutizeMediaUrls } from '../src/core/render.js';
 import { IMAGE_TOO_LARGE_MESSAGE, MAX_IMAGE_BYTES } from '../src/core/upload-limits.js';
-import { resolvePublicUpload, saveImageUpload, sniffImage } from '../src/core/uploads.js';
+import { resolvePublicUpload, saveCampaignImage, saveImageUpload, sniffImage } from '../src/core/uploads.js';
 
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -45,6 +45,22 @@ describe('圖片上傳', () => {
     const png = Buffer.from(PNG_1X1, 'base64');
     const huge = Buffer.concat([png, Buffer.alloc(MAX_IMAGE_BYTES + 1)]);
     expect(() => saveImageUpload(dir, huge.toString('base64'))).toThrow(IMAGE_TOO_LARGE_MESSAGE);
+  });
+
+  it('正式環境的暫存目錄被停用時：明確回 503，不會寫進暫存目錄假裝上傳成功', async () => {
+    const dir = tempDir();
+    const error = await saveCampaignImage(
+      { driver: 'sqlite', uploadsPath: dir, uploadsBlockedReason: '圖片上傳已停用：測試' },
+      PNG_1X1,
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).status).toBe(503);
+    expect((error as AppError).code).toBe('uploads_unavailable');
+    expect((error as AppError).message).toBe('圖片上傳已停用：測試');
+    expect(readdirSync(dir)).toHaveLength(0);
+
+    const saved = await saveCampaignImage({ driver: 'sqlite', uploadsPath: dir }, PNG_1X1);
+    expect(saved.url).toMatch(/^\/media\/img_/);
   });
 
   it('寄出時把相對 /media 與簽名圖示補成絕對網址', () => {
