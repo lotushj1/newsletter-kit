@@ -96,5 +96,7 @@ export function mergeSnapshots(
       local.campaignStarters ?? [],
       remote.campaignStarters ?? [],
     ),
+    // 操作紀錄只新增：兩邊各自新增的都保留（本地超過保留上限而裁掉的照本地刪除）。
+    auditLog: mergeCollection(base.auditLog ?? [], local.auditLog ?? [], remote.auditLog ?? []),
   };
 }

@@ -22,6 +22,8 @@ import {
 } from './table-mapping.js';
 import type {
   AudienceQuery,
+  AuditEntry,
+  AuditQuery,
   Campaign,
   CampaignQuery,
   CampaignStarter,
@@ -46,6 +48,7 @@ import type {
   TrackingEvent,
   TrackingStats,
 } from './types.js';
+import { auditListLimit } from './types.js';
 
 /** 跟 migrations/20261120090000_create-nk-entity-tables.sql 的 nk_tables_schema_version() 對齊。 */
 export const TABLES_SCHEMA_VERSION = 1;
@@ -749,6 +752,26 @@ export class InsForgeTableStore implements Store {
 
   async deleteCampaignStarter(id: string): Promise<boolean> {
     return (await this.db.delete(SPECS.campaignStarters.table, [eq('id', id)])) > 0;
+  }
+
+  // ── 操作紀錄 ────────────────────────────────────────────
+  /**
+   * 只新增；同 id 重送略過。nk_audit_log 由 migrations/20261120230000_create-nk-audit-log.sql 建立，
+   * 不在 TABLES_SCHEMA_VERSION 裡：還沒套用時只有寫入／讀取操作紀錄會失敗，其他功能照常。
+   */
+  async appendAuditEntry(entry: AuditEntry): Promise<void> {
+    await this.db.insert(SPECS.auditLog.table, [toRow(SPECS.auditLog, entry)], { ignoreDuplicates: true });
+  }
+
+  async listAuditEntries(query: AuditQuery = {}): Promise<AuditEntry[]> {
+    const rows = await this.db.select<Row>(SPECS.auditLog.table, {
+      order: [
+        { col: 'at', ascending: false },
+        { col: 'seq', ascending: false },
+      ],
+      limit: auditListLimit(query),
+    });
+    return rows.map((row) => fromRow<AuditEntry>(SPECS.auditLog, row));
   }
 }
 

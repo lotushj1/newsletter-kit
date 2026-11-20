@@ -15,6 +15,7 @@ const EMPTY: MemorySnapshot = {
   templates: [],
   settings: {},
   campaignStarters: [],
+  auditLog: [],
 };
 
 /**
@@ -53,6 +54,7 @@ export class JsonStore extends MemoryStore {
         templates: parsed.templates ?? [],
         settings: parsed.settings ?? {},
         campaignStarters: parsed.campaignStarters ?? [],
+        auditLog: parsed.auditLog ?? [],
       });
     } catch (error) {
       logger.error('JSON 資料檔讀取失敗，改用空資料啟動', {

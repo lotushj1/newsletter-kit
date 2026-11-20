@@ -15,11 +15,13 @@
  *   --apply        寫入新表（沒有這個參數就只檢查與核對）。
  *   --overwrite    主鍵已存在的列用快照覆寫。只能在切換 STORE_DRIVER 之前用。
  *   --source-file  改從 JSON 檔讀快照（nk_snapshots 的 payload），不讀 InsForge。
- *   --export       把新表整份匯出成快照格式的 JSON 檔（回退用；不寫入 InsForge）。
+ *   --export       把新表整份匯出成快照格式的 JSON 檔（回退、備份用；不寫入 InsForge）。
+ *   --actor        寫入時記在操作紀錄（nk_audit_log）的執行者，例如自己的 email；預設 migrate-script。
  *
  * 結束碼：0 正常；1 有問題（檢查沒過、核對有缺漏）；2 參數錯誤。
  */
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { newId, nowIso } from '../src/core/ids.js';
 import { createInsForgeBackend, requireCreds } from '../src/core/insforge.js';
 import { createInsForgeTableDb } from '../src/core/insforge-table-db.js';
 import { exportTablesToSnapshot, migrateSnapshot, type TableReport } from '../src/store/snapshot-to-tables.js';
@@ -93,7 +95,11 @@ async function main(): Promise<void> {
   const { __nk_version: _version, __nk_tombstones: _tombstones, ...pure } = snapshot as Record<string, unknown>;
 
   const apply = flag('apply');
-  const report = await migrateSnapshot(db, pure, { apply, overwrite: flag('overwrite') });
+  const report = await migrateSnapshot(db, pure, {
+    apply,
+    overwrite: flag('overwrite'),
+    audit: { id: newId('aud'), at: nowIso(), actor: arg('actor') ?? 'migrate-script' },
+  });
   console.log(`專案主機：${host}`);
   console.log(apply ? (report.applied ? '模式：已寫入' : '模式：檢查沒過，沒有寫入') : '模式：只檢查（加 --apply 才寫入）');
   if (report.problems.length > 0) {

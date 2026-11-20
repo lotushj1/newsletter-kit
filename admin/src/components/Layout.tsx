@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, LogOut, Mail, PanelLeft, PenLine, Settings, Users, Workflow } from 'lucide-react';
+import { History, LayoutDashboard, LogOut, Mail, PanelLeft, PenLine, Settings, Users, Workflow } from 'lucide-react';
 import { api, type Session } from '../api';
 
 const LINKS = [
@@ -10,6 +10,7 @@ const LINKS = [
   { to: '/sequences', label: '自動化', icon: Workflow },
   { to: '/brand', label: '品牌', icon: PenLine },
   { to: '/settings', label: '設定', icon: Settings },
+  { to: '/audit-log', label: '操作紀錄', icon: History },
 ];
 
 const CRUMB: Record<string, string> = {
@@ -19,6 +20,7 @@ const CRUMB: Record<string, string> = {
   '/sequences': '自動化',
   '/brand': '品牌',
   '/settings': '設定',
+  '/audit-log': '操作紀錄',
 };
 
 export function Layout() {

@@ -20,6 +20,8 @@
 
 `nk_subscribers`、`nk_campaigns`、`nk_deliveries`、`nk_events`、`nk_sequences`、`nk_sequence_steps`、`nk_enrollments`、`nk_folders`、`nk_templates`、`nk_settings`、`nk_campaign_starters`，以及統計、領取、批次寫回、連帶刪除用的函式。這支 migration 只新增，不修改、不刪除 `nk_snapshots`。
 
+`migrations/20261120230000_create-nk-audit-log.sql` 另外建立 `nk_audit_log`（後台操作紀錄：誰在什麼時候寄送、排程、取消、對帳、匯出匯入、刪除訂閱者、改設定、還原資料）。只能新增，trigger 會擋下修改與刪除。部署會寫操作紀錄的版本前要先套用；沒套用時其他功能照常，只是操作紀錄寫不進去（伺服器紀錄會有警告）。
+
 設計上要知道的幾件事：
 
 - **新欄位不會被丟掉。** 實體上沒有對應欄位的鍵存在該列的 `extra`（jsonb），讀回時合併回去。要拿來查詢或排序的新欄位，再寫 migration 補成正式欄位。

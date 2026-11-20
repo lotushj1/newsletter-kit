@@ -337,6 +337,7 @@ GET /api/public/campaigns/:slug
 | `GET` `PATCH` `DELETE` | `/campaign-templates/:id` | 讀取 / 更新 / 刪除自訂模板 |
 | `POST` | `/campaign-templates/:id/copy` | 複製內建或自訂模板 |
 | `GET` | `/email/verify` | 檢查目前 adapter 設定 |
+| `GET` | `/audit-log` | 操作紀錄（誰在什麼時候寄送、排程、匯出匯入、刪除、改設定、還原；新到舊，`limit` 最多 500；唯讀） |
 
 Agent 請用 Bearer token，不要走後台 cookie。
 
