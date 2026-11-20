@@ -1060,6 +1060,7 @@ ${frequency}
 <p style="text-align:center;margin:0"><a class="btn" href="/join" style="display:flex;width:100%">訂閱電子報</a></p>
 ${recent}
 ${disclosureHtml(options.disclosure, options.privacyUrl)}`,
+    { siteLabel: false },
   );
 }
 

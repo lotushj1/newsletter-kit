@@ -351,11 +351,12 @@ ${header}
 }
 
 /** 訂閱者看到的公開頁（確認、退訂），不掛後台導覽。 */
-export function publicPage(siteName: string, title: string, bodyHtml: string): string {
+export function publicPage(siteName: string, title: string, bodyHtml: string, options: { siteLabel?: boolean } = {}): string {
+  const label = options.siteLabel === false ? '' : `<p class="muted" style="margin:0 0 12px;text-align:center">${escapeHtml(siteName)}</p>`;
   return page({
     title,
     siteName,
     chrome: false,
-    body: `<div class="ad-login-wrap"><div class="center-card"><p class="muted" style="margin:0 0 12px;text-align:center">${escapeHtml(siteName)}</p>${bodyHtml}</div></div>`,
+    body: `<div class="ad-login-wrap"><div class="center-card">${label}${bodyHtml}</div></div>`,
   });
 }

@@ -1,4 +1,14 @@
-import { schema } from '@tiptap/pm/schema-basic';
+import { Schema } from '@tiptap/pm/model';
+
+// Tiptap 3 的 @tiptap/pm 不再匯出 schema-basic；這裡只需要段落、標題與文字。
+const schema = new Schema({
+  nodes: {
+    doc: { content: 'block+' },
+    paragraph: { group: 'block', content: 'inline*', toDOM: () => ['p', 0] },
+    heading: { group: 'block', content: 'inline*', attrs: { level: { default: 1 } }, toDOM: (node) => [`h${node.attrs.level}`, 0] },
+    text: { group: 'inline' },
+  },
+});
 import { EditorState, TextSelection } from '@tiptap/pm/state';
 import { describe, expect, it } from 'vitest';
 import { planSelectionReplacement } from '../admin/src/components/editor/replace-selection.ts';

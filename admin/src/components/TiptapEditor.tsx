@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type Mu
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import Placeholder from '@tiptap/extension-placeholder';
+import { Placeholder } from '@tiptap/extensions';
 import { NodeSelection } from '@tiptap/pm/state';
 import { DOMParser, DOMSerializer } from '@tiptap/pm/model';
 import { planSelectionReplacement } from './editor/replace-selection';
@@ -699,6 +699,9 @@ export function TiptapEditor({
   };
 
   const editor = useEditor({
+    // Tiptap 3 預設不會在每次編輯後重繪；工具列的作用中狀態（粗體、標題…）靠重繪更新，維持 v2 行為。
+    shouldRerenderOnTransaction: true,
+    immediatelyRender: true,
     extensions: [
       ...emailContentExtensions(),
       RewriteHold,
@@ -986,7 +989,7 @@ export function TiptapEditor({
     if (!editor) return;
     if (value === lastHtmlRef.current) return;
     const html = editor.getHTML();
-    if (value && value !== html) editor.commands.setContent(value, false);
+    if (value && value !== html) editor.commands.setContent(value, { emitUpdate: false });
     lastHtmlRef.current = value;
   }, [editor, value]);
 

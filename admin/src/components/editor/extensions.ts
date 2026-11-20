@@ -1,8 +1,6 @@
 import { Extension, Node, mergeAttributes } from '@tiptap/core';
 import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
 import TextAlign from '@tiptap/extension-text-align';
-import Underline from '@tiptap/extension-underline';
 import StarterKit from '@tiptap/starter-kit';
 import {
   DEFAULT_EMAIL_BUTTON,
@@ -309,9 +307,13 @@ export const EmailBlockStyle = Extension.create({
  */
 export function emailContentExtensions() {
   return [
-    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
-    Underline,
-    Link.configure({ openOnClick: false, autolink: true }),
+    // Tiptap 3 的 StarterKit 已內含 Link、Underline；trailingNode 會在文件尾端自動補一個空段落，
+    // 存檔內容會跟著變，所以關掉，維持 v2 的輸出。
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      link: { openOnClick: false, autolink: true },
+      trailingNode: false,
+    }),
     EmailImage,
     TextAlign.configure({ types: ['heading', 'paragraph'], alignments: ['left', 'center', 'right', 'justify'], defaultAlignment: 'left' }),
     EmailButton,
