@@ -439,6 +439,8 @@ npm run build
 npm run mcp        # MCP stdio server
 ```
 
+PR 與 `main` 的 push 由 `.github/workflows/ci.yml` 跑型別、測試、建置、Vercel 建置與 `npm audit --omit=dev --audit-level=high`，只用測試資料，不設定任何 secret。
+
 ```
 src/
 ├── config.ts          環境變數
