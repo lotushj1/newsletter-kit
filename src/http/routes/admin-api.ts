@@ -42,11 +42,13 @@ import {
 } from '../../services/sequences.js';
 import {
   cancelSending,
+  listReconcileQueue,
   reconcileUnconfirmed,
   resumeCampaign,
   sendTestEmail,
   startCampaign,
 } from '../../services/sending.js';
+import { campaignReceiptStats, deliveryState } from '../../services/delivery-receipts.js';
 import {
   createFolder,
   deleteFolder,
@@ -85,12 +87,20 @@ import {
   listSubscriberTags,
   updateSubscriber,
 } from '../../services/subscribers.js';
-import { audienceFromCampaign, type Campaign, type CampaignStatus, type SubscriberStatus } from '../../store/types.js';
-import { requireAdmin } from '../auth.js';
+import {
+  audienceFromCampaign,
+  type Campaign,
+  type CampaignStatus,
+  type DeliveryStatus,
+  type SubscriberStatus,
+} from '../../store/types.js';
+import { adminActor, requireAdmin } from '../auth.js';
 import { asyncRoute, intParam, pathParam } from '../helpers.js';
 
 const str = (value: unknown): string | undefined =>
   typeof value === 'string' && value !== '' ? value : undefined;
+
+const DELIVERY_STATUSES: readonly DeliveryStatus[] = ['pending', 'sending', 'sent', 'failed', 'skipped'];
 
 export function adminApiRouter(ctx: ServiceContext): Router {
   const router = Router();
@@ -542,11 +552,19 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     }),
   );
 
-  // 對帳：把結果不明的寄送紀錄拿去供應商查，查到才標成已寄出。
+  // 對帳：把結果不明的寄送紀錄拿去供應商查，查到才標成已寄出；每筆都記下誰、何時、結果與原因。
   router.post(
     '/campaigns/:id/reconcile',
     asyncRoute(async (req, res) => {
-      res.json(await reconcileUnconfirmed(ctx, pathParam(req, 'id')));
+      res.json(await reconcileUnconfirmed(ctx, pathParam(req, 'id'), adminActor(ctx.config, req)));
+    }),
+  );
+
+  // 跨電子報的待對帳清單（結果不明的寄送紀錄，最早的排前面）。
+  router.get(
+    '/deliveries/unconfirmed',
+    asyncRoute(async (req, res) => {
+      res.json(await listReconcileQueue(ctx, { limit: intParam(req.query.limit, 500, 5000) }));
     }),
   );
 
@@ -723,10 +741,26 @@ export function adminApiRouter(ctx: ServiceContext): Router {
   router.get(
     '/campaigns/:id/deliveries',
     asyncRoute(async (req, res) => {
+      const status = str(req.query.status);
+      if (status && !DELIVERY_STATUSES.includes(status as DeliveryStatus)) {
+        throw badRequest(`status 只能是 ${DELIVERY_STATUSES.join(' / ')}`);
+      }
       const deliveries = await ctx.store.listDeliveries(pathParam(req, 'id'), {
+        status: status as DeliveryStatus | undefined,
         limit: intParam(req.query.limit, 200, 2000),
       });
-      res.json({ items: deliveries, stats: await ctx.store.deliveryStats(pathParam(req, 'id')) });
+      res.json({
+        items: deliveries.map((delivery) => ({ ...delivery, state: deliveryState(delivery) })),
+        stats: await ctx.store.deliveryStats(pathParam(req, 'id')),
+      });
+    }),
+  );
+
+  // 服務商回報統計：已收下／已送達／退信／檢舉／結果不明…（開信點擊不算送達）。
+  router.get(
+    '/campaigns/:id/receipts',
+    asyncRoute(async (req, res) => {
+      res.json(await campaignReceiptStats(ctx, pathParam(req, 'id')));
     }),
   );
 

@@ -417,6 +417,11 @@ export class MemoryStore implements Store {
     return applied;
   }
 
+  async getDelivery(id: string): Promise<Delivery | null> {
+    const delivery = this.deliveries.get(id);
+    return delivery ? clone(delivery) : null;
+  }
+
   async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
     for (const delivery of this.deliveries.values()) {
       if (delivery.providerMessageId === providerMessageId) return clone(delivery);
@@ -431,6 +436,14 @@ export class MemoryStore implements Store {
     const items = [...this.deliveries.values()]
       .filter((d) => d.campaignId === campaignId)
       .filter((d) => (options.status ? d.status === options.status : true));
+    return (options.limit ? items.slice(0, options.limit) : items).map(clone);
+  }
+
+  async listDeliveriesByStatus(
+    status: DeliveryStatus,
+    options: { limit?: number | undefined } = {},
+  ): Promise<Delivery[]> {
+    const items = [...this.deliveries.values()].filter((d) => d.status === status);
     return (options.limit ? items.slice(0, options.limit) : items).map(clone);
   }
 

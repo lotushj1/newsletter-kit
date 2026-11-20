@@ -1,6 +1,7 @@
 import { createHmac, createPublicKey, timingSafeEqual, verify as verifySignature } from 'node:crypto';
 import { Router, type Request } from 'express';
 import type { ServiceContext } from '../../services/context.js';
+import { recordProviderReceipt } from '../../services/delivery-receipts.js';
 import { applyProviderProblem, type SuppressionReason } from '../../services/suppression.js';
 import { asyncRoute } from '../helpers.js';
 
@@ -195,6 +196,14 @@ function parse(provider: string, payload: Row, body: string): Problem[] {
   return [];
 }
 
+/**
+ * 把退信／檢舉也記成寄送紀錄的服務商回報（後台分得出「已收下」與「退信／被檢舉」）。
+ * 只有帶服務商訊息 id 的事件對得到寄送紀錄；只有收件地址的事件只做抑制。
+ */
+async function recordReceipt(ctx: ServiceContext, problem: Pick<Problem, 'providerMessageId' | 'reason'>): Promise<void> {
+  await recordProviderReceipt(ctx, problem.providerMessageId || undefined, problem.reason === 'complaint' ? 'complained' : 'bounced');
+}
+
 export function providerWebhookRouter(ctx: ServiceContext): Router {
   const router = Router();
   router.get('/elasticemail', asyncRoute(async (req, res) => {
@@ -206,9 +215,11 @@ export function providerWebhookRouter(ctx: ServiceContext): Router {
     const category = (params.get('category') ?? '').toLowerCase();
     const reason: SuppressionReason | undefined = status === 'abusereport' ? 'complaint'
       : status === 'error' && ['nomailbox', 'blacklisted'].includes(category) ? 'bounce' : undefined;
-    if (reason) await applyProviderProblem(ctx, {
-      provider: 'elasticemail', email: oneEmail(params.get('to')), providerMessageId: params.get('messageid') ?? undefined, reason,
-    });
+    if (reason) {
+      const providerMessageId = params.get('messageid') ?? undefined;
+      await applyProviderProblem(ctx, { provider: 'elasticemail', email: oneEmail(params.get('to')), providerMessageId, reason });
+      await recordReceipt(ctx, { providerMessageId, reason });
+    }
     res.json({ ok: true, processed: reason ? 1 : 0 });
   }));
   for (const provider of ['resend', 'ses', 'postmark', 'sendgrid', 'mailgun', 'brevo', 'mailchimp', 'mailersend', 'sparkpost', 'smtp2go', 'plunk', 'generic']) {
@@ -235,7 +246,10 @@ export function providerWebhookRouter(ctx: ServiceContext): Router {
       }
       let problems: Problem[] = [];
       try { problems = parse(provider, payload, body); } catch { /* unknown or malformed event is acknowledged */ }
-      for (const problem of problems) await applyProviderProblem(ctx, { ...problem, provider });
+      for (const problem of problems) {
+        await applyProviderProblem(ctx, { ...problem, provider });
+        await recordReceipt(ctx, problem);
+      }
       res.json({ ok: true, processed: problems.length });
     }));
   }

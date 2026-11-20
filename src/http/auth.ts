@@ -52,6 +52,20 @@ export function isAuthorized(config: Config, req: Request): boolean {
     isGoogleEmailAllowed(config, payload.email);
 }
 
+/**
+ * 後台請求是誰發的（寫進對帳紀錄）：Google 登入記信箱；用 ADMIN_TOKEN 的分不出是誰，記成管理員權杖。
+ * 只在 requireAdmin 之後呼叫。
+ */
+export function adminActor(config: Config, req: Request): string {
+  if (req.headers.authorization?.startsWith('Bearer ')) return '管理員權杖（API）';
+  const cookie = readCookie(req, ADMIN_COOKIE);
+  if (cookie && !safeEqual(cookie, config.adminToken)) {
+    const payload = verifySignedValue(config.appSecret, cookie);
+    if (isRecord(payload) && payload.kind === 'google' && typeof payload.email === 'string') return payload.email;
+  }
+  return '管理員權杖';
+}
+
 export function isGoogleConfigured(config: Config): boolean {
   return Boolean(config.google.clientId && config.google.clientSecret &&
     config.google.adminEmails.some((email) => email.trim()));

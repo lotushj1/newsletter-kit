@@ -10,6 +10,8 @@ import type {
   CampaignStats,
   Delivery,
   DeliveryClaim,
+  DeliveryReceipt,
+  DeliveryReconcile,
   DeliveryUpdate,
   DeliveryStatus,
   Folder,
@@ -78,6 +80,10 @@ interface DeliveryRow {
   sent_at: string | null;
   claim_id?: string | null;
   claimed_at?: string | null;
+  receipt?: string | null;
+  receipt_at?: string | null;
+  /** DeliveryReconcile 的 JSON。 */
+  reconcile?: string | null;
 }
 
 interface EventRow {
@@ -342,7 +348,20 @@ function toDelivery(row: DeliveryRow): Delivery {
     sentAt: row.sent_at ?? undefined,
     claimId: row.claim_id ?? undefined,
     claimedAt: row.claimed_at ?? undefined,
+    receipt: (row.receipt as DeliveryReceipt | null | undefined) ?? undefined,
+    receiptAt: row.receipt_at ?? undefined,
+    reconcile: parseReconcile(row.reconcile),
   };
+}
+
+function parseReconcile(raw: string | null | undefined): DeliveryReconcile | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as DeliveryReconcile) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function toSequence(row: SequenceRow): Sequence {
@@ -452,6 +471,16 @@ export class SqliteStore implements Store {
     if (!hasColumn(this.db, 'deliveries', 'claimed_at')) {
       this.db.exec(`ALTER TABLE deliveries ADD COLUMN claimed_at TEXT`);
     }
+    if (!hasColumn(this.db, 'deliveries', 'receipt')) {
+      this.db.exec(`ALTER TABLE deliveries ADD COLUMN receipt TEXT`);
+    }
+    if (!hasColumn(this.db, 'deliveries', 'receipt_at')) {
+      this.db.exec(`ALTER TABLE deliveries ADD COLUMN receipt_at TEXT`);
+    }
+    if (!hasColumn(this.db, 'deliveries', 'reconcile')) {
+      this.db.exec(`ALTER TABLE deliveries ADD COLUMN reconcile TEXT`);
+    }
+    this.db.exec(`CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_subscribers_folder ON subscribers(folder_id)`);
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_campaigns_folder ON campaigns(folder_id)`);
   }
@@ -839,8 +868,10 @@ export class SqliteStore implements Store {
   // ── deliveries ──────────────────────────────────────────
   async createDeliveries(deliveries: Delivery[]): Promise<void> {
     const insert = this.db.prepare(
-      `INSERT INTO deliveries (id, campaign_id, subscriber_id, email, status, attempts, error, provider_message_id, sent_at)
-       VALUES (@id, @campaign_id, @subscriber_id, @email, @status, @attempts, @error, @provider_message_id, @sent_at)`,
+      `INSERT INTO deliveries (id, campaign_id, subscriber_id, email, status, attempts, error, provider_message_id, sent_at,
+         receipt, receipt_at, reconcile)
+       VALUES (@id, @campaign_id, @subscriber_id, @email, @status, @attempts, @error, @provider_message_id, @sent_at,
+         @receipt, @receipt_at, @reconcile)`,
     );
     const insertMany = this.db.transaction((items: Delivery[]) => {
       for (const item of items) {
@@ -854,6 +885,9 @@ export class SqliteStore implements Store {
           error: item.error ?? null,
           provider_message_id: item.providerMessageId ?? null,
           sent_at: item.sentAt ?? null,
+          receipt: item.receipt ?? null,
+          receipt_at: item.receiptAt ?? null,
+          reconcile: item.reconcile ? JSON.stringify(item.reconcile) : null,
         });
       }
     });
@@ -873,7 +907,8 @@ export class SqliteStore implements Store {
       .prepare(
         `UPDATE deliveries SET status=@status, attempts=@attempts, error=@error,
          provider_message_id=@provider_message_id, sent_at=@sent_at,
-         claim_id=@claim_id, claimed_at=@claimed_at WHERE id=@id`,
+         claim_id=@claim_id, claimed_at=@claimed_at,
+         receipt=@receipt, receipt_at=@receipt_at, reconcile=@reconcile WHERE id=@id`,
       )
       .run({
         id: next.id,
@@ -884,6 +919,9 @@ export class SqliteStore implements Store {
         sent_at: next.sentAt ?? null,
         claim_id: next.claimId ?? null,
         claimed_at: next.claimedAt ?? null,
+        receipt: next.receipt ?? null,
+        receipt_at: next.receiptAt ?? null,
+        reconcile: next.reconcile ? JSON.stringify(next.reconcile) : null,
       });
   }
 
@@ -918,6 +956,11 @@ export class SqliteStore implements Store {
     return run(updates);
   }
 
+  async getDelivery(id: string): Promise<Delivery | null> {
+    const row = this.db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id) as DeliveryRow | undefined;
+    return row ? toDelivery(row) : null;
+  }
+
   async findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
     const row = this.db
       .prepare('SELECT * FROM deliveries WHERE provider_message_id = ? LIMIT 1')
@@ -939,6 +982,16 @@ export class SqliteStore implements Store {
         status: options.status ?? null,
         limit: options.limit ?? 1000,
       }) as DeliveryRow[];
+    return rows.map(toDelivery);
+  }
+
+  async listDeliveriesByStatus(
+    status: DeliveryStatus,
+    options: { limit?: number | undefined } = {},
+  ): Promise<Delivery[]> {
+    const rows = this.db
+      .prepare('SELECT * FROM deliveries WHERE status = @status ORDER BY rowid ASC LIMIT @limit')
+      .all({ status, limit: options.limit ?? -1 }) as DeliveryRow[];
     return rows.map(toDelivery);
   }
 

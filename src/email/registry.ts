@@ -45,7 +45,11 @@ export function createEmailAdapter(context: AdapterContext): EmailAdapter {
   return factory(context);
 }
 
-/** adapter 沒實作 sendBatch 時的預設行為：逐封送，不平行以免踩供應商速率限制。 */
+/**
+ * adapter 沒實作 sendBatch 時的預設行為：逐封送，不平行以免踩供應商速率限制。
+ * adapter.send 丟錯（而不是回傳失敗結果）時不知道服務商收了沒有，當成結果不明：
+ * 寄送紀錄停在 sending 等對帳，不自動重寄。內建 adapter 都會把連線錯誤轉成回傳值。
+ */
 export async function sendMessages(
   adapter: EmailAdapter,
   messages: EmailMessage[],
@@ -56,7 +60,12 @@ export async function sendMessages(
     try {
       results.push(await adapter.send(withEmailHeaders(message)));
     } catch (error) {
-      results.push({ ok: false, error: (error as Error).message, retryable: true });
+      results.push({
+        ok: false,
+        error: `寄送呼叫失敗（結果不明）：${(error as Error).message}`,
+        retryable: false,
+        outcomeUnknown: true,
+      });
     }
   }
   return results;
