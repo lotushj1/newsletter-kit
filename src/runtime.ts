@@ -1,6 +1,7 @@
 import { loadConfig, loadEnvFile } from './config.js';
 import { logger } from './core/logger.js';
 import { createAiAdapter } from './ai/registry.js';
+import { providerLimitationWarnings } from './email/providers.js';
 import { createEmailAdapter } from './email/registry.js';
 import type { ServiceContext } from './services/context.js';
 import { applyStoredIntegrations, emailAdapterContext } from './services/integrations.js';
@@ -18,6 +19,7 @@ export async function createRuntime(): Promise<ServiceContext> {
   const adapter = createEmailAdapter(emailAdapterContext(config));
   const verification = await adapter.verify();
   logger[verification.ok ? 'info' : 'warn'](`寄信管道 ${adapter.name}：${verification.message}`);
+  for (const warning of providerLimitationWarnings(config.email.provider)) logger.warn(warning);
 
   const ai = createAiAdapter(config.ai);
   if (ai) {

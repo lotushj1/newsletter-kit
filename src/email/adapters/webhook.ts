@@ -34,8 +34,11 @@ export const createWebhookAdapter: EmailAdapterFactory = (context): EmailAdapter
       replyTo: message.replyTo,
       unsubscribeUrl: message.unsubscribeUrl,
       headers: emailHeaders(message),
+      // 寄送紀錄 id：你的端點可以用它去重，重試時不要寄第二封。
+      idempotencyKey: message.idempotencyKey,
     });
     const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (message.idempotencyKey) headers['idempotency-key'] = message.idempotencyKey;
     if (context.webhookSecret) {
       headers['x-newsletter-signature'] = `sha256=${createHmac('sha256', context.webhookSecret)
         .update(body)
