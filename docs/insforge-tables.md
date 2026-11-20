@@ -16,7 +16,7 @@
 
 ## 資料表
 
-`migrations/20261108130000_create-nk-entity-tables.sql` 建立：
+`migrations/20261120090000_create-nk-entity-tables.sql` 建立：
 
 `nk_subscribers`、`nk_campaigns`、`nk_deliveries`、`nk_events`、`nk_sequences`、`nk_sequence_steps`、`nk_enrollments`、`nk_folders`、`nk_templates`、`nk_settings`、`nk_campaign_starters`，以及統計、領取、批次寫回、連帶刪除用的函式。這支 migration 只新增，不修改、不刪除 `nk_snapshots`。
 
@@ -47,7 +47,7 @@ PGlite 測試介接（`test/support/pglite-table-db.ts`）模擬了 PostgREST �
 2. **備份。** `npx -y @insforge/cli backups create --name before-tables --wait`，並另存一份 `nk_snapshots` 的 `default` payload。
 3. **套用 migration（正式）。** 在正式專案目錄：
    ```bash
-   npx -y @insforge/cli db migrations up 20261108130000_create-nk-entity-tables.sql
+   npx -y @insforge/cli db migrations up 20261120090000_create-nk-entity-tables.sql
    ```
    只新增資料表與函式，現行的 `insforge` driver 不受影響。
 4. **暫停寫入。** 設 `SEND_PAUSED=true`、確認沒有排程中或寄送中的電子報，避開訂閱高峰。公開訂閱／退訂／追蹤在切換前仍會寫進 `nk_snapshots`。

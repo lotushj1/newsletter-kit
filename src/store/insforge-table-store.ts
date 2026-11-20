@@ -47,7 +47,7 @@ import type {
   TrackingStats,
 } from './types.js';
 
-/** 跟 migrations/20261108130000_create-nk-entity-tables.sql 的 nk_tables_schema_version() 對齊。 */
+/** 跟 migrations/20261120090000_create-nk-entity-tables.sql 的 nk_tables_schema_version() 對齊。 */
 export const TABLES_SCHEMA_VERSION = 1;
 
 /** 一次請求寫入的寄送紀錄上限（實測 5,000 筆約 1MB 可一次寫入）。 */
@@ -129,7 +129,7 @@ export class InsForgeTableStore implements Store {
     } catch (error) {
       throw new Error(
         `InsForge 資料表尚未建立或無法連線（${(error as Error).message}）。` +
-          '請先套用 migrations/20261108130000_create-nk-entity-tables.sql。',
+          '請先套用 migrations/20261120090000_create-nk-entity-tables.sql。',
       );
     }
     if (Number(version) !== TABLES_SCHEMA_VERSION) {
