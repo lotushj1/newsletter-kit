@@ -3,8 +3,9 @@ main = "index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 
-[vars]
-TICK_URL = "https://newsletter-kit-bay.vercel.app/api/cron/tick"
+# 不在這裡寫正式網址。TICK_URL 與 CRON_SECRET 都用 secret 設定（見 README.md）：
+#   npx wrangler secret put TICK_URL      # 例如 https://你的網域/api/cron/tick
+#   npx wrangler secret put CRON_SECRET
 
 [triggers]
 crons = ["* * * * *"]

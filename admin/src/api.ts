@@ -278,6 +278,18 @@ export interface ReconcileSummary {
   lookupError?: string;
 }
 
+/** POST /campaigns/:id/audience-count：按下寄送會寄給幾個人。 */
+export interface RecipientPreview {
+  /** audience＝依受眾條件；resend＝之前寄過，只補寄失敗與還沒寄出的。 */
+  mode: 'audience' | 'resend';
+  /** 實際會寄出的人數（已扣掉排除名單）。 */
+  count: number;
+  /** 符合條件、但因退訂、退信或排除名單不寄的人數。 */
+  excluded: number;
+}
+
+export type { ReadinessAlert, ReadinessReport } from '../../src/services/readiness-types';
+
 export function formatTime(iso?: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('zh-TW', { hour12: false });

@@ -339,6 +339,17 @@ export interface CampaignQuery {
   offset?: number | undefined;
 }
 
+/** 外部資料庫的 schema 檢查結果（給後台「運作狀態」）。 */
+export interface SchemaCheck {
+  /** 資料庫回報的版本；讀不到為 null。 */
+  version: number | null;
+  expectedVersion: number;
+  /** 讀不到（不存在或無法連線）的資料表與資料庫函式。 */
+  missing: string[];
+  /** 版本讀取失敗時的錯誤訊息。 */
+  error?: string | undefined;
+}
+
 /**
  * 換資料庫只要實作這個介面（Postgres、MySQL、Airtable、你家的 BaaS 都行），
  * 再在 store/index.ts 或啟動程式裡注入即可，服務層不需要改。
@@ -347,6 +358,11 @@ export interface Store {
   readonly driver: string;
   init(): Promise<void>;
   close(): Promise<void>;
+  /**
+   * schema 由外部 migration 管理的 store（InsForge 逐表）才需要：
+   * full=false 只查版本；full=true 再逐一確認資料表與寄送用的資料庫函式都在。
+   */
+  checkSchema?(options?: { full?: boolean }): Promise<SchemaCheck>;
 
   createSubscriber(subscriber: Subscriber): Promise<Subscriber>;
   updateSubscriber(id: string, patch: Partial<Subscriber>): Promise<Subscriber | null>;

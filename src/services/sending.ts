@@ -1,6 +1,6 @@
 import { scheduleBackgroundWork } from '../core/background.js';
 import { campaignHasBody } from '../core/body.js';
-import { badRequest } from '../core/errors.js';
+import { AppError, badRequest } from '../core/errors.js';
 import { newId, nowIso } from '../core/ids.js';
 import { logger } from '../core/logger.js';
 import { injectTracking } from '../core/tracking.js';
@@ -14,7 +14,8 @@ import { getBrand } from './brand.js';
 import { getCampaign, renderCampaign } from './campaigns.js';
 import { clearSending, isSendingNow, markSending } from './send-state.js';
 import { unsubscribeUrl } from './subscribers.js';
-import { selectAudience } from './audience.js';
+import { audienceBreakdown } from './audience.js';
+import { checkStoreReadiness, noteStoreWriteFailure, STORE_UNAVAILABLE, storeProblem } from './store-readiness.js';
 import { isSuppressed, suppressedEmails } from './suppression.js';
 
 function trackedHtml(
@@ -74,7 +75,12 @@ export async function sendTestEmail(
     : { ok: false, message: result.error };
 }
 
-/** 寄送被擋下的原因；SEND_PAUSED 或資料層停寫時一律不寄。 */
+const STORE_BLOCKED_PREFIX = '資料庫目前無法寫入，已停止寄送';
+
+/**
+ * 寄送被擋下的原因；SEND_PAUSED、資料層停寫，或最近一次檢查發現資料庫寫不進去（InsForge 逐表沒有
+ * integrityStatus，靠 store-readiness 的寫入探測與 schema 版本）時一律不寄。
+ */
 export function sendingBlockedReason(ctx: ServiceContext): string | null {
   if (ctx.config.send.paused) return '寄送已全面暫停（SEND_PAUSED=true），解除前不會寄出任何信';
   const integrity = (ctx.store as { integrityStatus?: () => { ok: boolean; reason?: string } })
@@ -82,12 +88,15 @@ export function sendingBlockedReason(ctx: ServiceContext): string | null {
   if (integrity && !integrity.ok) {
     return `資料層完整性異常，已停止寄送：${integrity.reason ?? '未知原因'}`;
   }
+  const problem = storeProblem(ctx);
+  if (problem) return `${STORE_BLOCKED_PREFIX}：${problem}`;
   return null;
 }
 
 function assertSendingAllowed(ctx: ServiceContext): void {
   const reason = sendingBlockedReason(ctx);
-  if (reason) throw badRequest(reason);
+  if (!reason) return;
+  throw reason.startsWith(STORE_BLOCKED_PREFIX) ? new AppError(reason, 503, STORE_UNAVAILABLE) : badRequest(reason);
 }
 
 /** 寄送紀錄寫回失敗：供應商可能已收下信，必須停下來，不能繼續寄或重寄。 */
@@ -107,32 +116,44 @@ export function isFreshTimeBudgetPause(campaign: Pick<Campaign, 'status' | 'send
   return Number.isFinite(pausedAt) && now - pausedAt <= AUTO_CONTINUE_WINDOW_MS;
 }
 
+/**
+ * 重寄失敗／卡死的電子報，或「已寄出但有一部分失敗」的電子報：只把 failed 與 pending 重新排入。
+ * sending（已交給供應商、結果未確認）一律不動，要先對帳，避免重複寄。
+ * duplicate＝同一個地址已有寄出或待確認的紀錄，改成跳過。
+ */
+function planResend(all: Delivery[]): { delivery: Delivery; duplicate: boolean }[] {
+  const delivered = new Set(
+    all.filter((d) => d.status === 'sent' || d.status === 'sending').map((d) => normalizeEmail(d.email)),
+  );
+  // 寄信服務已經收下、事後才回報失敗的（退信、拒收名單，有 providerMessageId）不重寄：
+  // 對方信箱收不到，重寄只會再失敗，也避免同一封信送給寄信服務兩次。
+  return all
+    .filter((d) => d.status === 'pending' || (d.status === 'failed' && !d.providerMessageId))
+    .map((delivery) => ({ delivery, duplicate: delivered.has(normalizeEmail(delivery.email)) }));
+}
+
+/** 寄出前會被跳過：已非訂閱狀態、被標記抑制，或在排除名單上。 */
+function skippedAtSend(delivery: Delivery, subscriber: Subscriber | null, suppressed: Set<string>): boolean {
+  return Boolean(subscriber && (subscriber.status !== 'subscribed' || subscriber.meta?.suppressedReason)) ||
+    suppressed.has(normalizeEmail(delivery.email));
+}
+
 /** 依受眾撈出收件人並建立 pending deliveries；同一個 email 只會有一筆。 */
 async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promise<number> {
   const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
   if (existing.length > 0) {
     // 之前已經建立過（例如中途重啟），直接沿用，不要重複寄。
     if (campaign.status === 'failed' || campaign.status === 'sent') {
-      // 重寄失敗／卡死的電子報，或「已寄出但有一部分失敗」的電子報：只把 failed 與 pending 重新排入。
-      // sending（已交給供應商、結果未確認）一律不動，要先對帳，避免重複寄。
-      const all = await ctx.store.listDeliveries(campaign.id);
-      const delivered = new Set(
-        all.filter((d) => d.status === 'sent' || d.status === 'sending').map((d) => normalizeEmail(d.email)),
+      const updates = planResend(await ctx.store.listDeliveries(campaign.id)).map(({ delivery: d, duplicate }) =>
+        duplicate
+          ? { id: d.id, patch: { status: 'skipped' as const, error: '同一個地址已有寄出或待確認的紀錄' } }
+          : { id: d.id, patch: { status: 'pending' as const, attempts: 0, error: undefined } },
       );
-      // 寄信服務已經收下、事後才回報失敗的（退信、拒收名單，有 providerMessageId）不重寄：
-      // 對方信箱收不到，重寄只會再失敗，也避免同一封信送給寄信服務兩次。
-      const updates = all
-        .filter((d) => d.status === 'pending' || (d.status === 'failed' && !d.providerMessageId))
-        .map((d) =>
-          delivered.has(normalizeEmail(d.email))
-            ? { id: d.id, patch: { status: 'skipped' as const, error: '同一個地址已有寄出或待確認的紀錄' } }
-            : { id: d.id, patch: { status: 'pending' as const, attempts: 0, error: undefined } },
-        );
       if (updates.length > 0) await ctx.store.updateDeliveries(updates);
     }
     return (await ctx.store.deliveryStats(campaign.id)).total;
   }
-  const audience = await selectAudience(ctx, campaign);
+  const { recipients: audience } = await audienceBreakdown(ctx, campaign);
   if (audience.length === 0) throw badRequest('目前沒有符合條件的收件人');
 
   const seen = new Set<string>();
@@ -154,6 +175,38 @@ async function prepareDeliveries(ctx: ServiceContext, campaign: Campaign): Promi
   return deliveries.length;
 }
 
+export interface RecipientPreview {
+  /** audience＝依受眾條件建立寄送紀錄；resend＝之前寄過，這次只補寄失敗與還沒寄出的。 */
+  mode: 'audience' | 'resend';
+  /** 實際會寄出的人數（已扣掉退訂、退信與排除名單）。 */
+  count: number;
+  /** 符合條件、但因退訂、退信或排除名單不會寄的人數。 */
+  excluded: number;
+}
+
+/**
+ * 按下寄送（或排程時間到）會寄給幾個人：跟 prepareDeliveries＋deliverBatch 用同一套規則，
+ * 給寄送確認視窗顯示。campaign 可帶尚未存檔的受眾條件。
+ */
+export async function previewRecipients(ctx: ServiceContext, campaign: Campaign): Promise<RecipientPreview> {
+  const existing = await ctx.store.listDeliveries(campaign.id, { limit: 1 });
+  if (existing.length === 0) {
+    const { recipients, excluded } = await audienceBreakdown(ctx, campaign);
+    const count = new Set(recipients.map((s) => normalizeEmail(s.email))).size;
+    return { mode: 'audience', count, excluded };
+  }
+  const all = await ctx.store.listDeliveries(campaign.id);
+  const queued = campaign.status === 'failed' || campaign.status === 'sent'
+    ? planResend(all).filter((p) => !p.duplicate).map((p) => p.delivery)
+    : all.filter((d) => d.status === 'pending');
+  const subscribers = new Map(
+    (await ctx.store.getSubscribersByIds(queued.map((d) => d.subscriberId))).map((s) => [s.id, s]),
+  );
+  const suppressed = await suppressedEmails(ctx, queued.map((d) => d.email));
+  const excluded = queued.filter((d) => skippedAtSend(d, subscribers.get(d.subscriberId) ?? null, suppressed)).length;
+  return { mode: 'resend', count: queued.length - excluded, excluded };
+}
+
 /** 寫回寄送結果；有任何一筆沒寫進去就丟錯停止（那筆可能已寄出卻沒有紀錄）。 */
 async function writeResults(ctx: ServiceContext, updates: DeliveryUpdate[]): Promise<void> {
   if (updates.length === 0) return;
@@ -161,6 +214,8 @@ async function writeResults(ctx: ServiceContext, updates: DeliveryUpdate[]): Pro
   try {
     applied = await ctx.store.updateDeliveries(updates);
   } catch (error) {
+    // 資料庫寫不進去：記下來，之後的批次與寄送先擋住，直到重新檢查通過。
+    noteStoreWriteFailure(ctx, (error as Error).message);
     throw new SendRecordError(`寄送結果寫回失敗，已停止寄送：${(error as Error).message}`);
   }
   if (applied !== updates.length) {
@@ -187,7 +242,7 @@ async function deliverBatch(
   const suppressed = await suppressedEmails(ctx, batch.map((d) => d.email));
   for (const delivery of batch) {
     const subscriber = subscribers.get(delivery.subscriberId) ?? null;
-    if ((subscriber && (subscriber.status !== 'subscribed' || subscriber.meta?.suppressedReason)) || suppressed.has(delivery.email.trim().toLowerCase())) {
+    if (skippedAtSend(delivery, subscriber, suppressed)) {
       skips.push({ id: delivery.id, patch: { status: 'skipped', error: '已非訂閱狀態' } });
       continue;
     }
@@ -372,6 +427,7 @@ export async function startCampaign(
   campaignId: string,
   options: StartOptions = {},
 ): Promise<{ total: number; summary?: SendSummary }> {
+  await checkStoreReadiness(ctx);
   assertSendingAllowed(ctx);
   const campaign = await getCampaign(ctx, campaignId);
   if (campaign.status === 'sending') throw badRequest('這份電子報正在寄送中');
@@ -424,6 +480,7 @@ export async function resumeCampaign(
   campaignId: string,
   options: StartOptions = {},
 ): Promise<{ started: boolean; summary?: SendSummary }> {
+  await checkStoreReadiness(ctx);
   assertSendingAllowed(ctx);
   const campaign = await ctx.store.getCampaign(campaignId);
   if (!campaign) throw badRequest('找不到這份電子報');

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Router, type Request } from 'express';
 import type { ServiceContext } from '../../services/context.js';
+import { readinessReport } from '../../services/readiness.js';
 import { createScheduler } from '../../services/scheduler.js';
 import { asyncRoute } from '../helpers.js';
 
@@ -38,5 +39,26 @@ export function cronRouter(ctx: ServiceContext): Router {
   });
   router.get('/tick', handler);
   router.post('/tick', handler);
+
+  /**
+   * 給 uptime 監控輪詢的運作狀態（同樣要帶 CRON_SECRET，不必把 ADMIN_TOKEN 交給監控服務）。
+   * 資料庫不能寫、排程太久沒跑、寄送卡住或暫停太久時回 503，內容同後台的運作狀態。
+   */
+  router.get(
+    '/readiness',
+    asyncRoute(async (req, res) => {
+      const secret = ctx.config.scheduler.cronSecret;
+      if (!secret) {
+        res.status(503).json({ error: '尚未設定 CRON_SECRET' });
+        return;
+      }
+      if (!authorized(secret, req)) {
+        res.status(401).json({ error: '未授權' });
+        return;
+      }
+      const report = await readinessReport(ctx);
+      res.status(report.ok ? 200 : 503).json(report);
+    }),
+  );
   return router;
 }
