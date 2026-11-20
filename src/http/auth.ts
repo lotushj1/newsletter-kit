@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import type { Config } from '../config.js';
 import { unauthorized } from '../core/errors.js';
+import { ADMIN_TOKEN_ACTOR } from '../services/audit.js';
 
 export const ADMIN_COOKIE = 'nk_admin';
 export const ADMIN_SESSION_AGE_SECONDS = 60 * 60 * 24 * 14;
@@ -41,15 +42,32 @@ export function isAuthorized(config: Config, req: Request): boolean {
   const cookie = readCookie(req, ADMIN_COOKIE);
   if (!cookie) return false;
   if (safeEqual(cookie, config.adminToken)) return true;
-  if (!isGoogleConfigured(config)) return false;
+  return googleSessionEmail(config, cookie) !== null;
+}
+
+/** 有效的 Google 後台 session 回傳登入的 email（小寫），否則 null。 */
+function googleSessionEmail(config: Config, cookie: string): string | null {
+  if (!isGoogleConfigured(config)) return null;
   const payload = verifySignedValue(config.appSecret, cookie);
-  if (!isRecord(payload) || payload.kind !== 'google') return false;
-  if (typeof payload.email !== 'string' || typeof payload.issuedAt !== 'number' || typeof payload.expiresAt !== 'number') return false;
+  if (!isRecord(payload) || payload.kind !== 'google') return null;
+  if (typeof payload.email !== 'string' || typeof payload.issuedAt !== 'number' || typeof payload.expiresAt !== 'number') return null;
   const now = Math.floor(Date.now() / 1000);
-  return payload.issuedAt <= now + 60 && payload.issuedAt < payload.expiresAt &&
+  const valid = payload.issuedAt <= now + 60 && payload.issuedAt < payload.expiresAt &&
     payload.expiresAt > now &&
     payload.expiresAt - payload.issuedAt <= ADMIN_SESSION_AGE_SECONDS &&
     isGoogleEmailAllowed(config, payload.email);
+  return valid ? payload.email.trim().toLowerCase() : null;
+}
+
+/**
+ * 操作紀錄的 actor：Google 登入的 email；其餘（Bearer ADMIN_TOKEN、ADMIN_TOKEN cookie）一律是 `admin-token`。
+ * 只在 requireAdmin 之後呼叫；不在這裡做授權判斷。
+ */
+export function adminActor(config: Config, req: Request): string {
+  if (req.headers.authorization?.startsWith('Bearer ')) return ADMIN_TOKEN_ACTOR;
+  const cookie = readCookie(req, ADMIN_COOKIE);
+  if (!cookie || safeEqual(cookie, config.adminToken)) return ADMIN_TOKEN_ACTOR;
+  return googleSessionEmail(config, cookie) ?? ADMIN_TOKEN_ACTOR;
 }
 
 export function isGoogleConfigured(config: Config): boolean {

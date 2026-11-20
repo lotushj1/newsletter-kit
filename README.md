@@ -337,6 +337,7 @@ GET /api/public/campaigns/:slug
 | `GET` `PATCH` `DELETE` | `/campaign-templates/:id` | 讀取 / 更新 / 刪除自訂模板 |
 | `POST` | `/campaign-templates/:id/copy` | 複製內建或自訂模板 |
 | `GET` | `/email/verify` | 檢查目前 adapter 設定 |
+| `GET` | `/audit-log` | 操作紀錄（誰在什麼時候寄送、排程、匯出匯入、刪除、改設定、還原；新到舊，`limit` 最多 500；唯讀） |
 
 Agent 請用 Bearer token，不要走後台 cookie。
 
@@ -422,7 +423,7 @@ npm run build
 NODE_ENV=production npm start
 ```
 
-規模與供應商怎麼選見 [docs/hosting.md](docs/hosting.md)。
+規模與供應商怎麼選、正式寄送前的上線步驟見 [docs/hosting.md](docs/hosting.md)；備份與還原見 [docs/backup-restore.md](docs/backup-restore.md)；個人資料的查看、更正、刪除與保留見 [docs/data-handling.md](docs/data-handling.md)。
 多台機器時，只讓其中一台設 `SCHEDULER_ENABLED=true`，否則排程的電子報會被重複寄出。
 或者全部關掉排程器，改用外部 cron 定時觸發：設定 `CRON_SECRET`，
 定時以 `Authorization: Bearer $CRON_SECRET` 打 `POST /api/cron/tick`。
@@ -438,6 +439,8 @@ npm test           # vitest
 npm run build
 npm run mcp        # MCP stdio server
 ```
+
+PR 與 `main` 的 push 由 `.github/workflows/ci.yml` 跑型別、測試、建置、Vercel 建置與 `npm audit --omit=dev --audit-level=high`，只用測試資料，不設定任何 secret。
 
 ```
 src/

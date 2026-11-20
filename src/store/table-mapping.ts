@@ -1,4 +1,5 @@
 import type {
+  AuditEntry,
   Campaign,
   CampaignStarter,
   ContentTemplate,
@@ -197,6 +198,19 @@ const STARTERS: EntitySpec = {
   ],
 };
 
+const AUDIT_LOG: EntitySpec = {
+  table: 'nk_audit_log',
+  key: 'id',
+  columns: [
+    { field: 'id', column: 'id' },
+    { field: 'at', column: 'at' },
+    { field: 'actor', column: 'actor' },
+    { field: 'action', column: 'action' },
+    { field: 'targetId', column: 'target_id' },
+    { field: 'summary', column: 'summary', writeDefault: '', readDefault: '' },
+  ],
+};
+
 export const SPECS = {
   subscribers: SUBSCRIBERS,
   campaigns: CAMPAIGNS,
@@ -208,6 +222,7 @@ export const SPECS = {
   folders: FOLDERS,
   templates: TEMPLATES,
   campaignStarters: STARTERS,
+  auditLog: AUDIT_LOG,
 } as const;
 
 export const SETTINGS_TABLE = 'nk_settings';
@@ -224,6 +239,7 @@ export interface EntityTypes {
   folders: Folder;
   templates: ContentTemplate;
   campaignStarters: CampaignStarter;
+  auditLog: AuditEntry;
 }
 
 function encode(spec: ColumnSpec, value: unknown): unknown {

@@ -24,6 +24,10 @@ export class SnapshotConflictError extends Error {
   override readonly name = 'SnapshotConflictError';
 }
 
+/**
+ * auditLog（操作紀錄）刻意不列入：部署期間還在跑的舊版實例寫入時會把它整個帶掉，
+ * 不能因為這樣就讓整個資料層停寫、停止寄送。
+ */
 const GUARDED = [
   'subscribers',
   'campaigns',

@@ -3,6 +3,7 @@ import { createAiAdapter } from '../ai/registry.js';
 import { createEmailAdapter } from '../email/registry.js';
 import type { ServiceContext } from '../services/context.js';
 import { applyStoredIntegrations, emailAdapterContext } from '../services/integrations.js';
+import { LOCAL_MCP_ACTOR } from '../services/audit.js';
 import { createStore } from '../store/index.js';
 import { encodeMcpBody, handleMcpMessage } from './protocol.js';
 
@@ -28,7 +29,7 @@ async function handleStdioLine(ctx: ServiceContext, line: string): Promise<void>
     writeStdout({ jsonrpc: '2.0', id: null, error: { code: -32700, message: '無效的 JSON' } });
     return;
   }
-  const result = await handleMcpMessage(ctx, parsed);
+  const result = await handleMcpMessage(ctx, parsed, { actor: LOCAL_MCP_ACTOR });
   if (result.kind === 'body') writeStdout(result.json);
 }
 

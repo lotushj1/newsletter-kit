@@ -4,6 +4,8 @@ import Database from 'better-sqlite3';
 import { conflict } from '../core/errors.js';
 import type {
   AudienceQuery,
+  AuditEntry,
+  AuditQuery,
   Campaign,
   CampaignStarter,
   CampaignQuery,
@@ -30,7 +32,7 @@ import type {
   TrackingEvent,
   TrackingStats,
 } from './types.js';
-import { EMPTY_TRACKING } from './types.js';
+import { EMPTY_TRACKING, auditListLimit } from './types.js';
 
 interface SubscriberRow {
   id: string;
@@ -132,6 +134,15 @@ interface StarterRow {
   body_html: string;
   created_at: string;
   updated_at: string;
+}
+
+interface AuditRow {
+  id: string;
+  at: string;
+  actor: string;
+  action: string;
+  target_id: string | null;
+  summary: string;
 }
 
 interface EnrollmentRow {
@@ -267,6 +278,21 @@ CREATE TABLE IF NOT EXISTS campaign_starters (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- 操作紀錄：只新增，修改與刪除由 trigger 擋下。
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  summary TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_at ON audit_log(at);
+CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log
+BEGIN SELECT RAISE(ABORT, '操作紀錄只能新增'); END;
+CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log
+BEGIN SELECT RAISE(ABORT, '操作紀錄只能新增'); END;
 `;
 
 const parseJson = <T>(raw: string | null, fallback: T): T => {
@@ -1434,5 +1460,36 @@ export class SqliteStore implements Store {
       .prepare('SELECT * FROM campaign_starters WHERE lower(name) = lower(?) AND id != ?')
       .get(name.trim(), exceptId ?? '') as StarterRow | undefined;
     return row ? toStarter(row) : undefined;
+  }
+
+  // ── 操作紀錄 ────────────────────────────────────────────
+  async appendAuditEntry(entry: AuditEntry): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO audit_log (id, at, actor, action, target_id, summary)
+         VALUES (@id, @at, @actor, @action, @target_id, @summary)`,
+      )
+      .run({
+        id: entry.id,
+        at: entry.at,
+        actor: entry.actor,
+        action: entry.action,
+        target_id: entry.targetId ?? null,
+        summary: entry.summary,
+      });
+  }
+
+  async listAuditEntries(query: AuditQuery = {}): Promise<AuditEntry[]> {
+    const rows = this.db
+      .prepare('SELECT * FROM audit_log ORDER BY at DESC, rowid DESC LIMIT ?')
+      .all(auditListLimit(query)) as AuditRow[];
+    return rows.map((row) => ({
+      id: row.id,
+      at: row.at,
+      actor: row.actor,
+      action: row.action,
+      targetId: row.target_id ?? undefined,
+      summary: row.summary,
+    }));
   }
 }

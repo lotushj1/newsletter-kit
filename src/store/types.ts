@@ -264,6 +264,27 @@ export interface SequenceEnrollment {
   createdAt: string;
 }
 
+/**
+ * 後台操作紀錄（誰在什麼時候寄送、排程、取消、匯出匯入、刪除、改設定、還原）。只新增，不修改、不刪除。
+ * summary 只放簡短說明（筆數、欄位名稱、時間），不放訂閱者 email、金鑰或信件內文。
+ */
+export interface AuditEntry {
+  id: string;
+  /** ISO 時間。 */
+  at: string;
+  /** Google 登入的 email；用 ADMIN_TOKEN 登入時是 `admin-token`。 */
+  actor: string;
+  /** 例如 `campaign.send`、`subscriber.delete`；完整清單見 services/audit.ts。 */
+  action: string;
+  targetId?: string | undefined;
+  summary: string;
+}
+
+export interface AuditQuery {
+  /** 預設 100，最多 500。 */
+  limit?: number | undefined;
+}
+
 export interface Paged<T> {
   items: T[];
   total: number;
@@ -395,6 +416,27 @@ export interface Store {
   getCampaignStarter(id: string): Promise<CampaignStarter | null>;
   listCampaignStarters(): Promise<CampaignStarter[]>;
   deleteCampaignStarter(id: string): Promise<boolean>;
+
+  /** 操作紀錄只新增；同一個 id 重送（逾時重試）不會重複。沒有修改或刪除的方法。 */
+  appendAuditEntry(entry: AuditEntry): Promise<void>;
+  /** 最近的操作紀錄，新到舊。 */
+  listAuditEntries(query?: AuditQuery): Promise<AuditEntry[]>;
+}
+
+/** 操作紀錄一次最多讀幾筆。 */
+export const AUDIT_LIST_MAX = 500;
+
+export function auditListLimit(query: AuditQuery = {}): number {
+  const limit = Math.trunc(query.limit ?? 100);
+  return Number.isFinite(limit) ? Math.min(Math.max(limit, 1), AUDIT_LIST_MAX) : 100;
+}
+
+/** 新到舊；同一毫秒的依寫入順序（後寫的在前）。 */
+export function newestAuditFirst(entries: AuditEntry[]): AuditEntry[] {
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => (a.entry.at === b.entry.at ? b.index - a.index : a.entry.at < b.entry.at ? 1 : -1))
+    .map(({ entry }) => entry);
 }
 
 export const EMPTY_TRACKING: TrackingStats = {
