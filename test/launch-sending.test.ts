@@ -479,7 +479,15 @@ describe('後台 API', () => {
   });
 
   it('Google 登入的對帳者記成登入信箱', () => {
-    const config = testConfig();
+    const config = testConfig({
+      google: {
+        clientId: 'test-client.apps.googleusercontent.com',
+        // 測試用的假值，每次執行隨機產生。
+        clientSecret: randomBytes(16).toString('hex'),
+        adminEmails: ['admin@example.com'],
+        redirectUri: 'https://newsletter.test/admin/auth/google/callback',
+      },
+    });
     const cookie = createGoogleAdminSession(config, 'Admin@Example.com');
     const req = { headers: { cookie: `${ADMIN_COOKIE}=${encodeURIComponent(cookie)}` } } as unknown as Request;
     expect(adminActor(config, req)).toBe('admin@example.com');
