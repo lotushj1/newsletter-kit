@@ -355,6 +355,8 @@ export interface Store {
     options?: { status?: DeliveryStatus | undefined; limit?: number | undefined },
   ): Promise<Delivery[]>;
   deliveryStats(campaignId: string): Promise<CampaignStats>;
+  /** 單一訂閱者的寄送紀錄與開信點擊（個人資料匯出用）。 */
+  listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }>;
   deleteDeliveries(campaignId: string): Promise<void>;
 
   createEvent(event: TrackingEvent): Promise<void>;

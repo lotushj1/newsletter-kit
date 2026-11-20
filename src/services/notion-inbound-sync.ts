@@ -6,6 +6,8 @@ import type { Subscriber } from '../store/types.js';
 import type { ServiceContext } from './context.js';
 import { enrollSubscriber } from './enroll.js';
 import { NOTION_SUBSCRIBED, NOTION_UNSUBSCRIBED, readNotionEnv, type NotionEnv } from './notion-sync.js';
+import { withConsent } from './consent.js';
+import { recordUnsubscribe } from './suppression.js';
 
 /**
  * 從 Notion「電子報訂閱會員」資料庫把新訂閱與退訂拉回電子報系統。
@@ -64,6 +66,8 @@ export interface NotionInboundSummary {
   skippedOld: number;
   skippedSuppressed: number;
   skippedConflict: number;
+  /** Notion 上是「訂閱中」，但這裡是退訂或退信：要本人重新訂閱並確認，不自動加回。 */
+  needsConfirmation?: number | undefined;
   invalid: number;
   /** 這一輪因為退訂人數超過上限而整批暫停。 */
   held?: boolean | undefined;
@@ -210,6 +214,7 @@ async function applyRow(ctx: ServiceContext, row: NotionRow, since: string, summ
         status: 'unsubscribed',
         unsubscribedAt: new Date(row.lastEditedTime).toISOString(),
       });
+      await recordUnsubscribe(ctx, existing.email);
       if (updated) await enrollSubscriber(ctx, updated, { type: 'unsubscribe' });
       summary.unsubscribed += 1;
     }
@@ -229,12 +234,17 @@ async function applyRow(ctx: ServiceContext, row: NotionRow, since: string, summ
       summary.skippedConflict += 1;
       return;
     }
+    // 退訂過或退信的人，Notion 上重新出現「訂閱中」也不直接加回：
+    // 只有本人重新訂閱並點確認信才能解除退訂。這裡只計數，讓後台看得到。
+    if (existing.status !== 'pending' || suppressedReason) {
+      summary.needsConfirmation = (summary.needsConfirmation ?? 0) + 1;
+      return;
+    }
     const updated = await ctx.store.updateSubscriber(existing.id, {
       status: 'subscribed',
-      confirmedAt: row.subscribedAt,
       unsubscribedAt: undefined,
+      meta: withConsent(existing.meta, { method: 'notion', source: row.sources[0] ?? 'notion', at: row.subscribedAt }),
     });
-    if (suppressedReason) await ctx.store.setSetting(`suppression:${createHash('sha256').update(row.email).digest('hex')}`, '');
     if (updated) await enrollSubscriber(ctx, updated, { type: 'subscribe' });
     summary.resubscribed += 1;
     return;
@@ -257,8 +267,8 @@ async function applyRow(ctx: ServiceContext, row: NotionRow, since: string, summ
     tags,
     source: row.sources[0] ?? 'notion',
     createdAt: row.subscribedAt,
-    confirmedAt: row.subscribedAt,
-    meta: { importedFrom: 'notion' },
+    // Notion 帶進來的人沒有點過這裡的確認信，不填 confirmedAt；同意來源記在 meta.consent。
+    meta: withConsent({ importedFrom: 'notion' }, { method: 'notion', source: row.sources[0] ?? 'notion', at: row.subscribedAt }),
   };
   try {
     const created = await ctx.store.createSubscriber(subscriber);

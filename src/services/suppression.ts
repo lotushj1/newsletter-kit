@@ -57,15 +57,39 @@ export async function applyProviderProblem(
   return changed;
 }
 
+export type SuppressionMark = SuppressionReason | typeof UNSUBSCRIBE_MARK;
+
+/** 這個地址在排除名單裡的原因；沒有被排除就回傳 null。 */
+export async function suppressionReasonFor(ctx: ServiceContext, email: string): Promise<SuppressionMark | null> {
+  const value = await ctx.store.getSetting(key(email));
+  return value === 'bounce' || value === 'complaint' || value === UNSUBSCRIBE_MARK ? value : null;
+}
+
+/** 被排除的地址重新出現在名單上（匯入、簽名匯入）時該用的狀態：退信算 bounced，其餘算 unsubscribed。 */
+export function statusForSuppression(reason: SuppressionMark): 'bounced' | 'unsubscribed' {
+  return reason === 'bounce' ? 'bounced' : 'unsubscribed';
+}
+
 /**
- * 退訂了但名單裡沒有這個人（2026-11-04 資料被清空後就發生過，當時退訂完全沒有留下紀錄）。
- * 記進排除名單；之後即使從備份還原或重新匯入，寄送時也會因為 isSuppressed 而跳過。
+ * 退訂一律記進排除名單，不只改訂閱者狀態。
+ * 2026-11-04 資料被清空時，名單裡找不到的人按退訂完全沒有留下紀錄；
+ * 名單裡的人退訂後被刪除再重新匯入，也會變回已訂閱。
+ * 記下來之後，即使從備份還原、重新匯入或刪除後再加回，寄送時也會因為 isSuppressed 而跳過；
+ * 只有本人重新訂閱並完成確認才會解除（clearUnsubscribeSuppression）。
  */
-export async function recordUnsubscribeWithoutSubscriber(ctx: ServiceContext, email: string): Promise<void> {
+export async function recordUnsubscribe(ctx: ServiceContext, email: string): Promise<void> {
   const settingKey = key(email);
   const current = await ctx.store.getSetting(settingKey);
   if (current) return; // 已有退信／檢舉／退訂紀錄
   await ctx.store.setSetting(settingKey, UNSUBSCRIBE_MARK);
+}
+
+/** 後台把人標成退信、或刪除一位退信者時，留下退信紀錄（已有檢舉紀錄就不覆蓋）。 */
+export async function recordBounce(ctx: ServiceContext, email: string): Promise<void> {
+  const settingKey = key(email);
+  const current = await ctx.store.getSetting(settingKey);
+  if (current === 'bounce' || current === 'complaint') return;
+  await ctx.store.setSetting(settingKey, 'bounce');
 }
 
 /** 本人重新訂閱並完成確認時，解除「退訂」這種排除（退信、檢舉不解除）。 */

@@ -544,6 +544,14 @@ export class InsForgeTableStore implements Store {
     return this.findAll<Delivery>(SPECS.deliveries, filters, options.limit || undefined);
   }
 
+  async listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }> {
+    const [deliveries, events] = await Promise.all([
+      this.findAll<Delivery>(SPECS.deliveries, [eq('subscriber_id', subscriberId)]),
+      this.findAll<TrackingEvent>(SPECS.events, [eq('subscriber_id', subscriberId)]),
+    ]);
+    return { deliveries, events };
+  }
+
   async deliveryStats(campaignId: string): Promise<CampaignStats> {
     return deliveryStatsOf((await this.statsFor([campaignId])).get(campaignId) ?? ZERO_STATS);
   }

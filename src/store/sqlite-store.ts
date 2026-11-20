@@ -942,6 +942,20 @@ export class SqliteStore implements Store {
     return rows.map(toDelivery);
   }
 
+  async listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }> {
+    const deliveries = (
+      this.db.prepare('SELECT * FROM deliveries WHERE subscriber_id = ? ORDER BY rowid ASC').all(subscriberId) as DeliveryRow[]
+    ).map(toDelivery);
+    const events = (this.db.prepare('SELECT * FROM events WHERE subscriber_id = ?').all(subscriberId) as EventRow[]).map(
+      (row) => ({
+        id: row.id, campaignId: row.campaign_id, subscriberId: row.subscriber_id ?? undefined,
+        deliveryId: row.delivery_id ?? undefined, type: row.type as TrackingEvent['type'],
+        url: row.url ?? undefined, createdAt: row.created_at,
+      }),
+    );
+    return { deliveries, events };
+  }
+
   async deliveryStats(campaignId: string): Promise<CampaignStats> {
     const row = this.db
       .prepare(

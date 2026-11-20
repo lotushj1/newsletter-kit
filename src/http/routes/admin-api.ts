@@ -79,6 +79,7 @@ import {
 import {
   createSubscriber,
   deleteSubscriber,
+  exportSubscriberData,
   exportSubscribersCsv,
   importSubscribersCsv,
   listSubscribers,
@@ -278,6 +279,17 @@ export function adminApiRouter(ctx: ServiceContext): Router {
     '/subscribers',
     asyncRoute(async (req, res) => {
       res.status(201).json(await createSubscriber(ctx, req.body ?? {}));
+    }),
+  );
+
+  router.get(
+    '/subscribers/:id/export.json',
+    asyncRoute(async (req, res) => {
+      const id = pathParam(req, 'id');
+      const data = await exportSubscriberData(ctx, id);
+      res.setHeader('content-disposition', `attachment; filename="subscriber-${id}.json"`);
+      res.setHeader('cache-control', 'no-store');
+      res.json(data);
     }),
   );
 

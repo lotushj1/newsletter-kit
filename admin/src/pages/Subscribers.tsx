@@ -229,13 +229,20 @@ export function Subscribers() {
     setDialogError('');
     setSaving(true);
     try {
-      const result = await api.post<{ created: number; updated: number }>('/subscribers/import', {
+      const result = await api.post<{ created: number; updated: number; skipped: number; suppressed?: number; errors: string[] }>('/subscribers/import', {
         fileName: importFile.name,
         fileBase64: await fileToBase64(importFile),
         folderId: importFolder || undefined,
       });
       setDialog(null);
-      setMessage(`匯入完成：新增 ${result.created}、更新 ${result.updated}`);
+      const extras = [
+        result.suppressed ? `先前退訂或退信、維持不寄送 ${result.suppressed}` : '',
+        result.skipped ? `略過 ${result.skipped}` : '',
+      ].filter(Boolean);
+      setMessage(
+        `匯入完成：新增 ${result.created}、更新 ${result.updated}${extras.length ? `；${extras.join('、')}` : ''}` +
+          (result.errors?.length ? `\n${result.errors.join('\n')}` : ''),
+      );
       refresh();
     } catch (err) {
       setDialogError(err instanceof Error ? err.message : '匯入失敗');
@@ -367,7 +374,7 @@ export function Subscribers() {
 
   return (
     <div>
-        {message && <div className="notice">{message}</div>}
+        {message && <div className="notice" style={{ whiteSpace: 'pre-line' }}>{message}</div>}
         <div className="page-head">
           <h1>名單</h1>
           <div className="row">
@@ -685,6 +692,15 @@ export function Subscribers() {
                           onClick={() => openEdit(s)}
                         >
                           編輯
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            window.location.href = `/api/admin/subscribers/${encodeURIComponent(s.id)}/export.json`;
+                          }}
+                        >
+                          匯出個人資料
                         </button>
                         <button
                           type="button"

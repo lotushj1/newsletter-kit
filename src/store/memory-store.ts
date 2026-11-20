@@ -434,6 +434,13 @@ export class MemoryStore implements Store {
     return (options.limit ? items.slice(0, options.limit) : items).map(clone);
   }
 
+  async listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }> {
+    return {
+      deliveries: [...this.deliveries.values()].filter((d) => d.subscriberId === subscriberId).map(clone),
+      events: [...this.events.values()].filter((e) => e.subscriberId === subscriberId).map(clone),
+    };
+  }
+
   async deliveryStats(campaignId: string): Promise<CampaignStats> {
     const stats: CampaignStats = { total: 0, sent: 0, failed: 0, unconfirmed: 0 };
     for (const delivery of this.deliveries.values()) {

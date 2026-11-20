@@ -79,7 +79,15 @@ export interface Config {
   webhookSecrets: Record<string, string | undefined>;
   physicalAddress?: string | undefined;
   privacyUrl?: string | undefined;
-  join: { headline: string | undefined; description: string | undefined; tags: string[] };
+  join: {
+    headline: string | undefined;
+    description: string | undefined;
+    tags: string[];
+    /** 訂閱頁上說明的寄送頻率，例如「每週一封」 */
+    frequency?: string | undefined;
+    /** 訂閱頁上的聯絡信箱；沒設就用 MAIL_REPLY_TO，再沒有就用寄件地址 */
+    contactEmail?: string | undefined;
+  };
   send: {
     batchSize: number;
     batchDelayMs: number;
@@ -251,6 +259,12 @@ export function loadConfig(): Config {
     join: {
       headline: optional('JOIN_HEADLINE'),
       description: optional('JOIN_DESCRIPTION'),
+      frequency: optional('JOIN_FREQUENCY'),
+      contactEmail:
+        optional('JOIN_CONTACT_EMAIL') ??
+        optional('MAIL_REPLY_TO') ??
+        /<([^>]+)>/.exec(str('MAIL_FROM', ''))?.[1] ??
+        (str('MAIL_FROM', '').includes('@') ? str('MAIL_FROM', '').trim() : undefined),
       tags: str('JOIN_TAGS', '')
         .split(',')
         .map((t) => t.trim().toLowerCase())

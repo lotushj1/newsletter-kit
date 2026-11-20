@@ -104,7 +104,7 @@ describe('從 Notion 拉回官網新訂閱', () => {
     expect((await store.getSubscriber('sub_a'))?.status).toBe('unsubscribed');
   });
 
-  it('名單裡已退訂的人：舊資料不會翻回訂閱中，訂閱日晚於退訂才恢復', async () => {
+  it('名單裡已退訂的人：Notion 上重新出現訂閱中也不自動加回，要本人重新訂閱並確認', async () => {
     const { ctx, store } = await makeContext();
     await store.createSubscriber({ id: 'sub_old', email: 'old@example.com', status: 'unsubscribed', tags: [], createdAt: '2026-01-01T00:00:00.000Z', unsubscribedAt: '2026-11-15T10:00:00.000Z' });
     await store.createSubscriber({ id: 'sub_back', email: 'back@example.com', status: 'unsubscribed', tags: [], createdAt: '2026-01-01T00:00:00.000Z', unsubscribedAt: '2026-11-15T10:00:00.000Z' });
@@ -113,9 +113,34 @@ describe('從 Notion 拉回官網新訂閱', () => {
       page({ email: 'back@example.com', created: '2026-01-01T00:00:00.000Z', edited: '2026-11-16T02:00:00.000Z', subscribedAt: '2026-11-16T01:59:00.000Z' }),
     ]);
     const summary = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
-    expect(summary).toMatchObject({ skippedConflict: 1, resubscribed: 1 });
+    expect(summary).toMatchObject({ skippedConflict: 1, resubscribed: 0, needsConfirmation: 1 });
     expect((await store.getSubscriber('sub_old'))?.status).toBe('unsubscribed');
-    expect((await store.getSubscriber('sub_back'))?.status).toBe('subscribed');
+    expect((await store.getSubscriber('sub_back'))?.status).toBe('unsubscribed');
+  });
+
+  it('還在等確認的人：Notion 上訂閱日比較新就算完成訂閱，並記下同意來源', async () => {
+    const { ctx, store } = await makeContext();
+    await store.createSubscriber({ id: 'sub_wait', email: 'wait@example.com', status: 'pending', tags: [], createdAt: '2026-11-15T10:00:00.000Z' });
+    const { fetchImpl } = fakeNotion([
+      page({ email: 'wait@example.com', created: '2026-11-15T10:00:00.000Z', edited: '2026-11-16T02:00:00.000Z', subscribedAt: '2026-11-16T01:59:00.000Z' }),
+    ]);
+    const summary = await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    expect(summary).toMatchObject({ resubscribed: 1 });
+    const after = await store.getSubscriber('sub_wait');
+    expect(after?.status).toBe('subscribed');
+    expect(after?.confirmedAt).toBeUndefined();
+    expect(after?.meta?.consent).toMatchObject({ method: 'notion', at: '2026-11-16T01:59:00.000Z' });
+  });
+
+  it('Notion 上退訂的人也會記進排除名單；之後被刪除再從 Notion 出現也不會加回', async () => {
+    const { ctx, store } = await makeContext();
+    await store.createSubscriber({ id: 'sub_leave', email: 'leave@example.com', status: 'subscribed', tags: [], createdAt: '2026-01-01T00:00:00.000Z' });
+    const { fetchImpl } = fakeNotion([
+      page({ email: 'leave@example.com', status: '已退訂', created: '2026-01-01T00:00:00.000Z', edited: '2026-11-16T02:00:00.000Z' }),
+    ]);
+    await maybeSyncFromNotion(ctx, { fetchImpl, now: NOW });
+    expect((await store.getSubscriber('sub_leave'))?.status).toBe('unsubscribed');
+    expect(await store.getSetting(suppressionKey('leave@example.com'))).toBe('unsubscribe');
   });
 
   it('退信／檢舉名單裡的地址不會被加回來', async () => {
