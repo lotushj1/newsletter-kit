@@ -423,7 +423,7 @@ npm run build
 NODE_ENV=production npm start
 ```
 
-規模與供應商怎麼選見 [docs/hosting.md](docs/hosting.md)。
+規模與供應商怎麼選、正式寄送前的上線步驟見 [docs/hosting.md](docs/hosting.md)；備份與還原見 [docs/backup-restore.md](docs/backup-restore.md)；個人資料的查看、更正、刪除與保留見 [docs/data-handling.md](docs/data-handling.md)。
 多台機器時，只讓其中一台設 `SCHEDULER_ENABLED=true`，否則排程的電子報會被重複寄出。
 或者全部關掉排程器，改用外部 cron 定時觸發：設定 `CRON_SECRET`，
 定時以 `Authorization: Bearer $CRON_SECRET` 打 `POST /api/cron/tick`。
