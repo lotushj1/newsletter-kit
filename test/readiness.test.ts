@@ -109,6 +109,18 @@ describe('資料層寫入檢查', () => {
     expect(mismatch.schema).toMatchObject({ version: 2, expectedVersion: 1 });
     expect(mismatch.problems.join()).toMatch(/資料表版本 2 與程式需要的 1 不符/);
   });
+
+  it('InsForge 逐表：操作紀錄資料表還沒建立只提醒，不擋訂閱與寄送', { timeout: 60_000 }, async () => {
+    const { ctx, db } = await tablesContext();
+    await db.pg.exec('DROP TABLE public.nk_audit_log');
+    const result = await checkStoreReadiness(ctx, { full: true });
+    expect(result.ok).toBe(true);
+    expect(result.warnings?.join()).toContain('nk_audit_log');
+    expect(sendingBlockedReason(ctx)).toBeNull();
+    const report = await readinessReport(ctx);
+    expect(report.alerts.map((a) => a.code)).toContain('migration_pending');
+    expect(report.alerts.map((a) => a.code)).not.toContain('store_unavailable');
+  });
 });
 
 describe('排程 tick 紀錄', () => {

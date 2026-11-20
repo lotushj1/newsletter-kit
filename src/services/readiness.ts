@@ -75,6 +75,7 @@ export async function readinessReport(ctx: ServiceContext, now = Date.now()): Pr
   if (!store.ok) {
     alerts.push({ code: 'store_unavailable', message: `資料庫無法正常讀寫，新的訂閱與寄送都已暫停：${store.problems.join('；')}` });
   }
+  for (const warning of store.warnings ?? []) alerts.push({ code: 'migration_pending', message: warning });
 
   // 資料庫讀不到時下面這些會失敗：留空，只回報上面的資料庫問題。
   let scheduler: SchedulerState | null = null;

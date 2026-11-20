@@ -19,6 +19,12 @@ import type { ServiceContext } from './context.js';
 export const READINESS_PROBE_KEY = 'readiness_probe';
 /** 檢查結果沿用多久（毫秒）。 */
 export const STORE_CHECK_TTL_MS = 30_000;
+
+/**
+ * 缺了也不影響訂閱與寄送的資料表：只列為提醒，不擋寄送。
+ * 操作紀錄寫不進去時只記警告（見 services/audit.ts），不能因為它沒建立就停掉寄送。
+ */
+const OPTIONAL_SCHEMA = new Set(['nk_audit_log']);
 /** 公開訂閱被擋下時的錯誤代碼（API 回應的 code）。 */
 export const STORE_UNAVAILABLE = 'store_unavailable';
 
@@ -54,6 +60,7 @@ export async function checkStoreReadiness(
   if (!options.full && cached?.result.ok && Date.now() - cached.at < STORE_CHECK_TTL_MS) return cached.result;
 
   const problems: string[] = [];
+  const warnings: string[] = [];
   const integrity = integrityOf(ctx.store);
   if (integrity && !integrity.ok) problems.push(`資料層完整性異常：${integrity.reason ?? '未知原因'}`);
 
@@ -72,7 +79,10 @@ export async function checkStoreReadiness(
       );
     }
     const missing = schema.missing.filter((name) => name !== 'nk_tables_schema_version()');
-    if (missing.length > 0) problems.push(`缺少或讀不到：${missing.join('、')}`);
+    const blocking = missing.filter((name) => !OPTIONAL_SCHEMA.has(name));
+    const optional = missing.filter((name) => OPTIONAL_SCHEMA.has(name));
+    if (blocking.length > 0) problems.push(`缺少或讀不到：${blocking.join('、')}`);
+    if (optional.length > 0) warnings.push(`缺少 ${optional.join('、')}，請套用最新的 migrations（訂閱與寄送不受影響）`);
   }
 
   let writable: boolean | null = null;
@@ -98,6 +108,7 @@ export async function checkStoreReadiness(
     integrity: integrity ? (integrity.ok ? 'ok' : 'frozen') : null,
     schema,
     problems,
+    ...(warnings.length > 0 ? { warnings } : {}),
   });
 }
 

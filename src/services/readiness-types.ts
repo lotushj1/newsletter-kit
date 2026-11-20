@@ -15,6 +15,8 @@ export interface StoreReadiness {
   /** null＝schema 由程式自己建立，不需要檢查。 */
   schema: SchemaCheck | null;
   problems: string[];
+  /** 不影響訂閱與寄送的問題（例如操作紀錄資料表還沒建立）：只提醒，不擋。 */
+  warnings?: string[] | undefined;
 }
 
 export interface SchedulerState {
@@ -48,7 +50,8 @@ export interface ReadinessAlert {
     | 'sending_stalled'
     | 'deliveries_unconfirmed'
     | 'send_paused_long'
-    | 'scheduler_disabled_long';
+    | 'scheduler_disabled_long'
+    | 'migration_pending';
   message: string;
 }
 
