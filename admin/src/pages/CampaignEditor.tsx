@@ -4,7 +4,8 @@ import { PreviewDialog } from '../components/PreviewDialog';
 import { TiptapEditor } from '../components/TiptapEditor';
 import { AiWriteNotice } from '../components/AiWriteNotice';
 import { Modal } from '../components/Modal';
-import { api, formatTime, STATUS_LABEL, type Campaign, type Folder, type Session } from '../api';
+import { DeliveryReceipts } from '../components/DeliveryReceipts';
+import { api, formatTime, STATUS_LABEL, type Campaign, type Folder, type ReconcileSummary, type Session } from '../api';
 import type { AudienceCondition } from '../../../src/store/types';
 
 const LOCKED = ['sending', 'sent'];
@@ -253,15 +254,14 @@ export function CampaignEditor() {
                 className="btn"
                 onClick={() => {
                   void api
-                    .post<{ confirmed: number; stillUnknown: number; supported: boolean }>(`/campaigns/${id}/reconcile`)
-                    .then((r) => setMessage(r.supported
-                      ? `對帳完成：確認已寄出 ${r.confirmed} 筆，仍不明 ${r.stillUnknown} 筆`
-                      : '這個寄信服務不支援自動對帳，請到服務商後台確認'))
+                    .post<ReconcileSummary>(`/campaigns/${id}/reconcile`)
+                    .then((r) => setMessage(r.reason))
                     .catch((err: Error) => setMessage(err.message));
                 }}
               >
                 向寄信服務對帳
               </button>
+              <Link to="/deliveries" style={{ marginLeft: 8 }}>查看待對帳清單</Link>
             </div>
           </div>
         )}
@@ -288,6 +288,12 @@ export function CampaignEditor() {
             <h3>連結點擊</h3>
             <table><thead><tr><th>連結</th><th>點擊</th><th>不重複</th></tr></thead><tbody>{links.map((link) => <tr key={link.url}><td style={{ overflowWrap: 'anywhere' }}><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a></td><td>{link.clicks}</td><td>{link.uniqueClicks}</td></tr>)}</tbody></table>
           </div>
+        )}
+        {campaign.stats.total > 0 && (
+          <DeliveryReceipts
+            campaignId={id}
+            refreshKey={`${campaign.status}:${campaign.stats.sent}:${campaign.stats.failed}:${campaign.stats.unconfirmed ?? 0}`}
+          />
         )}
         <button
           type="button"

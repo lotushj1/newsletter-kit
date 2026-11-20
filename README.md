@@ -128,10 +128,12 @@ Portaly Email 目前是**邀請制 beta**：只有 Portaly 開通的帳號能用
   名稱 3–32 字（英數與 `._-`），不能含 `portaly`，也不能用 `noreply`、`support` 這類保留字。
 - kit 自己管名單、模板與退訂（Portaly 還沒有這些 API）；每封信會自動帶
   `List-Unsubscribe` / `List-Unsubscribe-Post` 一鍵退訂 header。
-- 每封信都帶冪等鍵（delivery id），重試不會寄兩次；大量寄送走 Portaly 的批次 API
-  （一次最多 100 封），由 Portaly 背景投遞。
-- Portaly 還沒有 webhook：排程器每 10 分鐘回查一次投遞狀態（往回看 7 天），
+- 單封信帶冪等鍵（delivery id），重試不會寄兩次；大量寄送走 Portaly 的批次 API
+  （一次最多 100 封），由 Portaly 背景投遞。批次 API 不收每封各自的鍵，整批共用一把，
+  結果不明的整批停在待對帳、不自動重寄。
+- Portaly 還沒有 webhook：排程 tick 有在跑時，最多每 10 分鐘回查一次投遞狀態（往回看 7 天），
   硬退信與被抑制的地址會標成 `bounced`、被檢舉的視同退訂，之後不再寄給他們。
+  等多久、回報沒來時怎麼查，見 [寄信管道能力表](docs/providers.md)。
 - 額度不足（`SEND_QUOTA_EXCEEDED`）與帳號未開通（`403 FORBIDDEN`）會直接判定失敗並寫清楚原因，
   不會傻傻重試；短暫限流（429）會依 `Retry-After` 自動緩退。
 
@@ -239,7 +241,7 @@ X-Newsletter-Signature: sha256=<HMAC-SHA256 of raw body>
 | Elastic Email | `/api/webhooks/elasticemail?token=<ELASTICEMAIL_WEBHOOK_TOKEN>`（GET） | `ELASTICEMAIL_WEBHOOK_TOKEN` |
 | 自訂 webhook／Zeabur relay | `/api/webhooks/generic` | `GENERIC_WEBHOOK_SECRET` |
 
-完整網址為 `PUBLIC_BASE_URL` 加上表中路徑。Portaly 沿用每 10 分鐘回查；其他未列供應商的驗證限制見上方文件。
+完整網址為 `PUBLIC_BASE_URL` 加上表中路徑。Portaly 沿用定期回查（最多每 10 分鐘）；各管道能做到什麼（批次、冪等鍵、退信、檢舉、對帳、標頭與純文字）見 [寄信管道能力表](docs/providers.md)。
 
 ### 4. 封存頁（選用）
 

@@ -66,6 +66,8 @@ const READ_METHODS = [
   'findDueCampaigns',
   'findSendingCampaigns',
   'listDeliveries',
+  'listDeliveriesByStatus',
+  'getDelivery',
   'deliveryStats',
   'findDeliveryByProviderMessageId',
   'campaignTrackingStats',

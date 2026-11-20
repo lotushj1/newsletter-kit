@@ -11,6 +11,11 @@ export interface EmailPlatform {
   extraPlaceholder?: string;
   /** extra 是網址時要檢查格式。 */
   extraUrl?: boolean;
+  /**
+   * 這個管道的 API 做不到、會被默默丟掉的東西。啟動時寫進 log，後台設定頁也會顯示，
+   * 不要讓人以為信裡有。細節見 docs/providers.md。
+   */
+  limitations?: string[];
 }
 
 export const EMAIL_PLATFORMS: readonly EmailPlatform[] = [
@@ -88,6 +93,7 @@ export const EMAIL_PLATFORMS: readonly EmailPlatform[] = [
     group: 'common',
     kind: 'ses',
     note: '這版不代簽 AWS。要寄出請改用 Webhook，把信交給你的 SES 端點。',
+    limitations: ['這版不代簽 AWS，選這個管道一封信都寄不出去（寄送會直接失敗）；要寄出請改用 Webhook'],
   },
   {
     id: 'sparkpost',
@@ -112,6 +118,7 @@ export const EMAIL_PLATFORMS: readonly EmailPlatform[] = [
     kind: 'http',
     note: '用 Plunk 的 API 金鑰寄出。',
     keyLabel: 'API 金鑰',
+    limitations: ['Plunk 的寄信 API 只收一份內文，沒有純文字版本欄位；信件只有 HTML，沒有純文字版本'],
   },
   {
     id: 'smtp2go',
@@ -169,11 +176,21 @@ export const EMAIL_PLATFORMS: readonly EmailPlatform[] = [
     keyLabel: 'API 金鑰',
     extraLabel: '網址',
     extraPlaceholder: 'https://your-project.insforge.app',
+    limitations: [
+      'InsForge 的寄信 API 不能帶自訂標頭：信裡沒有 List-Unsubscribe／List-Unsubscribe-Post（沒有一鍵退訂，頁尾退訂連結仍可用）',
+      'InsForge 的寄信 API 沒有純文字欄位：信件只有 HTML，沒有純文字版本',
+    ],
   },
 ];
 
 export function getEmailPlatform(id: string): EmailPlatform | undefined {
   return EMAIL_PLATFORMS.find((platform) => platform.id === id);
+}
+
+/** 目前寄信管道的限制，給啟動 log 與後台設定頁的警告用。 */
+export function providerLimitationWarnings(id: string): string[] {
+  const platform = getEmailPlatform(id);
+  return (platform?.limitations ?? []).map((text) => `寄信管道 ${platform?.label ?? id} 的限制：${text}。`);
 }
 
 export function isEmailPlatform(id: string): boolean {

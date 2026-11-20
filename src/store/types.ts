@@ -94,6 +94,23 @@ export type AudienceCondition =
  */
 export type DeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
 
+/**
+ * 寄信服務對這封信的回報，跟 status 分開記：status 決定寄送流程與重寄規則，
+ * receipt 只記「服務商說了什麼」。accepted＝服務商已收下（還沒有送達回報），
+ * delivered＝服務商回報已送達，bounced＝退信，complained＝收件人檢舉為垃圾信，
+ * failed＝服務商收下後回報沒寄出（例如抑制名單、額度不足）。開信與點擊不算送達證據。
+ */
+export type DeliveryReceipt = 'accepted' | 'delivered' | 'bounced' | 'complained' | 'failed';
+
+/** 對帳紀錄：誰在什麼時候查過、查到什麼、為什麼。 */
+export interface DeliveryReconcile {
+  at: string;
+  by: string;
+  /** confirmed＝服務商查得到；not_found＝查不到；unsupported＝服務商沒有查詢 API；lookup_failed＝查詢本身失敗。 */
+  result: 'confirmed' | 'not_found' | 'unsupported' | 'lookup_failed';
+  note: string;
+}
+
 export interface Delivery {
   id: string;
   campaignId: string;
@@ -107,6 +124,12 @@ export interface Delivery {
   /** 領走這筆的寄送批次 id 與時間（防止多個實例同時寄同一筆）。 */
   claimId?: string | undefined;
   claimedAt?: string | undefined;
+  /** 服務商回報（見 DeliveryReceipt）；舊資料沒有這欄，已寄出的視為 accepted。 */
+  receipt?: DeliveryReceipt | null | undefined;
+  /** 收到這份回報的時間。 */
+  receiptAt?: string | null | undefined;
+  /** 最近一次對帳的結果與原因。 */
+  reconcile?: DeliveryReconcile | null | undefined;
 }
 
 export interface DeliveryClaim {
@@ -369,12 +392,16 @@ export interface Store {
   claimDeliveries(ids: string[], claim: DeliveryClaim): Promise<string[]>;
   /** 一次寫回多筆寄送結果；回傳實際套用的筆數（找不到的紀錄不算）。 */
   updateDeliveries(updates: DeliveryUpdate[]): Promise<number>;
+  /** 用 id 讀一筆寄送紀錄（序列信用固定 id 判斷這一步寄過沒有）。 */
+  getDelivery(id: string): Promise<Delivery | null>;
   /** 用供應商回傳的訊息 id 反查寄送紀錄（Portaly 投遞狀態回查用）。 */
   findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null>;
   listDeliveries(
     campaignId: string,
     options?: { status?: DeliveryStatus | undefined; limit?: number | undefined },
   ): Promise<Delivery[]>;
+  /** 跨電子報列出某個狀態的寄送紀錄（待對帳清單用：status=sending），依寫入順序。 */
+  listDeliveriesByStatus(status: DeliveryStatus, options?: { limit?: number | undefined }): Promise<Delivery[]>;
   deliveryStats(campaignId: string): Promise<CampaignStats>;
   /** 單一訂閱者的寄送紀錄與開信點擊（個人資料匯出用）。 */
   listSubscriberActivity(subscriberId: string): Promise<{ deliveries: Delivery[]; events: TrackingEvent[] }>;

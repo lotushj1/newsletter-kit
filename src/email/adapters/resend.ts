@@ -40,17 +40,29 @@ export const createResendAdapter: EmailAdapterFactory = (context): EmailAdapter 
 
   async send(message) {
     if (!context.resendApiKey) return { ok: false, error: '缺少 RESEND_API_KEY', retryable: false };
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${context.resendApiKey}`,
+      'content-type': 'application/json',
+    };
+    // Resend 支援 Idempotency-Key（24 小時內同一把鍵只會寄一次）：帶寄送紀錄 id，重試不會寄兩封。
+    if (message.idempotencyKey) headers['idempotency-key'] = message.idempotencyKey.slice(0, 256);
     try {
       const response = await fetch(API, {
         method: 'POST',
-        headers: {
-          authorization: `Bearer ${context.resendApiKey}`,
-          'content-type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(toPayload(message)),
       });
       const raw = await response.text();
       if (!response.ok) {
+        // 409：同一把冪等鍵的請求還在處理，或之前用不同內容送過——都可能已經寄出，不能當成沒寄。
+        if (response.status === 409 && message.idempotencyKey) {
+          return {
+            ok: false,
+            error: `Resend 409（結果不明）：${raw.slice(0, 300)}`,
+            retryable: false,
+            outcomeUnknown: true,
+          };
+        }
         return {
           ok: false,
           error: `Resend ${response.status}: ${raw.slice(0, 300)}`,

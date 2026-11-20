@@ -1,13 +1,16 @@
 import { DEFAULT_PORTALY_HOST } from '../email/adapters/portaly.js';
 import { logger } from '../core/logger.js';
 import { nowIso } from '../core/ids.js';
+import type { Delivery, DeliveryReceipt } from '../store/types.js';
 import type { ServiceContext } from './context.js';
+import { receiptPatch } from './delivery-receipts.js';
 import { applyProviderProblem } from './suppression.js';
 
 /**
  * Portaly 目前沒有 webhook，投遞結果（退信、被檢舉、被抑制…）要用
  * GET /api/email/emails 定期回查。這個服務掛在排程器的 tick 裡，
- * 內部自己節流（預設每 10 分鐘跑一次、往回看 7 天——檢舉可能晚好幾天才進來）。
+ * 內部自己節流：tick 有在跑時，最多每 10 分鐘查一次、往回看 7 天（檢舉可能晚好幾天才進來），
+ * 每次最多翻 MAX_PAGES 頁。tick 沒跑（例如外部 cron 停了）就不會回查。說明見 docs/providers.md。
  */
 
 const SETTING_KEY = 'portaly_delivery_sync';
@@ -57,6 +60,16 @@ const DELIVERY_ERRORS: Record<RecipientStatus, string> = {
   domain_limited: '排程寄出時寄信網域已達當日退信上限',
 };
 
+/** 寫進寄送紀錄的服務商回報：檢舉＝其實有送達、被標成垃圾信；其餘都是沒送達。 */
+const RECEIPTS: Record<RecipientStatus, DeliveryReceipt> = {
+  bounced: 'bounced',
+  complained: 'complained',
+  suppressed: 'failed',
+  failed: 'failed',
+  quota_exceeded: 'failed',
+  domain_limited: 'failed',
+};
+
 function isProblemStatus(value: string | undefined): value is RecipientStatus {
   return value !== undefined && PROBLEM_STATUSES.split(',').includes(value);
 }
@@ -78,9 +91,14 @@ async function applyProblem(
   if (!delivery) return false;
 
   let changed = false;
-  // complained 其實有送達，寄送紀錄保持 sent；其他一律改成 failed。
+  // complained 其實有送達，寄送紀錄保持 sent；其他一律改成 failed。回報另外記在 receipt。
+  const patch: Partial<Delivery> = { ...receiptPatch(delivery, RECEIPTS[status]) };
   if (status !== 'complained' && delivery.status !== 'failed') {
-    await ctx.store.updateDelivery(delivery.id, { status: 'failed', error: DELIVERY_ERRORS[status] });
+    patch.status = 'failed';
+    patch.error = DELIVERY_ERRORS[status];
+  }
+  if (Object.keys(patch).length > 0) {
+    await ctx.store.updateDelivery(delivery.id, patch);
     changed = true;
   }
 

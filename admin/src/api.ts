@@ -219,6 +219,65 @@ export const STATUS_LABEL: Record<string, string> = {
   bounced: '退信',
 };
 
+/** 寄送紀錄的服務商回報狀態（見 src/services/delivery-receipts.ts）。開信點擊不算送達。 */
+export const DELIVERY_STATE_LABEL: Record<string, string> = {
+  pending: '待寄',
+  skipped: '略過',
+  unknown: '結果不明',
+  accepted: '服務商已收下',
+  delivered: '已送達',
+  bounced: '退信',
+  complained: '被檢舉為垃圾信',
+  failed: '沒寄出',
+};
+
+export type ReceiptStats = Record<string, number> & { total: number };
+
+export interface DeliveryReconcileInfo {
+  at: string;
+  by: string;
+  result: 'confirmed' | 'not_found' | 'unsupported' | 'lookup_failed';
+  note: string;
+}
+
+export const RECONCILE_RESULT_LABEL: Record<DeliveryReconcileInfo['result'], string> = {
+  confirmed: '已查到',
+  not_found: '查不到',
+  unsupported: '服務商不支援查詢',
+  lookup_failed: '查詢失敗',
+};
+
+export interface ReconcileQueueItem {
+  id: string;
+  campaignId: string;
+  campaignTitle: string;
+  campaignStatus: string;
+  email: string;
+  claimedAt?: string;
+  attempts: number;
+  error?: string;
+  providerMessageId?: string;
+  lookupRef: string;
+  reconcile?: DeliveryReconcileInfo;
+}
+
+export interface ReconcileQueue {
+  total: number;
+  earliestAt: string | null;
+  lookup: { provider: string; supported: boolean };
+  items: ReconcileQueueItem[];
+}
+
+export interface ReconcileSummary {
+  checked: number;
+  confirmed: number;
+  undelivered: number;
+  stillUnknown: number;
+  supported: boolean;
+  reason: string;
+  lookupError?: string;
+}
+
 export function formatTime(iso?: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('zh-TW', { hour12: false });

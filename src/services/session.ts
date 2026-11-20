@@ -1,4 +1,5 @@
 import { aiServiceLabel, getAiService } from '../ai/providers.js';
+import { providerLimitationWarnings } from '../email/providers.js';
 import { listEmailAdapters } from '../email/registry.js';
 import type { ServiceContext } from './context.js';
 
@@ -25,7 +26,8 @@ export function publicSession(ctx: ServiceContext) {
     corsOrigins: ctx.config.corsOrigins,
     schedulerEnabled: ctx.config.scheduler.enabled,
     batchSize: ctx.config.send.batchSize,
-    warnings: ctx.config.warnings,
+    // 寄信管道可在後台切換，所以它的限制每次即時算，不放進啟動時的 config.warnings。
+    warnings: [...ctx.config.warnings, ...providerLimitationWarnings(ctx.config.email.provider)],
     availableProviders: listEmailAdapters(),
     ai: {
       configured: Boolean(ctx.ai),

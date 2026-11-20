@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { History, LayoutDashboard, LogOut, Mail, PanelLeft, PenLine, Settings, Users, Workflow } from 'lucide-react';
+import { History, LayoutDashboard, ListChecks, LogOut, Mail, PanelLeft, PenLine, Settings, Users, Workflow } from 'lucide-react';
 import { api, type Session } from '../api';
 
 const LINKS = [
   { to: '/', label: '總覽', icon: LayoutDashboard, end: true },
   { to: '/campaigns', label: '電子報', icon: Mail },
+  { to: '/deliveries', label: '待對帳', icon: ListChecks },
   { to: '/subscribers', label: '名單', icon: Users },
   { to: '/sequences', label: '自動化', icon: Workflow },
   { to: '/brand', label: '品牌', icon: PenLine },
@@ -16,6 +17,7 @@ const LINKS = [
 const CRUMB: Record<string, string> = {
   '/': '總覽',
   '/campaigns': '電子報',
+  '/deliveries': '待對帳',
   '/subscribers': '名單',
   '/sequences': '自動化',
   '/brand': '品牌',

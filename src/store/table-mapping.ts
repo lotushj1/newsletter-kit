@@ -88,6 +88,10 @@ const CAMPAIGNS: EntitySpec = {
   ],
 };
 
+/**
+ * receipt／receiptAt／reconcile（服務商回報與對帳紀錄）刻意不開正式欄位，存在 extra jsonb：
+ * 不用新 migration，也不需要拿來查詢或排序。要改成正式欄位時必須另寫 migration。
+ */
 const DELIVERIES: EntitySpec = {
   table: 'nk_deliveries',
   key: 'id',

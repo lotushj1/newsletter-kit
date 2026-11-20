@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { auditActionLabel } from '../../../src/core/audit-actions.js';
+import { actorLabel, auditActionLabel } from '../../../src/core/audit-actions.js';
 import type { AuditEntry } from '../../../src/store/types.js';
 import { api, formatTime } from '../api';
 
@@ -21,7 +21,7 @@ export function AuditLogTable({ items }: { items: AuditEntry[] }) {
         {items.map((item) => (
           <tr key={item.id}>
             <td className="muted" style={{ whiteSpace: 'nowrap' }}>{formatTime(item.at)}</td>
-            <td style={{ overflowWrap: 'anywhere' }}>{item.actor}</td>
+            <td style={{ overflowWrap: 'anywhere' }}>{actorLabel(item.actor)}</td>
             <td>{auditActionLabel(item.action)}</td>
             <td className="muted" style={{ overflowWrap: 'anywhere' }}>{item.targetId ?? '—'}</td>
             <td className="muted">{item.summary || '—'}</td>

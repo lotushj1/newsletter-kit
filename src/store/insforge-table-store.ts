@@ -534,6 +534,10 @@ export class InsForgeTableStore implements Store {
     return updates.filter((u) => found.has(u.id)).length;
   }
 
+  getDelivery(id: string): Promise<Delivery | null> {
+    return this.findOne<Delivery>(SPECS.deliveries, [eq('id', id)]);
+  }
+
   findDeliveryByProviderMessageId(providerMessageId: string): Promise<Delivery | null> {
     return this.findOne<Delivery>(SPECS.deliveries, [eq('provider_message_id', providerMessageId)]);
   }
@@ -553,6 +557,10 @@ export class InsForgeTableStore implements Store {
       this.findAll<TrackingEvent>(SPECS.events, [eq('subscriber_id', subscriberId)]),
     ]);
     return { deliveries, events };
+  }
+
+  listDeliveriesByStatus(status: DeliveryStatus, options: { limit?: number | undefined } = {}): Promise<Delivery[]> {
+    return this.findAll<Delivery>(SPECS.deliveries, [eq('status', status)], options.limit || undefined);
   }
 
   async deliveryStats(campaignId: string): Promise<CampaignStats> {

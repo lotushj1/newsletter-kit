@@ -27,3 +27,10 @@ export type AuditAction = keyof typeof AUDIT_ACTION_LABELS;
 export function auditActionLabel(action: string): string {
   return (AUDIT_ACTION_LABELS as Record<string, string>)[action] ?? action;
 }
+
+/** 操作者的顯示名稱：用 ADMIN_TOKEN 登入分不出是誰，顯示成「管理員權杖」。 */
+export function actorLabel(actor: string): string {
+  if (actor === 'admin-token') return '管理員權杖';
+  if (actor === 'local-mcp') return '本機 MCP';
+  return actor;
+}
