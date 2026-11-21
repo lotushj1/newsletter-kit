@@ -183,6 +183,8 @@ button.icon[aria-expanded="true"] {
 }
 .grid { display: grid; gap: 16px; }
 .grid.stats { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+/* 運作狀態卡：長字串只在可斷處換行（環境變數另用 <wbr> 標出 _ = 後的斷點），不從字中間切開 */
+.status-grid > .card { min-width: 0; overflow-wrap: break-word; }
 .dash-total { margin: 4px 0 8px; }
 .dash-total-value { font-size: 40px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.1; }
 .dash-period-head {
@@ -454,6 +456,11 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
   display: flex; flex-direction: column; gap: 14px;
 }
 .editor-side-inspect { display: flex; flex-direction: column; min-height: 0; }
+/* 右欄同一組裡的下一個欄位、受眾條件：與欄位組之間一樣隔 14px；標題到控制項 6px、並排按鈕 8px */
+.editor-side .side-field-gap { margin-top: 14px; }
+.audience-builder { margin-top: 14px; }
+.audience-builder-title { display: block; margin: 0 0 6px; }
+.audience-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-side-inspect[hidden] { display: none !important; }
 .editor-side-inspect-form { display: grid; gap: 12px; }
 .editor-side-inspect-form h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
@@ -461,13 +468,15 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .editor-side-inspect-form .btn { width: 100%; }
 .tt-editor { position: relative; }
 .tt-canvas { padding-left: 40px; }
+/* 左側 40px 留給區塊「＋」按鈕；放進 editor-main 的左內距，內文與工具列才會和標題、前導文字對齊 */
+.editor-main .tt-editor { margin-left: -40px; }
 .tt-toolbar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px 0 12px 40px; position: sticky; top: var(--header-h);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 8px 0 12px 40px; position: sticky; top: var(--header-h);
   background: var(--background); z-index: 5;
 }
 .tt-toolbar button {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 2.25rem; height: 2.25rem; min-width: 2.25rem; padding: 0; line-height: 0;
+  width: 2rem; height: 2rem; min-width: 2rem; padding: 0; line-height: 0;
   border: 1px solid transparent; border-radius: var(--radius);
   background: transparent; color: var(--muted-foreground);
 }
@@ -484,7 +493,7 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 }
 .tt-toolbar button:disabled { opacity: 0.35; cursor: default; }
 .tt-group { display: flex; align-items: center; gap: 2px; }
-.tt-sep { width: 1px; height: 1.25rem; background: var(--border); margin: 0 4px; }
+.tt-sep { width: 1px; height: 1.25rem; background: var(--border); margin: 0 2px; }
 .tt-drop { position: relative; }
 .tt-menu-anchored { top: calc(100% + 6px); left: 0; }
 .tt-heading-mark { width: 1.5rem; font-size: var(--text-sm); font-weight: 600; color: var(--muted-foreground); }
@@ -1520,7 +1529,7 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 @media (max-width: 1280px) {
   .ad-content { padding: 1.25rem 1.5rem 1.75rem; }
   .ad-header { padding: 0 1.5rem; }
-  .editor-main { padding: 24px 28px 72px; }
+  .editor-main { padding: 24px 28px 72px 40px; }
 }
 @media (max-width: 960px) {
   .auto-card { grid-template-columns: 1fr; }
@@ -1556,6 +1565,7 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
   .page-head { flex-wrap: wrap; }
   .editor-shell { flex-direction: column; }
   .editor-main { padding: 20px 16px 40px; }
+  .editor-main .tt-editor { margin-left: 0; }
   .editor-side { width: auto; border-left: 0; border-top: 1px solid var(--border); }
   table.data { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.data th, table.data td { white-space: nowrap; }

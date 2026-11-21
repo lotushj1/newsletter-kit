@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useOutletContext, useParams } from 'react-router-dom';
 import { PreviewDialog } from '../components/PreviewDialog';
 import { TiptapEditor } from '../components/TiptapEditor';
@@ -22,16 +22,23 @@ const LOCKED = ['sending', 'sent'];
 
 const DEFAULT_CONDITION: AudienceCondition = { op: 'status', status: 'subscribed' };
 
-function AudienceBuilder({ value, onChange, disabled, folders }: {
+function AudienceBuilder({ value, onChange, disabled, folders, children }: {
   value: AudienceCondition | undefined;
   onChange: (value: AudienceCondition | undefined) => void;
   disabled: boolean;
   folders: Folder[];
+  /** 跟「新增條件」放在同一列的其他按鈕（預覽收件人數）。 */
+  children?: ReactNode;
 }) {
-  return <div style={{ marginTop: 12 }}>
-    <strong>進階受眾條件</strong>
-    {value ? <><AudienceNode value={value} onChange={onChange} disabled={disabled} folders={folders} /><button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange(undefined)}>清除進階條件</button></> :
-      <button type="button" className="btn" disabled={disabled} onClick={() => onChange({ op: 'and', children: [DEFAULT_CONDITION] })}>新增條件</button>}
+  return <div className="audience-builder">
+    <strong className="audience-builder-title">進階受眾條件</strong>
+    {value ? <AudienceNode value={value} onChange={onChange} disabled={disabled} folders={folders} /> : null}
+    <div className="audience-actions">
+      {value
+        ? <button type="button" className="btn ghost" disabled={disabled} onClick={() => onChange(undefined)}>清除進階條件</button>
+        : <button type="button" className="btn" disabled={disabled} onClick={() => onChange({ op: 'and', children: [DEFAULT_CONDITION] })}>新增條件</button>}
+      {children}
+    </div>
   </div>;
 }
 
@@ -399,10 +406,11 @@ export function CampaignEditor() {
               <option key={folder.id} value={folder.id}>{folder.name}</option>
             ))}
           </select>
-          <label htmlFor="audience-tags">舊版標籤篩選（任一標籤）</label>
+          <label htmlFor="audience-tags" className="side-field-gap">舊版標籤篩選（任一標籤）</label>
           <input id="audience-tags" value={audienceTags.join(', ')} disabled={!editable} onChange={(event) => setAudienceTags(event.target.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))} placeholder="標籤，以逗號分隔" />
-          <AudienceBuilder value={audienceCondition} onChange={setAudienceCondition} disabled={!editable} folders={folders} />
-          <button type="button" className="btn" onClick={() => { void api.post<RecipientPreview>(`/campaigns/${id}/audience-count`, { audienceTags, audienceFolderId: folderId, audienceCondition: audienceCondition ?? null }).then(setAudienceCount).catch((error: Error) => setMessage(error.message)); }}>預覽收件人數</button>
+          <AudienceBuilder value={audienceCondition} onChange={setAudienceCondition} disabled={!editable} folders={folders}>
+            <button type="button" className="btn" onClick={() => { void api.post<RecipientPreview>(`/campaigns/${id}/audience-count`, { audienceTags, audienceFolderId: folderId, audienceCondition: audienceCondition ?? null }).then(setAudienceCount).catch((error: Error) => setMessage(error.message)); }}>預覽收件人數</button>
+          </AudienceBuilder>
           {audienceCount !== null && (
             <p className="muted">
               {audienceCount.mode === 'resend' ? `重寄時只會補寄：${audienceCount.count} 位` : `會寄出：${audienceCount.count} 位`}

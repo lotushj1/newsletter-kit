@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   api,
@@ -80,7 +80,7 @@ function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport;
           {refreshing ? '檢查中…' : `重新檢查（${formatTime(report.checkedAt)}）`}
         </button>
       </div>
-      <div className="grid stats" style={{ overflowWrap: 'anywhere' }}>
+      <div className="grid stats status-grid">
         <div className="card">
           <div className="muted">資料庫</div>
           <p><span className={`pill ${store.ok ? 'sent' : 'failed'}`}>{store.ok ? '可讀寫' : '無法寫入'}</span></p>
@@ -95,7 +95,7 @@ function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport;
           <p><span className={`pill ${sending.paused ? 'failed' : 'sent'}`}>{sending.paused ? '全面寄送暫停' : '正常'}</span></p>
           <div className="muted">
             {sending.paused
-              ? `SEND_PAUSED=true${sinceText(sending.pausedSince)}：手動、排程、序列信都不會寄出`
+              ? softBreak(`SEND_PAUSED=true${sinceText(sending.pausedSince)}：手動、排程、序列信都不會寄出`)
               : sending.dryRun
                 ? '寄信管道是 dry_run：只寫紀錄，不會真的寄出'
                 : `寄信管道 ${sending.provider}`}
@@ -107,7 +107,7 @@ function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport;
           <div className="muted">
             {sending.schedulerEnabled
               ? '時間到的排程電子報與序列信會自動寄出'
-              : `SCHEDULER_ENABLED=false${sinceText(sending.schedulerDisabledSince)}：排程電子報與序列信不會自動寄出，手動寄送照常`}
+              : softBreak(`SCHEDULER_ENABLED=false${sinceText(sending.schedulerDisabledSince)}：排程電子報與序列信不會自動寄出，手動寄送照常`)}
           </div>
         </div>
         <div className="card">
@@ -143,6 +143,13 @@ function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport;
       </div>
     </section>
   );
+}
+
+/** 環境變數名稱只在 `_`、`=` 後面換行，避免窄卡片把 SCHEDULER_ENABLED 從字中間切開。 */
+function softBreak(text: string): ReactNode {
+  return text.split(/(?<=[_=])/).map((part, index) => (
+    <Fragment key={index}>{index > 0 ? <wbr /> : null}{part}</Fragment>
+  ));
 }
 
 function campaignRate(part: number, sent: number): string {

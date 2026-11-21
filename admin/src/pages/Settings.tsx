@@ -117,11 +117,17 @@ function FooterSettings() {
   return <section className="card setup-card">
     <h2>郵件頁尾與法規資訊</h2>
     {!brand.physicalAddress?.trim() && <div className="notice warn">尚未設定實體郵寄地址。CAN-SPAM 規定商業電子郵件須提供有效的實體郵寄地址。</div>}
-    <label htmlFor="physical-address">寄件者實體郵寄地址</label>
-    <textarea id="physical-address" value={brand.physicalAddress ?? ''} onChange={(event) => setBrand({ ...brand, physicalAddress: event.target.value })} placeholder="請填入真實地址" />
-    <label htmlFor="privacy-url">隱私權政策網址</label>
-    <input id="privacy-url" type="url" value={brand.privacyUrl ?? ''} onChange={(event) => setBrand({ ...brand, privacyUrl: event.target.value })} placeholder="https://example.com/privacy" />
-    <button type="button" className="btn primary" onClick={() => { void api.patch<BrandProfile>('/brand', { physicalAddress: brand.physicalAddress ?? '', privacyUrl: brand.privacyUrl ?? '' }).then((saved) => { setBrand(saved); setMessage('已儲存'); }).catch((error: Error) => setMessage(error.message)); }}>儲存頁尾設定</button>
+    <div className="settings-fields">
+      <Field label="寄件者實體郵寄地址">
+        <textarea id="physical-address" value={brand.physicalAddress ?? ''} onChange={(event) => setBrand({ ...brand, physicalAddress: event.target.value })} placeholder="請填入真實地址" />
+      </Field>
+      <Field label="隱私權政策網址">
+        <input id="privacy-url" type="url" value={brand.privacyUrl ?? ''} onChange={(event) => setBrand({ ...brand, privacyUrl: event.target.value })} placeholder="https://example.com/privacy" />
+      </Field>
+      <div>
+        <button type="button" className="btn primary" onClick={() => { void api.patch<BrandProfile>('/brand', { physicalAddress: brand.physicalAddress ?? '', privacyUrl: brand.privacyUrl ?? '' }).then((saved) => { setBrand(saved); setMessage('已儲存'); }).catch((error: Error) => setMessage(error.message)); }}>儲存頁尾設定</button>
+      </div>
+    </div>
     {message && <p className="muted">{message}</p>}
   </section>;
 }
