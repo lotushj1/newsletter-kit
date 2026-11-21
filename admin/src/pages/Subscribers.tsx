@@ -401,12 +401,12 @@ export function Subscribers() {
             <button type="button" className="btn" onClick={() => openDialog('import')}>
               匯入
             </button>
-            <button type="button" className="btn primary" onClick={() => openDialog('add')}>
-              手動新增
-            </button>
             <a className="btn" href="/api/admin/subscribers/export.csv">
               匯出 CSV
             </a>
+            <button type="button" className="btn primary" onClick={() => openDialog('add')}>
+              手動新增
+            </button>
           </div>
         </div>
         <FolderBar
@@ -459,6 +459,7 @@ export function Subscribers() {
               建議整理
             </button>
           )}
+          <span className="muted campaign-count">共 {total} 位</span>
         </div>
         {aiError && aiMode !== 'organize' && <div className="notice error">{aiError}</div>}
         {aiNote && (
@@ -643,7 +644,7 @@ export function Subscribers() {
             onSave={saveTagEditor}
           />
         )}
-        <table className="data">
+        <table className="data subscriber-table">
           <thead>
             <tr>
               {aiOn && (
@@ -687,6 +688,8 @@ export function Subscribers() {
                 <td><span className={`pill ${s.status}`}>{STATUS_LABEL[s.status] ?? s.status}</span></td>
                 <td>
                   <select
+                    className="row-select"
+                    aria-label={`${s.email} 的資料夾`}
                     value={s.folderId ?? ''}
                     onChange={(e) => patchSubscriber(s.id, { folderId: e.target.value })}
                     style={{ width: 140 }}

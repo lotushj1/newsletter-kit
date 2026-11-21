@@ -164,9 +164,6 @@ export function Brand() {
             <h2>簽名與退訂</h2>
             <p className="muted">簽名接在正文後面。退訂文字在更下面，每封信都會帶上。</p>
           </div>
-          <button type="button" className="btn primary" disabled={saving} onClick={() => void saveBrand()}>
-            {saving ? '儲存中…' : status || '儲存'}
-          </button>
         </div>
 
         <p className="brand-signature-label">版型</p>
@@ -400,6 +397,12 @@ export function Brand() {
               <a href="#">{brand.unsubscribeLabel.trim() || DEFAULT_UNSUBSCRIBE_LABEL}</a>
             </p>
           </div>
+        </div>
+        {/* 儲存跟其他設定卡一樣放右下；表單比視窗長，這一列黏在視窗底部，捲到哪都按得到 */}
+        <div className="settings-actions sticky-actions">
+          <button type="button" className="btn primary" disabled={saving} onClick={() => void saveBrand()}>
+            {saving ? '儲存中…' : status || '儲存'}
+          </button>
         </div>
       </section>
     </div>

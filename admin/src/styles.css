@@ -335,6 +335,11 @@ button.pill.active { background: var(--primary); color: var(--primary-foreground
 .pill.sending { background: color-mix(in oklch, oklch(0.75 0.14 80) 20%, white); }
 .pill.sent { background: color-mix(in oklch, oklch(0.72 0.14 150) 20%, white); }
 .pill.failed, .pill.canceled { background: color-mix(in oklch, var(--destructive) 12%, white); }
+/* 訂閱者狀態：已訂閱綠、待確認藍、退信紅、已退訂灰 */
+.pill.subscribed { background: color-mix(in oklch, oklch(0.72 0.14 150) 20%, white); }
+.pill.pending { background: color-mix(in oklch, oklch(0.7 0.12 250) 18%, white); }
+.pill.bounced { background: color-mix(in oklch, var(--destructive) 12%, white); }
+.pill.unsubscribed { background: var(--muted); color: var(--muted-foreground); }
 
 table.data { width: 100%; border-collapse: collapse; }
 /* 寄送確認視窗：左欄是欄位名稱，不要折行。 */
@@ -404,6 +409,15 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .tag-add:focus-visible {
   background: color-mix(in oklch, var(--foreground) 8%, var(--background));
   color: var(--foreground);
+}
+/* 名單表格：資料夾與加標籤平常收淡，滑過該列或用鍵盤聚焦時才出現外框與 ＋（觸控裝置一律顯示） */
+/* 左移 13px（外框 1 + 內距 12）：沒有外框時文字跟「資料夾」欄標題對齊 */
+.subscriber-table .row-select { border-color: transparent; background-color: transparent; margin-left: -13px; }
+.subscriber-table tr:hover .row-select,
+.subscriber-table .row-select:focus-visible { border-color: var(--input); background-color: var(--background); }
+@media (hover: hover) {
+  .subscriber-table tr:not(:hover) .row-select:not(:focus-visible) { background-image: none; }
+  .subscriber-table tr:not(:hover):not(:focus-within) .tag-add { opacity: 0; }
 }
 .tag-options {
   display: grid;
@@ -801,8 +815,9 @@ button.folder-chip { padding-right: 14px; }
 }
 .folder-chip-more { position: relative; display: flex; align-items: center; align-self: center; }
 
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 8px; }
-.page-head h1 { margin: 0; font-size: var(--text-3xl); font-weight: 650; letter-spacing: -0.03em; line-height: 1.2; }
+/* min-height 等於按鈕高度：有沒有右側按鈕，頁面標題都落在同一個高度，換頁不會跳 */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 8px; min-height: var(--control-h); }
+.page-head h1 { margin: 0; font-size: var(--text-3xl); font-weight: 650; letter-spacing: -0.03em; line-height: 1.2; min-height: var(--control-h); display: flex; align-items: center; }
 .page-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .brand-page { display: grid; gap: 28px; }
 .brand-page .page-head h2 { margin: 0; font-size: var(--text-2xl); font-weight: 650; }
@@ -1490,7 +1505,8 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
   margin: 4px 8px 2px; font-size: var(--text-sm); font-weight: 650;
   color: var(--muted-foreground); letter-spacing: 0.02em;
 }
-.setup-page { max-width: 920px; display: grid; gap: 16px; }
+/* 設定頁跟其他頁一樣用整個內容寬度（原本限 920px，比其他頁窄） */
+.setup-page { display: grid; gap: 16px; }
 .settings-tabs {
   display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 16px;
 }
@@ -1524,6 +1540,11 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 .settings-fields label { display: grid; gap: 6px; margin: 0; }
 .settings-fields .hint { font-size: var(--text-sm); color: var(--muted-foreground); }
 .settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* 長表單（品牌頁）的儲存列：貼齊卡片底部左右邊，捲動時黏在視窗底部 */
+.settings-actions.sticky-actions {
+  position: sticky; bottom: 0; z-index: 4; margin: 20px -20px -20px; padding: 12px 20px;
+  background: var(--card); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius);
+}
 .settings-footnote { margin: 12px 0 0; }
 .settings-env { margin-top: 12px; }
 .settings-env summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); }

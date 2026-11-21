@@ -108,9 +108,12 @@ export function Layout() {
         </div>
       </aside>
       <div className="ad-main">
-        <header className="ad-header">
-          <div style={{ color: 'var(--foreground)', fontWeight: 500 }}>{crumb}</div>
-        </header>
+        {/* 一般頁面已有頁面大標題，頂欄只留給編輯頁（寫稿、編輯自動化、編輯模板） */}
+        {isEditor ? (
+          <header className="ad-header">
+            <div style={{ color: 'var(--foreground)', fontWeight: 500 }}>{crumb}</div>
+          </header>
+        ) : null}
         <div className={isEditor ? 'ad-content editor' : 'ad-content'}>
           <Outlet context={session} />
         </div>
