@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type MouseEvent, type MutableRefObject, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type MouseEvent, type MutableRefObject, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -1064,6 +1064,34 @@ export function TiptapEditor({
       indexRef.current = 0;
     }
   }, [menu?.kind, menu && menu.kind === 'slash' ? menu.query : '']);
+
+  // 手機寬度的工具列是一行左右滑動（overflow-x），裡面絕對定位的下拉選單會被切掉；
+  // 這時改用 fixed、照按鈕在畫面上的位置擺。工具列滑動或視窗改變大小就關掉，頁面捲動時跟著按鈕重擺。
+  useLayoutEffect(() => {
+    if (!bar) return;
+    const toolbar = wrapRef.current?.querySelector<HTMLElement>('.tt-toolbar');
+    const menuEl = toolbar?.querySelector<HTMLElement>('.tt-menu-anchored');
+    const trigger = menuEl?.parentElement?.querySelector<HTMLElement>(':scope > button');
+    if (!toolbar || !menuEl || !trigger) return;
+    if (!window.matchMedia('(max-width: 768px)').matches) return;
+    const place = () => {
+      const rect = trigger.getBoundingClientRect();
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuEl.offsetWidth - 8));
+      menuEl.style.position = 'fixed';
+      menuEl.style.top = `${Math.round(rect.bottom + 6)}px`;
+      menuEl.style.left = `${Math.round(left)}px`;
+    };
+    place();
+    const close = () => setBar(null);
+    toolbar.addEventListener('scroll', close, { passive: true });
+    window.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', close);
+    return () => {
+      toolbar.removeEventListener('scroll', close);
+      window.removeEventListener('scroll', place);
+      window.removeEventListener('resize', close);
+    };
+  }, [bar]);
 
   if (!editor) return null;
 

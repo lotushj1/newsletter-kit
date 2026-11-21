@@ -1627,8 +1627,17 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
   /* 寫稿：手機不留左側 40px，內文、工具列和標題對齊；區塊「＋」改放在空白行右端 */
   .tt-canvas, .tt-toolbar { padding-left: 0; }
   .tt-plus { left: auto !important; right: 0; }
-  /* 按鈕群組在手機上拆開排：整組換行會在每一列尾巴留一大段空白，多擠出一列 */
-  .tt-toolbar .tt-group { display: contents; }
+  /* 工具列在手機上排成一行、左右滑動（不佔三四行的高度）；下拉選單改由程式用 fixed 定位，不會被切掉 */
+  .tt-toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tt-toolbar::-webkit-scrollbar { display: none; }
+  .tt-toolbar > *, .tt-toolbar .tt-group > * { flex-shrink: 0; }
+  /* 篩選列：搜尋整列，其他篩選平均分配同一列，不會長短不一 */
+  .toolbar > input[type="search"], .toolbar > .smart-search { flex: 1 1 100%; }
+  /* 起始寬度一樣（8rem，含內距）再平分剩下的空間：用 0 的話下拉選單會多出自己的內距，兩個框寬度不同 */
+  .toolbar > select, .toolbar > .date-range { flex: 1 1 8rem; min-width: 0; }
+  .toolbar .date-range-trigger { min-width: 0; width: 100%; }
+  /* 篩選列裡的日期框在右半邊：選擇視窗改成靠右緣展開，不超出畫面 */
+  .toolbar .date-range-pop { left: auto; right: 0; }
   .ad-sider { width: var(--sidebar-collapsed); }
   .ad-logo { justify-content: center; padding: 0; }
   .ad-logo span,
