@@ -9,6 +9,7 @@ import {
   type ReconcileQueue,
   type ReconcileSummary,
 } from '../api';
+import { providerLabel } from '../provider-label';
 
 /**
  * 待對帳：所有電子報裡「已交給寄信服務、結果不明」的寄送紀錄。
@@ -68,16 +69,16 @@ export function Reconcile() {
       </p>
       {error && <div className="notice error">{error}</div>}
       {message && <div className="notice">{message}</div>}
-      {queue && (
+      {queue && queue.total > 0 && (
         <div className={`notice ${queue.lookup.supported ? '' : 'warn'}`}>
           共 {queue.total} 筆，最早發生於 {formatTime(queue.earliestAt)}。
           {queue.lookup.supported
-            ? `目前的寄信服務（${queue.lookup.provider}）可以用寄送紀錄 id 查詢。`
-            : `目前的寄信服務（${queue.lookup.provider}）沒有查詢 API，只能到服務商後台用收件地址與時間人工確認。`}
+            ? `目前的寄信服務（${providerLabel(queue.lookup.provider)}）可以用寄送紀錄 id 查詢。`
+            : `目前的寄信服務（${providerLabel(queue.lookup.provider)}）沒有查詢 API，只能到服務商後台用收件地址與時間人工確認。`}
           {queue.total > queue.items.length && ` 只列出最早的 ${queue.items.length} 筆。`}
         </div>
       )}
-      {queue && queue.total === 0 && <p className="muted">目前沒有待對帳的寄送紀錄。</p>}
+      {queue && queue.total === 0 && <div className="notice">目前沒有待對帳的寄送紀錄。</div>}
       {campaigns.map((campaign) => (
         <div key={campaign.id} className="card" style={{ marginBottom: 12 }}>
           <div className="page-head">

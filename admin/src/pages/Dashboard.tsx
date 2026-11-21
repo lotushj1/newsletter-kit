@@ -10,6 +10,7 @@ import {
   type ReadinessReport,
 } from '../api';
 import { DateRangePicker } from '../components/DateRangePicker';
+import { providerLabel } from '../provider-label';
 
 interface Overview {
   counts: Record<string, number>;
@@ -55,11 +56,24 @@ function sinceText(iso: string | null): string {
   return iso ? `，${formatTime(iso)} 起` : '';
 }
 
-/** 運作狀態：資料庫、兩種暫停、回執對帳、排程 tick 與待辦分開顯示（提醒放在頁面最上方）。 */
+interface OpsCard {
+  key: string;
+  title: string;
+  pill: { className: string; label: string };
+  body: ReactNode;
+  /** 需要有人處理或留意：預設只展開這幾張，其他收成一行。 */
+  attention: boolean;
+}
+
+/**
+ * 運作狀態：資料庫、兩種暫停、回執對帳、排程檢查與待辦。
+ * 全部正常時只顯示一行摘要；有狀況時只展開那幾張卡，其他可以手動展開（提醒另外放在頁面最上方）。
+ */
 function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport; onRefresh: () => void; refreshing: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   const { store, sending, receipts, scheduler, backlog } = report;
   const schema = store.schema;
-  // 排程關閉時 tick 慢或沒跑不會提醒（只剩回執對帳靠它），用中性顏色。
+  // 排程關閉時排程檢查慢或沒跑不會提醒（只剩回執對帳靠它），用中性顏色。
   const tickProblem = sending.schedulerEnabled ? 'failed' : 'draft';
   const tickState = scheduler.lastSuccessAgeMs === null
     ? { className: tickProblem, label: '還沒跑過' }
@@ -72,6 +86,98 @@ function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport;
     : backlog.dueCampaigns + backlog.sendingCampaigns + backlog.unconfirmedDeliveries > 0
       ? { className: 'sending', label: '處理中' }
       : { className: 'sent', label: '沒有待辦' };
+  const provider = providerLabel(sending.provider);
+
+  const cards: OpsCard[] = [
+    {
+      key: 'store',
+      title: '資料庫',
+      pill: { className: store.ok ? 'sent' : 'failed', label: store.ok ? '可讀寫' : '無法寫入' },
+      body: <>
+        <div className="muted">
+          {store.driver}
+          {schema ? `・資料表第 ${schema.version ?? '?'} 版（需要第 ${schema.expectedVersion} 版）` : ''}
+        </div>
+        {!store.ok ? <div className="muted">新的訂閱與寄送都已暫停：{store.problems.join('；')}</div> : null}
+      </>,
+      attention: !store.ok,
+    },
+    {
+      key: 'sending',
+      title: '全面寄送',
+      pill: sending.paused
+        ? { className: 'failed', label: '全面寄送暫停' }
+        : sending.dryRun
+          ? { className: 'draft', label: '測試模式' }
+          : { className: 'sent', label: '正常' },
+      body: <div className="muted">
+        {sending.paused
+          ? <>手動、排程、序列信都不會寄出（設定 {softBreak(`SEND_PAUSED=true${sinceText(sending.pausedSince)}`)}）</>
+          : sending.dryRun
+            ? '測試模式：只寫紀錄，不會真的寄出'
+            : `寄信服務：${provider}`}
+      </div>,
+      attention: sending.paused,
+    },
+    {
+      key: 'scheduler',
+      title: '排程寄送',
+      pill: { className: sending.schedulerEnabled ? 'sent' : 'sending', label: sending.schedulerEnabled ? '正常' : '排程寄送暫停' },
+      body: <div className="muted">
+        {sending.schedulerEnabled
+          ? '時間到的排程電子報與序列信會自動寄出'
+          : <>排程電子報與序列信不會自動寄出，手動寄送照常（設定 {softBreak(`SCHEDULER_ENABLED=false${sinceText(sending.schedulerDisabledSince)}`)}）</>}
+      </div>,
+      attention: !sending.schedulerEnabled,
+    },
+    {
+      key: 'receipts',
+      title: '回執對帳',
+      pill: { className: receipts.mode === 'none' ? 'draft' : 'sent', label: receipts.mode === 'none' ? '未啟用' : '回執對帳仍啟用' },
+      body: <div className="muted">
+        {receipts.mode === 'portaly_sync'
+          ? `Portaly 投遞狀態每 10 分鐘回查（跟著排程檢查一起跑），上次 ${formatTime(receipts.lastRunAt)}；不受寄送暫停影響`
+          : receipts.mode === 'webhook'
+            ? '退信與檢舉由寄信服務的 webhook 回報；不受寄送暫停影響'
+            : sending.dryRun
+              ? '測試模式沒有投遞回報'
+              : '這個寄信服務沒有投遞回報'}
+      </div>,
+      attention: false,
+    },
+    {
+      key: 'tick',
+      title: '排程檢查',
+      pill: tickState,
+      body: <>
+        <div className="muted">
+          上次成功 {ago(scheduler.lastSuccessAgeMs)}・上次開始 {formatTime(scheduler.lastStartedAt)}
+          {scheduler.lastDurationMs !== null ? `・耗時 ${(scheduler.lastDurationMs / 1000).toFixed(1)} 秒` : ''}
+          {scheduler.lastLagMs ? `・比預定晚 ${Math.round(scheduler.lastLagMs / 60_000)} 分鐘` : ''}
+        </div>
+        {scheduler.lastError ? <div className="muted">上次錯誤：{scheduler.lastError}</div> : null}
+      </>,
+      attention: tickState.className === 'failed',
+    },
+    {
+      key: 'backlog',
+      title: '待處理',
+      pill: backlogState,
+      body: <>
+        <div className="muted">待寄排程 {backlog.dueCampaigns} 封（逾期 {backlog.overdueCampaigns}）</div>
+        <div className="muted">寄送中 {backlog.sendingCampaigns} 封（沒有進度 {backlog.stalledCampaigns}）</div>
+        <div className="muted">
+          結果未確認 {backlog.unconfirmedDeliveries} 筆（超過 {Math.round(report.thresholds.sendingStuckMs / 60_000)} 分鐘 {backlog.stuckDeliveries}）
+        </div>
+      </>,
+      attention: backlogState.className === 'failed',
+    },
+  ];
+  const flagged = cards.filter((card) => card.attention);
+  const okCount = cards.length - flagged.length;
+  const summary = (flagged.length === 0 ? '資料庫、寄送、排程與待辦都正常' : `其他 ${okCount} 項正常`)
+    + (sending.dryRun ? '；目前是測試模式，不會真的寄出。' : '。');
+
   return (
     <section aria-label="運作狀態">
       <div className="dash-period-head">
@@ -80,67 +186,35 @@ function OpsStatus({ report, onRefresh, refreshing }: { report: ReadinessReport;
           {refreshing ? '檢查中…' : `重新檢查（${formatTime(report.checkedAt)}）`}
         </button>
       </div>
-      <div className="grid stats status-grid">
-        <div className="card">
-          <div className="muted">資料庫</div>
-          <p><span className={`pill ${store.ok ? 'sent' : 'failed'}`}>{store.ok ? '可讀寫' : '無法寫入'}</span></p>
-          <div className="muted">
-            {store.driver}
-            {schema ? `・schema 第 ${schema.version ?? '?'} 版（需要第 ${schema.expectedVersion} 版）` : ''}
-          </div>
-          {!store.ok ? <div className="muted">新的訂閱與寄送都已暫停：{store.problems.join('；')}</div> : null}
+      <div className="ops-summary">
+        <div className="ops-summary-head">
+          <span className={`pill ${flagged.length === 0 ? 'sent' : 'sending'}`}>
+            {flagged.length === 0 ? '一切正常' : `${flagged.length} 項需要留意`}
+          </span>
+          <span className="muted">{summary}</span>
+          <button type="button" className="btn ghost ops-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+            {expanded ? '收合' : '查看全部'}
+          </button>
         </div>
-        <div className="card">
-          <div className="muted">全面寄送</div>
-          <p><span className={`pill ${sending.paused ? 'failed' : 'sent'}`}>{sending.paused ? '全面寄送暫停' : '正常'}</span></p>
-          <div className="muted">
-            {sending.paused
-              ? softBreak(`SEND_PAUSED=true${sinceText(sending.pausedSince)}：手動、排程、序列信都不會寄出`)
-              : sending.dryRun
-                ? '寄信管道是 dry_run：只寫紀錄，不會真的寄出'
-                : `寄信管道 ${sending.provider}`}
+        {!expanded && flagged.map((card) => (
+          <div key={card.key} className="ops-row">
+            <strong>{card.title}</strong>
+            <span><span className={`pill ${card.pill.className}`}>{card.pill.label}</span></span>
+            <div>{card.body}</div>
           </div>
-        </div>
-        <div className="card">
-          <div className="muted">排程寄送</div>
-          <p><span className={`pill ${sending.schedulerEnabled ? 'sent' : 'sending'}`}>{sending.schedulerEnabled ? '正常' : '排程寄送暫停'}</span></p>
-          <div className="muted">
-            {sending.schedulerEnabled
-              ? '時間到的排程電子報與序列信會自動寄出'
-              : softBreak(`SCHEDULER_ENABLED=false${sinceText(sending.schedulerDisabledSince)}：排程電子報與序列信不會自動寄出，手動寄送照常`)}
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">回執對帳</div>
-          <p><span className={`pill ${receipts.mode === 'none' ? 'draft' : 'sent'}`}>{receipts.mode === 'none' ? '未啟用' : '回執對帳仍啟用'}</span></p>
-          <div className="muted">
-            {receipts.mode === 'portaly_sync'
-              ? `Portaly 投遞狀態每 10 分鐘回查（隨排程 tick 執行），上次 ${formatTime(receipts.lastRunAt)}；不受寄送暫停影響`
-              : receipts.mode === 'webhook'
-                ? '退信與檢舉由寄信服務的 webhook 回報；不受寄送暫停影響'
-                : 'dry_run 沒有投遞回執'}
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">排程 tick</div>
-          <p><span className={`pill ${tickState.className}`}>{tickState.label}</span></p>
-          <div className="muted">
-            上次成功 {ago(scheduler.lastSuccessAgeMs)}・上次開始 {formatTime(scheduler.lastStartedAt)}
-            {scheduler.lastDurationMs !== null ? `・耗時 ${(scheduler.lastDurationMs / 1000).toFixed(1)} 秒` : ''}
-            {scheduler.lastLagMs ? `・比預定晚 ${Math.round(scheduler.lastLagMs / 60_000)} 分鐘` : ''}
-          </div>
-          {scheduler.lastError ? <div className="muted">上次錯誤：{scheduler.lastError}</div> : null}
-        </div>
-        <div className="card">
-          <div className="muted">待處理</div>
-          <p><span className={`pill ${backlogState.className}`}>{backlogState.label}</span></p>
-          <div className="muted">待寄排程 {backlog.dueCampaigns} 封（逾期 {backlog.overdueCampaigns}）</div>
-          <div className="muted">寄送中 {backlog.sendingCampaigns} 封（沒有進度 {backlog.stalledCampaigns}）</div>
-          <div className="muted">
-            結果未確認 {backlog.unconfirmedDeliveries} 筆（超過 {Math.round(report.thresholds.sendingStuckMs / 60_000)} 分鐘 {backlog.stuckDeliveries}）
-          </div>
-        </div>
+        ))}
       </div>
+      {expanded ? (
+        <div className="grid stats status-grid">
+          {cards.map((card) => (
+            <div key={card.key} className="card">
+              <div className="muted">{card.title}</div>
+              <p><span className={`pill ${card.pill.className}`}>{card.pill.label}</span></p>
+              {card.body}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

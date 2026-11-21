@@ -104,6 +104,12 @@ label { display: block; font-size: var(--text-sm); color: var(--muted-foreground
   display: flex; align-items: center; justify-content: space-between;
 }
 .ad-sider-foot form { display: flex; }
+/* 側欄底部的檢查頁（待對帳、操作紀錄）：推到側欄底部，字小一級、顏色淡一些 */
+.ad-menu-minor { margin-top: auto; display: flex; flex-direction: column; gap: 2px; }
+.ad-menu-minor a { height: 2rem; font-size: var(--text-sm); color: var(--muted-foreground); }
+/* 圖示小一號但左右各補 1px：圖示中心與文字起點跟上面的主選單對齊 */
+.ad-menu-minor a svg { margin: 0 1px; }
+.ad-menu-minor a:hover, .ad-menu-minor a.active { color: var(--sidebar-foreground); }
 html.sidebar-collapsed .ad-sider { width: var(--sidebar-collapsed); }
 html.sidebar-collapsed .ad-logo { justify-content: center; padding: 0; }
 html.sidebar-collapsed .ad-logo span,
@@ -185,6 +191,16 @@ button.icon[aria-expanded="true"] {
 .grid.stats { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 /* 運作狀態卡：長字串只在可斷處換行（環境變數另用 <wbr> 標出 _ = 後的斷點），不從字中間切開 */
 .status-grid > .card { min-width: 0; overflow-wrap: break-word; }
+/* 運作狀態摘要列：全部正常時只剩這一行；有狀況的卡片接在下面 */
+.ops-summary { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 16px; }
+.ops-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0; }
+.ops-summary .ops-toggle { margin-left: auto; }
+.ops-row {
+  display: grid; grid-template-columns: 6rem auto minmax(0, 1fr); align-items: baseline; gap: 4px 12px;
+  padding: 12px 0; border-top: 1px solid var(--border); overflow-wrap: break-word;
+}
+.ops-row .pill { white-space: nowrap; }
+.ops-summary + .status-grid { margin-top: 16px; }
 .dash-total { margin: 4px 0 8px; }
 .dash-total-value { font-size: 40px; font-weight: 650; letter-spacing: -0.04em; line-height: 1.1; }
 .dash-period-head {
@@ -201,7 +217,8 @@ button.icon[aria-expanded="true"] {
 .dash-stat { font-size: 28px; font-weight: 650; letter-spacing: -0.03em; line-height: 1.15; }
 .muted { color: var(--muted-foreground); }
 .notice { padding: 10px 12px; border-radius: var(--radius-md); background: var(--muted); margin: 0 0 12px; }
-.notice.warn { background: color-mix(in oklch, oklch(0.85 0.12 85) 25%, var(--muted)); }
+/* 用 srgb 混色：var(--muted) 的色相是 0，在 oklch 裡混會把黃色拉成粉紅，看起來像錯誤 */
+.notice.warn { background: color-mix(in srgb, oklch(0.85 0.12 85) 25%, var(--muted)); }
 .notice.error { background: color-mix(in oklch, var(--destructive) 12%, var(--muted)); }
 .notice-stack { display: grid; gap: 8px; justify-items: start; }
 .notice-stack > p { margin: 0; }
@@ -461,6 +478,8 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
 .audience-builder { margin-top: 14px; }
 .audience-builder-title { display: block; margin: 0 0 6px; }
 .audience-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.editor-side .side-hint { margin: 6px 0 0; font-size: var(--text-sm); }
+.audience-summary { margin: 0; }
 .editor-side-inspect[hidden] { display: none !important; }
 .editor-side-inspect-form { display: grid; gap: 12px; }
 .editor-side-inspect-form h3 { margin: 0; font-size: var(--text-lg); font-weight: 600; }
@@ -1553,6 +1572,7 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 
 /* ── 手機與窄螢幕（≤768px）：側欄固定為圖示列，內容與編輯側欄改為上下排列 ── */
 @media (max-width: 768px) {
+  .ops-row { grid-template-columns: 1fr; }
   .ad-sider { width: var(--sidebar-collapsed); }
   .ad-logo { justify-content: center; padding: 0; }
   .ad-logo span,
