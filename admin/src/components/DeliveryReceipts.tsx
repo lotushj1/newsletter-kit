@@ -5,7 +5,7 @@ import { api, DELIVERY_STATE_LABEL, type ReceiptStats } from '../api';
 const ORDER = ['unknown', 'accepted', 'delivered', 'bounced', 'complained', 'failed', 'pending', 'skipped'];
 
 /**
- * 一份電子報的服務商回報統計。「服務商已收下」不等於「已送達」；
+ * 一份電子報的服務商回報統計。「已交給寄信服務」不等於「已送達」；
  * 只有服務商回報送達（或對帳時查到送達）才算已送達。開信、點擊不算送達證據。
  */
 export function DeliveryReceipts({ campaignId, refreshKey }: { campaignId: string; refreshKey?: unknown }) {
@@ -31,7 +31,7 @@ export function DeliveryReceipts({ campaignId, refreshKey }: { campaignId: strin
         </div>
       ))}
       <p className="muted" style={{ marginBottom: 0 }}>
-        「服務商已收下」代表還沒收到送達或退信回報；開信、點擊不算送達。
+        「已交給寄信服務」代表寄信服務收下了，但還沒回報送達或退信；開信、點擊不算送達。
       </p>
     </div>
   );

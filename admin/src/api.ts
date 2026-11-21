@@ -224,7 +224,7 @@ export const DELIVERY_STATE_LABEL: Record<string, string> = {
   pending: '待寄',
   skipped: '略過',
   unknown: '結果不明',
-  accepted: '服務商已收下',
+  accepted: '已交給寄信服務',
   delivered: '已送達',
   bounced: '退信',
   complained: '被檢舉為垃圾信',

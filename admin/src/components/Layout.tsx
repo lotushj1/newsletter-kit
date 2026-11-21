@@ -6,11 +6,15 @@ import { api, type Session } from '../api';
 const LINKS = [
   { to: '/', label: '總覽', icon: LayoutDashboard, end: true },
   { to: '/campaigns', label: '電子報', icon: Mail },
-  { to: '/deliveries', label: '待對帳', icon: ListChecks },
   { to: '/subscribers', label: '名單', icon: Users },
   { to: '/sequences', label: '自動化', icon: Workflow },
   { to: '/brand', label: '品牌', icon: PenLine },
   { to: '/settings', label: '設定', icon: Settings },
+];
+
+/** 偶爾才用的檢查頁：放在側欄底部，跟每天用的功能分開。 */
+const SYSTEM_LINKS = [
+  { to: '/deliveries', label: '待對帳', icon: ListChecks },
   { to: '/audit-log', label: '操作紀錄', icon: History },
 ];
 
@@ -78,6 +82,14 @@ export function Layout() {
               <span>{link.label}</span>
             </NavLink>
           ))}
+          <div className="ad-menu-minor" role="group" aria-label="系統紀錄">
+            {SYSTEM_LINKS.map((link) => (
+              <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? 'active' : '')}>
+                <link.icon size={16} />
+                <span>{link.label}</span>
+              </NavLink>
+            ))}
+          </div>
         </nav>
         <div className="ad-sider-foot">
           <button

@@ -15,6 +15,7 @@ import {
   type ReconcileSummary,
   type Session,
 } from '../api';
+import { providerLabel } from '../provider-label';
 import { describeSendTime, isoToLocalInput, localInputToIso, timeZoneLabel } from '../schedule-time';
 import type { AudienceCondition } from '../../../src/store/types';
 
@@ -90,7 +91,7 @@ function SendConfirmDialog({ confirm, subject, busy, onCancel, onConfirm }: {
               </tr>
               <tr>
                 <th scope="row">寄信管道</th>
-                <td>{dryRun ? 'dry_run：不會真的寄出，只寫入紀錄' : `${session.provider}：會真的寄出`}</td>
+                <td>{dryRun ? '測試模式：不會真的寄出，只寫入紀錄' : `${providerLabel(session.provider)}：會真的寄出`}</td>
               </tr>
             </tbody>
           </table>
@@ -162,12 +163,14 @@ export function CampaignEditor() {
   const [bodyHtml, setBodyHtml] = useState('');
   const [folderId, setFolderId] = useState('');
   const [audienceTags, setAudienceTags] = useState<string[]>([]);
+  /** 打開時就有舊的標籤篩選才顯示那一欄；編輯中清空也不會突然消失。 */
+  const [showLegacyTags, setShowLegacyTags] = useState(false);
   const [audienceCondition, setAudienceCondition] = useState<AudienceCondition | undefined>();
   const [audienceCount, setAudienceCount] = useState<RecipientPreview | null>(null);
   const [confirm, setConfirm] = useState<SendConfirm | null>(null);
   const [links, setLinks] = useState<{ url: string; clicks: number; uniqueClicks: number }[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [saveStatus, setSaveStatus] = useState('尚未儲存');
+  const [saveStatus, setSaveStatus] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewing, setPreviewing] = useState(false);
@@ -197,6 +200,7 @@ export function CampaignEditor() {
       setBodyHtml(c.bodyHtml || c.bodyMarkdown || '');
       setFolderId(c.audienceFolderId ?? '');
       setAudienceTags(c.audienceTags ?? []);
+      setShowLegacyTags((c.audienceTags ?? []).length > 0);
       setAudienceCondition(c.audienceCondition);
       // scheduledAt 是 UTC；輸入框要顯示這台電腦時區的時間（不能直接切字串，會差好幾小時）。
       if (c.scheduledAt) setScheduleAt(isoToLocalInput(c.scheduledAt));
@@ -311,7 +315,9 @@ export function CampaignEditor() {
       <div className="editor-main">
         <p className="muted" style={{ margin: '0 0 12px' }}>
           <Link to="/campaigns">← 電子報列表</Link>
-          <span style={{ marginLeft: 12 }}>{saveStatus}</span>
+          <span style={{ marginLeft: 12 }}>
+            {editable ? saveStatus : campaign.status === 'sending' ? '寄送中，內容不能再修改' : '已寄出，內容不能再修改'}
+          </span>
         </p>
         <input className="editor-title" value={title} disabled={!editable} onChange={(e) => setTitle(e.target.value)} placeholder="標題" />
         <div className="editor-meta">
@@ -379,7 +385,7 @@ export function CampaignEditor() {
           </div>
         )}
         {(campaign.stats.unconfirmed ?? 0) > 0 && (
-          <div className="notice error">
+          <div className="notice warn">
             有 {campaign.stats.unconfirmed} 筆已交給寄信服務、但結果沒有確認（例如逾時）。這些不會自動重寄，避免同一人收到兩次。
             <div style={{ marginTop: 8 }}>
               <button
@@ -398,17 +404,40 @@ export function CampaignEditor() {
             </div>
           </div>
         )}
+        {campaign.status === 'sent' && (
+          <div className="card">
+            <div>開信 {campaign.tracking.uniqueOpens}／{campaign.tracking.opens}</div>
+            <div>點擊 {campaign.tracking.uniqueClicks}／{campaign.tracking.clicks}</div>
+            <div>退訂 {campaign.tracking.unsubscribes ?? 0}</div>
+            <div className="muted">寄出 {campaign.stats.sent}／{campaign.stats.total}</div>
+            <h3>連結點擊</h3>
+            {links.length === 0
+              ? <p className="muted" style={{ margin: 0 }}>還沒有人點連結。</p>
+              : <table><thead><tr><th>連結</th><th>點擊</th><th>不重複</th></tr></thead><tbody>{links.map((link) => <tr key={link.url}><td style={{ overflowWrap: 'anywhere' }}><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a></td><td>{link.clicks}</td><td>{link.uniqueClicks}</td></tr>)}</tbody></table>}
+          </div>
+        )}
+        {campaign.stats.total > 0 && (
+          <DeliveryReceipts
+            campaignId={id}
+            refreshKey={`${campaign.status}:${campaign.stats.sent}:${campaign.stats.failed}:${campaign.stats.unconfirmed ?? 0}`}
+          />
+        )}
+        {editable ? (
         <div>
           <label>寄給誰</label>
-          <select value={folderId} disabled={!editable} onChange={(e) => setFolderId(e.target.value)}>
+          <select value={folderId} onChange={(e) => setFolderId(e.target.value)}>
             <option value="">全部訂閱者</option>
             {folders.map((folder) => (
               <option key={folder.id} value={folder.id}>{folder.name}</option>
             ))}
           </select>
-          <label htmlFor="audience-tags" className="side-field-gap">舊版標籤篩選（任一標籤）</label>
-          <input id="audience-tags" value={audienceTags.join(', ')} disabled={!editable} onChange={(event) => setAudienceTags(event.target.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))} placeholder="標籤，以逗號分隔" />
-          <AudienceBuilder value={audienceCondition} onChange={setAudienceCondition} disabled={!editable} folders={folders}>
+          {/* 舊的標籤篩選：只有已經設過的電子報才顯示，新的請用進階條件裡的「擁有標籤」，免得兩套篩選讓人不知道用哪個 */}
+          {showLegacyTags && <>
+            <label htmlFor="audience-tags" className="side-field-gap">標籤篩選（舊設定，任一標籤）</label>
+            <input id="audience-tags" value={audienceTags.join(', ')} onChange={(event) => setAudienceTags(event.target.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean))} placeholder="標籤，以逗號分隔" />
+            <p className="muted side-hint">清空後改用下方進階條件裡的「擁有標籤」。</p>
+          </>}
+          <AudienceBuilder value={audienceCondition} onChange={setAudienceCondition} disabled={false} folders={folders}>
             <button type="button" className="btn" onClick={() => { void api.post<RecipientPreview>(`/campaigns/${id}/audience-count`, { audienceTags, audienceFolderId: folderId, audienceCondition: audienceCondition ?? null }).then(setAudienceCount).catch((error: Error) => setMessage(error.message)); }}>預覽收件人數</button>
           </AudienceBuilder>
           {audienceCount !== null && (
@@ -418,21 +447,15 @@ export function CampaignEditor() {
             </p>
           )}
         </div>
-        {campaign.status === 'sent' && (
-          <div className="card">
-            <div>開信 {campaign.tracking.uniqueOpens}／{campaign.tracking.opens}</div>
-            <div>點擊 {campaign.tracking.uniqueClicks}／{campaign.tracking.clicks}</div>
-            <div>退訂 {campaign.tracking.unsubscribes ?? 0}</div>
-            <div className="muted">寄出 {campaign.stats.sent}／{campaign.stats.total}</div>
-            <h3>連結點擊</h3>
-            <table><thead><tr><th>連結</th><th>點擊</th><th>不重複</th></tr></thead><tbody>{links.map((link) => <tr key={link.url}><td style={{ overflowWrap: 'anywhere' }}><a href={link.url} target="_blank" rel="noreferrer">{link.url}</a></td><td>{link.clicks}</td><td>{link.uniqueClicks}</td></tr>)}</tbody></table>
+        ) : (
+          <div>
+            <label>寄給誰</label>
+            <p className="audience-summary">
+              {folderId ? (folders.find((folder) => folder.id === folderId)?.name ?? '指定資料夾') : '全部訂閱者'}
+              {audienceTags.length > 0 ? `・標籤：${audienceTags.join('、')}` : ''}
+              {audienceCondition ? '・另有進階條件' : ''}
+            </p>
           </div>
-        )}
-        {campaign.stats.total > 0 && (
-          <DeliveryReceipts
-            campaignId={id}
-            refreshKey={`${campaign.status}:${campaign.stats.sent}:${campaign.stats.failed}:${campaign.stats.unconfirmed ?? 0}`}
-          />
         )}
         <button
           type="button"
