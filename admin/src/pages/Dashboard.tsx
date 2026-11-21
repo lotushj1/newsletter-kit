@@ -309,6 +309,9 @@ export function Dashboard() {
 
   return (
     <div>
+      <div className="page-head">
+        <h1>總覽</h1>
+      </div>
       {held ? (
         <div className="notice error notice-stack" role="alert">
           <p>

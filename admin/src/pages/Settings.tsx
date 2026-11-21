@@ -124,7 +124,7 @@ function FooterSettings() {
       <Field label="隱私權政策網址">
         <input id="privacy-url" type="url" value={brand.privacyUrl ?? ''} onChange={(event) => setBrand({ ...brand, privacyUrl: event.target.value })} placeholder="https://example.com/privacy" />
       </Field>
-      <div>
+      <div className="settings-actions">
         <button type="button" className="btn primary" onClick={() => { void api.patch<BrandProfile>('/brand', { physicalAddress: brand.physicalAddress ?? '', privacyUrl: brand.privacyUrl ?? '' }).then((saved) => { setBrand(saved); setMessage('已儲存'); }).catch((error: Error) => setMessage(error.message)); }}>儲存頁尾設定</button>
       </div>
     </div>
