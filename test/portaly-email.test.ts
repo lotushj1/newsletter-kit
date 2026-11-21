@@ -255,6 +255,78 @@ describe('Portaly verify', () => {
   });
 });
 
+describe('Portaly verify：沙箱／正式寄送判斷', () => {
+  const quota = { status: 200, body: { data: { remaining: 2000, sandboxRemainingToday: 50 } } };
+  const domain = (overrides: Record<string, unknown> = {}) => ({
+    id: 'dom_1',
+    host: 'news.creatorhome.tw',
+    purpose: null,
+    isPlatform: false,
+    identityStatus: 'verified',
+    mailFromStatus: 'success',
+    status: 'active',
+    verifiedAt: '2026-10-01T00:00:00Z',
+    dnsRecords: [],
+    ...overrides,
+  });
+
+  it('寄件人在 sandbox.portaly.tw 時明說是沙箱模式，不查網域', async () => {
+    const calls = stubFetch(() => quota);
+    const result = await createPortalyAdapter(context({ from: 'Kevin <kevin@sandbox.portaly.tw>' })).verify();
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('沙箱模式');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('自有網域已驗證時回報正式寄送', async () => {
+    const calls = stubFetch((captured) =>
+      captured.url.endsWith('/api/email/domains') ? { status: 200, body: { data: [domain()] } } : quota,
+    );
+    const result = await createPortalyAdapter(
+      context({ from: '凱文設計 Kevin Design <kevin@news.creatorhome.tw>' }),
+    ).verify();
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('正式寄送');
+    expect(result.message).toContain('news.creatorhome.tw');
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://portaly.ai/api/email/quota',
+      'https://portaly.ai/api/email/domains',
+    ]);
+  });
+
+  it('網域還沒驗證完成時判定不可用', async () => {
+    stubFetch((captured) =>
+      captured.url.endsWith('/api/email/domains')
+        ? { status: 200, body: { data: [domain({ identityStatus: 'pending', mailFromStatus: 'pending' })] } }
+        : quota,
+    );
+    const result = await createPortalyAdapter(context({ from: 'kevin@news.creatorhome.tw' })).verify();
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('DOMAIN_NOT_VERIFIED');
+  });
+
+  it('寄件網域沒綁在帳號裡時判定不可用', async () => {
+    stubFetch((captured) =>
+      captured.url.endsWith('/api/email/domains') ? { status: 200, body: { data: [domain({ host: 'mail.other.tw' })] } } : quota,
+    );
+    const result = await createPortalyAdapter(context({ from: 'kevin@news.creatorhome.tw' })).verify();
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('DOMAIN_NOT_ALLOWED');
+  });
+
+  it('僅寄信權限的金鑰讀不到網域時，仍可用但提示寄測試信確認', async () => {
+    stubFetch((captured) =>
+      captured.url.endsWith('/api/email/domains')
+        ? { status: 403, body: { error: { code: 'PERMISSION_DENIED', message: 'needs full key' } } }
+        : quota,
+    );
+    const result = await createPortalyAdapter(context({ from: 'kevin@news.creatorhome.tw' })).verify();
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain('正式寄送');
+    expect(result.message).toContain('測試信');
+  });
+});
+
 describe('Portaly 投遞狀態回查', () => {
   it('退信標成 bounced、檢舉視同退訂，寄送紀錄同步更新', async () => {
     const { ctx, store } = await makeContext();

@@ -156,6 +156,7 @@ export function emailAdapterContext(config: Config): AdapterContext {
     insforgeApiKey: config.email.insforgeApiKey,
     portalyApiKey: config.email.portalyApiKey,
     portalyApiHost: config.email.portalyApiHost,
+    from: config.email.from,
     apiKey: config.email.apiKey,
     apiExtra: config.email.apiExtra,
   };
