@@ -419,6 +419,7 @@ table.data tbody tr:has([aria-expanded="true"]) { z-index: 5; position: relative
   .subscriber-table tr:not(:hover) .row-select:not(:focus-visible) { background-image: none; }
   .subscriber-table tr:not(:hover):not(:focus-within) .tag-add { opacity: 0; }
 }
+.cell-sub { display: none; }
 .tag-options {
   display: grid;
   gap: 4px;
@@ -827,6 +828,13 @@ button.folder-chip { padding-right: 14px; }
   gap: 16px 20px;
 }
 .brand-links { grid-column: 1 / -1; }
+.brand-field-wide { grid-column: 1 / -1; }
+/* 品牌頁：寬度夠時左邊表單、右邊預覽固定在畫面上；不夠時預覽回到表單下方 */
+@media (min-width: 1200px) {
+  .brand-layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 28px; align-items: start; }
+  .brand-preview-col { position: sticky; top: 24px; }
+  .brand-preview-col .brand-signature-preview-wrap { margin-top: 0; padding-top: 0; border-top: 0; }
+}
 .brand-signature { display: grid; gap: 16px; }
 .brand-signature-label {
   margin: 0 0 6px;
@@ -1045,6 +1053,13 @@ button.folder-chip { padding-right: 14px; }
 .create-auto { padding: 20px; background: var(--background); display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
 .create-auto-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-content: start; }
 .template-card { text-align: left; cursor: pointer; }
+.auto-empty h2 { margin: 0 0 4px; font-size: var(--text-xl); font-weight: 600; }
+.auto-empty > p { margin: 0 0 16px; }
+.auto-empty-templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.auto-empty-templates .template-card:hover { border-color: var(--foreground); }
+/* 按鈕預設會把內容垂直置中：描述只有一行的卡片標題會往下掉，改成從上排 */
+.auto-empty-templates .template-card { display: flex; flex-direction: column; justify-content: flex-start; }
+.auto-empty { margin-top: 16px; }
 .template-card p { margin: 8px 0 0; }
 .template-card.selected { border-color: var(--foreground); box-shadow: 0 0 0 1px var(--foreground); }
 .template-card.dashed {
@@ -1465,7 +1480,9 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 
 @media (max-width: 860px) {
   .campaign-card { grid-template-columns: auto 1fr auto; }
-  .campaign-metrics { grid-column: 1 / -1; }
+  /* ⋯ 固定在第一列右側（原本掉到最下面左邊），數據排在第二列、跟標題左緣對齊 */
+  .campaign-card-more { grid-row: 1; grid-column: 3; }
+  .campaign-metrics { grid-row: 2; grid-column: 1 / -1; }
 }
 .flow-line {
   position: relative; z-index: 0;
@@ -1535,6 +1552,8 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
   background: var(--muted); color: var(--foreground); font-weight: 600;
 }
 .settings-subnav .using { font-size: var(--text-sm); font-weight: 500; color: var(--muted-foreground); }
+.settings-subnav .settings-subnav-more { margin-top: 8px; font-size: var(--text-sm); }
+.settings-subnav .settings-subnav-more:hover { background: var(--muted); color: var(--foreground); }
 .settings-panel h2 { margin: 0 0 4px; font-size: var(--text-xl); }
 .settings-fields { display: grid; gap: 12px; }
 .settings-fields label { display: grid; gap: 6px; margin: 0; }
@@ -1594,6 +1613,22 @@ html.sidebar-collapsed .ui-toast { left: calc(var(--sidebar-collapsed) + 16px); 
 /* ── 手機與窄螢幕（≤768px）：側欄固定為圖示列，內容與編輯側欄改為上下排列 ── */
 @media (max-width: 768px) {
   .ops-row { grid-template-columns: 1fr; }
+  /* 名單表格：手機只留 Email（名稱接在下面）、狀態、動作 */
+  .subscriber-table .col-name, .subscriber-table .col-folder,
+  .subscriber-table .col-tags, .subscriber-table .col-created { display: none; }
+  .subscriber-table td.col-email { white-space: normal; overflow-wrap: break-word; }
+  /* 電子報卡片的四個數據在手機上平均分配寬度，不超出卡片 */
+  .campaign-metrics { gap: 8px; justify-content: space-between; }
+  .campaign-metric { min-width: 0; }
+  .subscriber-table .cell-sub { display: block; margin-top: 2px; font-size: var(--text-sm); color: var(--muted-foreground); }
+  /* 三顆以上的頁首按鈕：主按鈕整列放上面，其他兩兩並排，不會剩一顆單獨掉到下一行 */
+  .page-head-actions:has(> :nth-child(3)) { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .page-head-actions:has(> :nth-child(3)) > .primary { grid-column: 1 / -1; order: -1; }
+  /* 寫稿：手機不留左側 40px，內文、工具列和標題對齊；區塊「＋」改放在空白行右端 */
+  .tt-canvas, .tt-toolbar { padding-left: 0; }
+  .tt-plus { left: auto !important; right: 0; }
+  /* 按鈕群組在手機上拆開排：整組換行會在每一列尾巴留一大段空白，多擠出一列 */
+  .tt-toolbar .tt-group { display: contents; }
   .ad-sider { width: var(--sidebar-collapsed); }
   .ad-logo { justify-content: center; padding: 0; }
   .ad-logo span,

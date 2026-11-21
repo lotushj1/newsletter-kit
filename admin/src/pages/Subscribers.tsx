@@ -662,11 +662,11 @@ export function Subscribers() {
                 </th>
               )}
               <th>Email</th>
-              <th>名稱</th>
+              <th className="col-name">名稱</th>
               <th>狀態</th>
-              <th>資料夾</th>
-              <th>標籤</th>
-              <th>加入時間</th>
+              <th className="col-folder">資料夾</th>
+              <th className="col-tags">標籤</th>
+              <th className="col-created">加入時間</th>
               <th className="actions">動作</th>
             </tr>
           </thead>
@@ -683,10 +683,15 @@ export function Subscribers() {
                     />
                   </td>
                 )}
-                <td>{s.email}</td>
-                <td>{s.name ?? '—'}</td>
+                <td className="col-email">
+                  {/* 窄欄換行時從 @ 斷開，不從字中間切 */}
+                  {s.email.includes('@') ? <>{s.email.slice(0, s.email.indexOf('@'))}<wbr />{s.email.slice(s.email.indexOf('@'))}</> : s.email}
+                  {/* 手機寬度只留 Email、狀態、動作三欄，名稱改顯示在 Email 下面 */}
+                  {s.name ? <span className="cell-sub">{s.name}</span> : null}
+                </td>
+                <td className="col-name">{s.name ?? '—'}</td>
                 <td><span className={`pill ${s.status}`}>{STATUS_LABEL[s.status] ?? s.status}</span></td>
-                <td>
+                <td className="col-folder">
                   <select
                     className="row-select"
                     aria-label={`${s.email} 的資料夾`}
@@ -700,7 +705,7 @@ export function Subscribers() {
                     ))}
                   </select>
                 </td>
-                <td>
+                <td className="col-tags">
                   <TagPills
                     tags={s.tags}
                     onAdd={() => setTagEditor({ mode: 'subscriber', id: s.id, selected: s.tags })}
@@ -709,7 +714,7 @@ export function Subscribers() {
                     }
                   />
                 </td>
-                <td className="muted">{formatTime(s.createdAt)}</td>
+                <td className="muted col-created">{formatTime(s.createdAt)}</td>
                 <td className="actions">
                   <div className="subscriber-more" data-subscriber-menu>
                     <button

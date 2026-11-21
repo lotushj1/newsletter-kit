@@ -166,6 +166,9 @@ export function Brand() {
           </div>
         </div>
 
+        {/* 桌機寬度：左邊填表、右邊預覽固定在畫面上，填欄位時就看得到結果；窄螢幕預覽回到表單下方 */}
+        <div className="brand-layout">
+        <div className="brand-form">
         <p className="brand-signature-label">版型</p>
         <div className="sig-layouts" role="radiogroup" aria-label="版型">
           {SIGNATURE_LAYOUTS.map((item) => (
@@ -258,7 +261,7 @@ export function Brand() {
                 placeholder="可留空"
               />
             </div>
-            <div>
+            <div className="brand-field-wide">
               <label htmlFor="brand-voice">寫作語氣</label>
               <textarea
                 id="brand-voice"
@@ -380,13 +383,15 @@ export function Brand() {
           </div>
         </div>
 
+        </div>
+        <aside className="brand-preview-col" aria-label="簽名預覽">
         <div className="brand-signature-preview-wrap">
           <p className="brand-signature-label">預覽</p>
           <div className={`brand-signature-preview${preview ? '' : ' empty'}`}>
             {preview ? (
               <div dangerouslySetInnerHTML={{ __html: preview }} />
             ) : (
-              <p className="muted">填寫上面的資訊後，這裡會預覽完整簽名檔。</p>
+              <p className="muted">填寫簽名資訊後，這裡會預覽完整簽名檔。</p>
             )}
             <p className="brand-unsub-preview">
               {brand.unsubscribePrompt.trim()}
@@ -397,6 +402,8 @@ export function Brand() {
               <a href="#">{brand.unsubscribeLabel.trim() || DEFAULT_UNSUBSCRIBE_LABEL}</a>
             </p>
           </div>
+        </div>
+        </aside>
         </div>
         {/* 儲存跟其他設定卡一樣放右下；表單比視窗長，這一列黏在視窗底部，捲到哪都按得到 */}
         <div className="settings-actions sticky-actions">

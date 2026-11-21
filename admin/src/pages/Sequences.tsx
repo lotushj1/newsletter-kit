@@ -30,6 +30,8 @@ export function Sequences() {
   const [filter, setFilter] = useState<Filter>('all');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  /** 從空白畫面點的模板：建立視窗打開時直接選好它。 */
+  const [startTemplate, setStartTemplate] = useState<string | undefined>();
   const [drafting, setDrafting] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [copyingId, setCopyingId] = useState<string | null>(null);
@@ -137,7 +139,7 @@ export function Sequences() {
           </button>
         </div>
       </div>
-      <div className="toolbar">
+      {items.length > 0 && <div className="toolbar">
         <div className="pills">
           {(
             [
@@ -162,9 +164,27 @@ export function Sequences() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-      </div>
-      {visible.length === 0 ? (
-        <p className="muted">{items.length === 0 ? '還沒有自動化。用一句話建立，或從模板開始。' : '沒有符合條件的自動化。'}</p>
+      </div>}
+      {items.length === 0 ? (
+        <section className="card auto-empty" aria-labelledby="auto-empty-title">
+          <h2 id="auto-empty-title">還沒有自動化</h2>
+          <p className="muted">選一個模板開始，建立後還可以拖拉調整；也可以按右上角「用 AI 建立」，用一句話描述想要的流程。</p>
+          <div className="auto-empty-templates">
+            {AUTOMATION_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="card template-card"
+                onClick={() => { setStartTemplate(template.id); setCreating(true); }}
+              >
+                <strong>{template.name}</strong>
+                <p className="muted">{template.description}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : visible.length === 0 ? (
+        <p className="muted">沒有符合條件的自動化。</p>
       ) : (
         <div className="auto-list">
           {visible.map((item) => (
@@ -250,9 +270,10 @@ export function Sequences() {
         <CreateAutomationDialog
           folders={folders}
           campaigns={campaigns}
+          initialTemplateId={startTemplate}
           onCreated={(id) => navigate(`/sequences/${id}`)}
           onFoldersChange={load}
-          onClose={() => setCreating(false)}
+          onClose={() => { setCreating(false); setStartTemplate(undefined); }}
         />
       )}
     </div>
@@ -349,18 +370,21 @@ function DraftAutomationDialog({
 function CreateAutomationDialog({
   folders,
   campaigns,
+  initialTemplateId,
   onCreated,
   onFoldersChange,
   onClose,
 }: {
   folders: Folder[];
   campaigns: Campaign[];
+  initialTemplateId?: string;
   onCreated: (id: string) => void;
   onFoldersChange: () => void;
   onClose: () => void;
 }) {
-  const [selected, setSelected] = useState<AutomationTemplate>(AUTOMATION_TEMPLATES[0]!);
-  const [name, setName] = useState(AUTOMATION_TEMPLATES[0]!.name);
+  const initial = AUTOMATION_TEMPLATES.find((template) => template.id === initialTemplateId) ?? AUTOMATION_TEMPLATES[0]!;
+  const [selected, setSelected] = useState<AutomationTemplate>(initial);
+  const [name, setName] = useState(initial.name);
   const [triggerValue, setTriggerValue] = useState('');
   const [folderName, setFolderName] = useState('');
   const [error, setError] = useState('');
