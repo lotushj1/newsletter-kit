@@ -134,6 +134,8 @@ function FooterSettings() {
 
 function EmailSettings() {
   const [integrations, setIntegrations] = useState<Integrations | null>(null);
+  /** 「其他」寄信服務預設收起來，免得長清單把下面的頁尾與法規卡擠到很下面。 */
+  const [showMore, setShowMore] = useState(false);
   const [path, setPath] = useState<string | null>(null);
   const [from, setFrom] = useState('');
   const [replyTo, setReplyTo] = useState('');
@@ -209,6 +211,9 @@ function EmailSettings() {
     { id: 'common', label: '常用' },
     { id: 'more', label: '其他' },
   ];
+  const moreChoices = choices.filter((item) => item.group === 'more');
+  // 正在看或正在用的服務在「其他」裡時一定展開，不能把它藏起來。
+  const moreOpen = showMore || moreChoices.some((item) => item.id === selected || item.id === integrations?.email.provider);
 
   return (
     <div className="settings-split">
@@ -216,14 +221,18 @@ function EmailSettings() {
         {choices.filter((item) => !item.group).map((item) => (
           <EmailPathButton key={item.id} item={item} selected={selected === item.id} active={integrations?.email.provider === item.id} onPick={pick} />
         ))}
-        {groups.map((group) => (
+        {groups.map((group) => (group.id === 'more' && !moreOpen && moreChoices.length > 0 ? (
+          <button key={group.id} type="button" className="settings-subnav-more" aria-expanded={false} onClick={() => setShowMore(true)}>
+            其他 {moreChoices.length} 家寄信服務…
+          </button>
+        ) : (
           <div key={group.id}>
             <div className="settings-subnav-label">{group.label}</div>
             {choices.filter((item) => item.group === group.id).map((item) => (
               <EmailPathButton key={item.id} item={item} selected={selected === item.id} active={integrations?.email.provider === item.id} onPick={pick} />
             ))}
           </div>
-        ))}
+        )))}
       </div>
       <section className="card settings-panel">
         <div className="setup-head">
